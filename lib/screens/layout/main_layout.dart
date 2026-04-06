@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import '../patients/patients_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -22,6 +23,17 @@ class _MainLayoutState extends State<MainLayout> {
     _NavItem("Settings", Icons.tune_rounded),
   ];
 
+  final List<Widget> pages = const [
+    Center(child: Text("Dashboard")),
+    PatientsScreen(),
+    Center(child: Text("Rooms")),
+    Center(child: Text("Stays")),
+    Center(child: Text("Attendance")),
+    Center(child: Text("Payments")),
+    Center(child: Text("Reports")),
+    Center(child: Text("Settings")),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -38,7 +50,7 @@ class _MainLayoutState extends State<MainLayout> {
               children: [
                 _TopBar(title: navItems[selectedIndex].label),
                 Expanded(
-                  child: _PageContent(label: navItems[selectedIndex].label),
+                  child: pages[selectedIndex],
                 ),
               ],
             ),
