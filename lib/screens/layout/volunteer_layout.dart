@@ -1,37 +1,23 @@
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
-import '../rooms/rooms_page.dart';
+import 'package:ngo/services/auth_service.dart';
 
-class MainLayout extends StatefulWidget {
-  const MainLayout({super.key});
+class VolunteerLayout extends StatefulWidget {
+  const VolunteerLayout({super.key});
 
   @override
-  State<MainLayout> createState() => _MainLayoutState();
+  State<VolunteerLayout> createState() => _VolunteerLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
+class _VolunteerLayoutState extends State<VolunteerLayout> {
   int selectedIndex = 0;
   final AuthService _authService = AuthService();
 
   final List<_NavItem> navItems = const [
     _NavItem("Dashboard", Icons.grid_view_rounded),
-    _NavItem("Patients", Icons.person_outline_rounded),
-    _NavItem("Rooms", Icons.meeting_room_outlined),
-    _NavItem("Stays", Icons.article_outlined),
+    _NavItem("Tasks", Icons.task_alt_rounded),
     _NavItem("Attendance", Icons.calendar_today_outlined),
-    _NavItem("Payments", Icons.payments_outlined),
-    _NavItem("Reports", Icons.bar_chart_rounded),
-    _NavItem("Settings", Icons.tune_rounded),
+    _NavItem("Profile", Icons.person_outline_rounded),
   ];
-
-  Widget _getPageContent() {
-    switch (selectedIndex) {
-      case 2: // Rooms
-        return const RoomsPage();
-      default:
-        return _PageContent(label: navItems[selectedIndex].label);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +29,7 @@ class _MainLayoutState extends State<MainLayout> {
             items: navItems,
             selectedIndex: selectedIndex,
             onSelect: (i) => setState(() => selectedIndex = i),
+            role: "Volunteer",
             onLogout: () async {
               await _authService.signOut();
             },
@@ -50,9 +37,9 @@ class _MainLayoutState extends State<MainLayout> {
           Expanded(
             child: Column(
               children: [
-                if (selectedIndex != 2) _TopBar(title: navItems[selectedIndex].label),
+                _TopBar(title: navItems[selectedIndex].label),
                 Expanded(
-                  child: _getPageContent(),
+                  child: _PageContent(label: navItems[selectedIndex].label),
                 ),
               ],
             ),
@@ -69,12 +56,14 @@ class _Sidebar extends StatelessWidget {
   final List<_NavItem> items;
   final int selectedIndex;
   final ValueChanged<int> onSelect;
+  final String role;
   final VoidCallback onLogout;
 
   const _Sidebar({
     required this.items,
     required this.selectedIndex,
     required this.onSelect,
+    required this.role,
     required this.onLogout,
   });
 
@@ -90,7 +79,7 @@ class _Sidebar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _SidebarBrand(),
+          _SidebarBrand(role: role),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
@@ -102,7 +91,7 @@ class _Sidebar extends StatelessWidget {
               ),
             ),
           ),
-          _SidebarFooter(onLogout: onLogout),
+          _SidebarFooter(role: role, onLogout: onLogout),
         ],
       ),
     );
@@ -110,6 +99,9 @@ class _Sidebar extends StatelessWidget {
 }
 
 class _SidebarBrand extends StatelessWidget {
+  final String role;
+  const _SidebarBrand({required this.role});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -132,10 +124,10 @@ class _SidebarBrand extends StatelessWidget {
             child: const Icon(Icons.eco_rounded, color: Color(0xFF3B6D11), size: 18),
           ),
           const SizedBox(width: 10),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 "NGO System",
                 style: TextStyle(
                   fontSize: 14,
@@ -144,8 +136,8 @@ class _SidebarBrand extends StatelessWidget {
                 ),
               ),
               Text(
-                "Patient Portal",
-                style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+                "$role Portal",
+                style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
               ),
             ],
           ),
@@ -180,9 +172,7 @@ class _NavTile extends StatelessWidget {
             duration: const Duration(milliseconds: 150),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             decoration: BoxDecoration(
-              color: isSelected
-                  ? const Color(0xFFD4EABD)
-                  : Colors.transparent,
+              color: isSelected ? const Color(0xFFD4EABD) : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
@@ -211,8 +201,9 @@ class _NavTile extends StatelessWidget {
 }
 
 class _SidebarFooter extends StatelessWidget {
+  final String role;
   final VoidCallback onLogout;
-  const _SidebarFooter({required this.onLogout});
+  const _SidebarFooter({required this.role, required this.onLogout});
 
   @override
   Widget build(BuildContext context) {
@@ -235,10 +226,10 @@ class _SidebarFooter extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 15,
-                      backgroundColor: const Color(0xFF3B6D11),
-                      child: const Text(
-                        "AD",
-                        style: TextStyle(
+                      backgroundColor: const Color(0xFF0F6E56),
+                      child: Text(
+                        role[0],
+                        style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFFEAF3DE),
@@ -246,19 +237,19 @@ class _SidebarFooter extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Admin",
-                          style: TextStyle(
+                          role,
+                          style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF27500A),
                           ),
                         ),
-                        Text(
-                          "Super admin",
+                        const Text(
+                          "Community helper",
                           style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
                         ),
                       ],
@@ -315,7 +306,6 @@ class _TopBar extends StatelessWidget {
           ),
           Row(
             children: [
-              // Notification bell
               Container(
                 width: 34,
                 height: 34,
@@ -331,12 +321,11 @@ class _TopBar extends StatelessWidget {
                   size: 18,
                 ),
               ),
-              // Avatar
               CircleAvatar(
                 radius: 16,
-                backgroundColor: const Color(0xFF3B6D11),
+                backgroundColor: const Color(0xFF0F6E56),
                 child: const Text(
-                  "AD",
+                  "V",
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -365,7 +354,7 @@ class _PageContent extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       child: Center(
         child: Text(
-          "$label Page",
+          "$label Page (Volunteer View)",
           style: const TextStyle(
             fontSize: 20,
             color: Color(0xFF639922),
