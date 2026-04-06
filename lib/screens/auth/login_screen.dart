@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
 import '../layout/main_layout.dart';
 
 class LoginScreen extends StatefulWidget {
