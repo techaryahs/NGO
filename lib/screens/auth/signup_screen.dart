@@ -1,46 +1,74 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/services/auth_service.dart';
-import 'package:ngo/screens/auth/signup_screen.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignupScreen> createState() => _SignupScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SignupScreenState extends State<SignupScreen> {
+  final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
+  final TextEditingController phoneController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
   final AuthService _authService = AuthService();
+  
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+  String _selectedRole = 'volunteer'; // Default role
 
   @override
   void dispose() {
+    nameController.dispose();
     emailController.dispose();
+    phoneController.dispose();
     passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> login() async {
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+  Future<void> signUp() async {
+    if (nameController.text.isEmpty ||
+        emailController.text.isEmpty ||
+        phoneController.text.isEmpty ||
+        passwordController.text.isEmpty ||
+        confirmPasswordController.text.isEmpty) {
       _showSnackBar("Please fill in all fields", isError: true);
+      return;
+    }
+
+    if (passwordController.text != confirmPasswordController.text) {
+      _showSnackBar("Passwords do not match", isError: true);
+      return;
+    }
+
+    if (passwordController.text.length < 6) {
+      _showSnackBar("Password must be at least 6 characters", isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
 
-    final result = await _authService.signIn(
+    final result = await _authService.signUp(
       email: emailController.text.trim(),
       password: passwordController.text,
+      name: nameController.text.trim(),
+      phone: phoneController.text.trim(),
+      role: _selectedRole,
     );
 
     setState(() => _isLoading = false);
 
     if (result['success']) {
-      _showSnackBar("Login Successful", isError: false);
+      _showSnackBar("Account created successfully!", isError: false);
       // AuthWrapper will handle navigation based on role
+      if (mounted) {
+        Navigator.pop(context);
+      }
     } else {
       _showSnackBar(result['message'], isError: true);
     }
@@ -88,11 +116,6 @@ class _LoginScreenState extends State<LoginScreen> {
             right: -40,
             child: _LeafBlob(size: 160, color: const Color(0xFF0F6E56), rotation: -0.35),
           ),
-          Positioned(
-            bottom: 120,
-            left: 20,
-            child: _LeafBlob(size: 90, color: const Color(0xFF639922), rotation: 1.0),
-          ),
 
           // Main content
           SafeArea(
@@ -100,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Container(
-                  width: 380,
+                  width: 420,
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.88),
@@ -113,6 +136,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Back button
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          color: const Color(0xFF3B6D11),
+                        ),
+                      ),
+
                       // Logo icon
                       Container(
                         width: 64,
@@ -135,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       // Title
                       const Text(
-                        "NGO Management System",
+                        "Create Account",
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
@@ -145,13 +178,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        "Non Government Organization",
+                        "Join our NGO management system",
                         style: TextStyle(
                           fontSize: 13,
                           color: Color(0xFF639922),
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
+
+                      // Name field
+                      _NatureInputField(
+                        controller: nameController,
+                        label: "Full Name",
+                        hint: "Enter your full name",
+                        icon: Icons.person_outline_rounded,
+                      ),
+                      const SizedBox(height: 16),
 
                       // Email field
                       _NatureInputField(
@@ -160,6 +202,64 @@ class _LoginScreenState extends State<LoginScreen> {
                         hint: "Enter email address",
                         icon: Icons.email_outlined,
                         keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Phone field
+                      _NatureInputField(
+                        controller: phoneController,
+                        label: "Phone Number",
+                        hint: "Enter phone number",
+                        icon: Icons.phone_android_rounded,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Role selection
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "ACCOUNT TYPE",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF27500A),
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _RoleChip(
+                                  label: "Volunteer",
+                                  icon: Icons.volunteer_activism_rounded,
+                                  isSelected: _selectedRole == 'volunteer',
+                                  onTap: () => setState(() => _selectedRole = 'volunteer'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _RoleChip(
+                                  label: "Staff",
+                                  icon: Icons.badge_outlined,
+                                  isSelected: _selectedRole == 'staff',
+                                  onTap: () => setState(() => _selectedRole = 'staff'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _RoleChip(
+                                  label: "Admin",
+                                  icon: Icons.admin_panel_settings_outlined,
+                                  isSelected: _selectedRole == 'admin',
+                                  onTap: () => setState(() => _selectedRole = 'admin'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
 
@@ -182,34 +282,35 @@ class _LoginScreenState extends State<LoginScreen> {
                               setState(() => _obscurePassword = !_obscurePassword),
                         ),
                       ),
-
-                      // Forgot password
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () {},
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF639922),
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                          ),
-                          child: const Text(
-                            "Forgot password?",
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Divider
-                      const Divider(color: Color(0xFFC0DD97), thickness: 0.5),
                       const SizedBox(height: 16),
 
-                      // Login button
+                      // Confirm Password field
+                      _NatureInputField(
+                        controller: confirmPasswordController,
+                        label: "Confirm Password",
+                        hint: "Re-enter password",
+                        icon: Icons.lock_outline_rounded,
+                        obscureText: _obscureConfirmPassword,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: const Color(0xFF639922),
+                            size: 20,
+                          ),
+                          onPressed: () => setState(
+                              () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Sign up button
                       SizedBox(
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton.icon(
-                          onPressed: _isLoading ? null : login,
+                          onPressed: _isLoading ? null : signUp,
                           icon: _isLoading
                               ? const SizedBox(
                                   width: 18,
@@ -219,9 +320,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.arrow_forward_rounded, size: 18),
+                              : const Icon(Icons.person_add_rounded, size: 18),
                           label: Text(
-                            _isLoading ? "Signing in..." : "Sign in",
+                            _isLoading ? "Creating account..." : "Create Account",
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                           ),
                           style: ElevatedButton.styleFrom(
@@ -236,29 +337,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Sign up link
+                      // Login link
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text(
-                            "Don't have an account? ",
+                            "Already have an account? ",
                             style: TextStyle(fontSize: 13, color: Color(0xFF639922)),
                           ),
                           TextButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const SignupScreen(),
-                                ),
-                              );
-                            },
+                            onPressed: () => Navigator.pop(context),
                             style: TextButton.styleFrom(
                               foregroundColor: const Color(0xFF3B6D11),
                               padding: EdgeInsets.zero,
                             ),
                             child: const Text(
-                              "Sign up",
+                              "Sign in",
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -266,15 +360,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ],
-                      ),
-
-                      // Footer note
-                      const Text(
-                        "Secure access · Patient data protected",
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF639922),
-                        ),
                       ),
                     ],
                   ),
@@ -348,6 +433,60 @@ class _NatureInputField extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Role selection chip ──────────────────────────────────────────────────────
+
+class _RoleChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _RoleChip({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : const Color(0xFF639922),
+              size: 22,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : const Color(0xFF27500A),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
