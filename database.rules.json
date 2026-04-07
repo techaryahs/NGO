@@ -1,0 +1,47 @@
+{
+  "rules": {
+    "patients": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["status", "roomId", "floor", "searchKey"],
+      "$patientId": {
+        ".validate": "newData.hasChildren(['id', 'fullName', 'searchKey', 'dateOfBirth', 'age', 'gender', 'contactNumber', 'emergencyContact', 'emergencyContactName', 'medicalCondition', 'admissionDate', 'status', 'createdAt', 'updatedAt', 'createdBy'])"
+      }
+    },
+    "rooms": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["roomType", "floor", "status"],
+      "$roomId": {
+        ".validate": "newData.hasChildren(['id', 'roomNumber', 'floor', 'roomType', 'status', 'createdAt', 'updatedAt'])"
+      }
+    },
+    "stays": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["patientId", "roomId", "status", "expiryDate"],
+      "$stayId": {
+        ".validate": "newData.hasChildren(['id', 'patientId', 'roomId', 'admissionDate', 'durationDays', 'expiryDate', 'status', 'createdAt', 'updatedAt'])"
+      }
+    },
+    "admin_settings": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "pricing": {
+        ".validate": "newData.hasChildren(['privateRoomBasePrice', 'privateRoomIncludedAttendants', 'privateRoomExtraAttendantFee', 'privateRoomMaxAttendants', 'generalRoomBedPrice', 'generalRoomDefaultBeds', 'generalRoomIncludedAttendants', 'generalRoomMaxAttendants'])"
+      }
+    },
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "metadata": {
+      ".read": "auth != null",
+      "stats": {
+        ".write": "auth != null"
+      }
+    }
+  }
+}

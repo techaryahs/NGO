@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:ngo/screens/auth/auth_wrapper.dart';
-import 'firebase_options.dart';
+import 'package:ngo/services/service_locator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  
+  // Initialize service locator with Firebase project ID and API key
+  ServiceLocator().initialize(
+    projectId: 'ngov-org',
+    apiKey: 'AIzaSyAQkdCF-Og883BuJcg-UTyM5RUXSaTlDeg', // Windows API key
+    databaseUrl: 'https://ngov-org-default-rtdb.firebaseio.com',
   );
+  
   runApp(const MyApp());
 }
 

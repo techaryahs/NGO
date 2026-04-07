@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:ngo/services/auth_service.dart';
+import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/auth/signup_screen.dart';
+import 'package:ngo/screens/auth/auth_wrapper.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,7 +13,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final AuthService _authService = AuthService();
   bool _obscurePassword = true;
   bool _isLoading = false;
 
@@ -31,16 +31,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final result = await _authService.signIn(
+    final result = await ServiceLocator().authService.signIn(
       email: emailController.text.trim(),
       password: passwordController.text,
     );
 
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
 
     if (result['success']) {
-      _showSnackBar("Login Successful", isError: false);
-      // AuthWrapper will handle navigation based on role
+      if (mounted) {
+        _showSnackBar("Login Successful", isError: false);
+        // Wait a moment for the snackbar to show, then navigate
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          // Navigate to AuthWrapper which will determine the correct layout
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const AuthWrapper()),
+          );
+        }
+      }
     } else {
       _showSnackBar(result['message'], isError: true);
     }

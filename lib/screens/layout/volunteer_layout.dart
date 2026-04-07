@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ngo/services/auth_service.dart';
+import 'package:ngo/services/service_locator.dart';
 
 class VolunteerLayout extends StatefulWidget {
   const VolunteerLayout({super.key});
@@ -10,7 +10,6 @@ class VolunteerLayout extends StatefulWidget {
 
 class _VolunteerLayoutState extends State<VolunteerLayout> {
   int selectedIndex = 0;
-  final AuthService _authService = AuthService();
 
   final List<_NavItem> navItems = const [
     _NavItem("Dashboard", Icons.grid_view_rounded),
@@ -31,7 +30,7 @@ class _VolunteerLayoutState extends State<VolunteerLayout> {
             onSelect: (i) => setState(() => selectedIndex = i),
             role: "Volunteer",
             onLogout: () async {
-              await _authService.signOut();
+              await ServiceLocator().authService.signOut();
             },
           ),
           Expanded(

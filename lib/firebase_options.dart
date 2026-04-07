@@ -54,6 +54,7 @@ class DefaultFirebaseOptions {
     appId: '1:920135500112:ios:c23f1c8915caa07c2f2c55',
     messagingSenderId: '920135500112',
     projectId: 'ngov-org',
+    databaseURL: 'https://ngov-org-default-rtdb.firebaseio.com',
     storageBucket: 'ngov-org.firebasestorage.app',
     iosBundleId: 'com.example.ngo',
   );
@@ -64,6 +65,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '920135500112',
     projectId: 'ngov-org',
     authDomain: 'ngov-org.firebaseapp.com',
+    databaseURL: 'https://ngov-org-default-rtdb.firebaseio.com',
     storageBucket: 'ngov-org.firebasestorage.app',
     measurementId: 'G-67SZ7ZHM4K',
   );

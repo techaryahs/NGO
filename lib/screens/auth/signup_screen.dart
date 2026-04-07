@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ngo/services/auth_service.dart';
+import 'package:ngo/services/service_locator.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -14,7 +14,6 @@ class _SignupScreenState extends State<SignupScreen> {
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController = TextEditingController();
-  final AuthService _authService = AuthService();
   
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -53,7 +52,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isLoading = true);
 
-    final result = await _authService.signUp(
+    final result = await ServiceLocator().authService.signUp(
       email: emailController.text.trim(),
       password: passwordController.text,
       name: nameController.text.trim(),
@@ -61,13 +60,18 @@ class _SignupScreenState extends State<SignupScreen> {
       role: _selectedRole,
     );
 
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
 
     if (result['success']) {
-      _showSnackBar("Account created successfully!", isError: false);
-      // AuthWrapper will handle navigation based on role
       if (mounted) {
-        Navigator.pop(context);
+        _showSnackBar("Account created successfully!", isError: false);
+        // Wait a moment then navigate back to login
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.pop(context);
+        }
       }
     } else {
       _showSnackBar(result['message'], isError: true);

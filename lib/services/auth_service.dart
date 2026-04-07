@@ -1,12 +1,18 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_rtdb_rest_service.dart';
+import 'firebase_auth_rest_service.dart';
 
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuthRestService _auth;
+  final FirebaseRTDBRestService _rtdb;
 
-  User? get currentUser => _auth.currentUser;
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  AuthService({
+    required FirebaseAuthRestService authService,
+    required FirebaseRTDBRestService rtdbService,
+  })  : _auth = authService,
+        _rtdb = rtdbService;
+
+  AuthUser? get currentUser => _auth.currentUser;
+  Stream<AuthUser?> get authStateChanges => _auth.authStateChanges;
 
   // Sign up with email, password, and role
   Future<Map<String, dynamic>> signUp({
@@ -17,24 +23,26 @@ class AuthService {
     required String role, // 'admin', 'staff', 'volunteer'
   }) async {
     try {
-      UserCredential result = await _auth.createUserWithEmailAndPassword(
+      final result = await _auth.signUp(
         email: email,
         password: password,
       );
 
-      // Store user data with role in Firestore
-      await _firestore.collection('users').doc(result.user!.uid).set({
+      if (!result.success) {
+        return {'success': false, 'message': result.message};
+      }
+
+      // Store user data with role in Realtime Database via REST API
+      await _rtdb.put('users/${result.user!.uid}', {
         'uid': result.user!.uid,
         'email': email,
         'name': name,
         'phone': phone,
         'role': role,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
       });
 
       return {'success': true, 'user': result.user};
-    } on FirebaseAuthException catch (e) {
-      return {'success': false, 'message': _getErrorMessage(e.code)};
     } catch (e) {
       return {'success': false, 'message': 'An error occurred. Please try again.'};
     }
@@ -46,24 +54,28 @@ class AuthService {
     required String password,
   }) async {
     try {
-      UserCredential result = await _auth.signInWithEmailAndPassword(
+      final result = await _auth.signIn(
         email: email,
         password: password,
       );
+
+      if (!result.success) {
+        return {'success': false, 'message': result.message};
+      }
+
       return {'success': true, 'user': result.user};
-    } on FirebaseAuthException catch (e) {
-      return {'success': false, 'message': _getErrorMessage(e.code)};
     } catch (e) {
       return {'success': false, 'message': 'An error occurred. Please try again.'};
     }
   }
 
-  // Get user role from Firestore
+  // Get user role from Realtime Database
   Future<String?> getUserRole(String uid) async {
     try {
-      DocumentSnapshot doc = await _firestore.collection('users').doc(uid).get();
-      if (doc.exists) {
-        return doc.get('role') as String?;
+      final data = await _rtdb.get('users/$uid');
+      if (data != null && data is Map) {
+        final userData = Map<String, dynamic>.from(data);
+        return userData['role'] as String?;
       }
       return null;
     } catch (e) {
@@ -74,9 +86,9 @@ class AuthService {
   // Get user data
   Future<Map<String, dynamic>?> getUserData(String uid) async {
     try {
-      DocumentSnapshot doc = await _firestore.collection('users').doc(uid).get();
-      if (doc.exists) {
-        return doc.data() as Map<String, dynamic>?;
+      final data = await _rtdb.get('users/$uid');
+      if (data != null && data is Map) {
+        return Map<String, dynamic>.from(data);
       }
       return null;
     } catch (e) {
@@ -87,25 +99,5 @@ class AuthService {
   // Sign out
   Future<void> signOut() async {
     await _auth.signOut();
-  }
-
-  // Helper method for error messages
-  String _getErrorMessage(String code) {
-    switch (code) {
-      case 'email-already-in-use':
-        return 'This email is already registered.';
-      case 'invalid-email':
-        return 'Invalid email address.';
-      case 'weak-password':
-        return 'Password should be at least 6 characters.';
-      case 'user-not-found':
-        return 'No user found with this email.';
-      case 'wrong-password':
-        return 'Incorrect password.';
-      case 'user-disabled':
-        return 'This account has been disabled.';
-      default:
-        return 'Authentication failed. Please try again.';
-    }
   }
 }

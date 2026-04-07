@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ngo/services/auth_service.dart';
+import 'package:ngo/services/service_locator.dart';
 
 class StaffLayout extends StatefulWidget {
   const StaffLayout({super.key});
@@ -10,7 +10,6 @@ class StaffLayout extends StatefulWidget {
 
 class _StaffLayoutState extends State<StaffLayout> {
   int selectedIndex = 0;
-  final AuthService _authService = AuthService();
 
   final List<_NavItem> navItems = const [
     _NavItem("Dashboard", Icons.grid_view_rounded),
@@ -32,7 +31,7 @@ class _StaffLayoutState extends State<StaffLayout> {
             onSelect: (i) => setState(() => selectedIndex = i),
             role: "Staff",
             onLogout: () async {
-              await _authService.signOut();
+              await ServiceLocator().authService.signOut();
             },
           ),
           Expanded(

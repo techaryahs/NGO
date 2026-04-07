@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/screens/rooms/widgets/room_card.dart';
 import 'package:ngo/screens/rooms/widgets/add_room_dialog.dart';
+import 'package:ngo/screens/rooms/widgets/pricing_settings_dialog.dart';
+import 'package:ngo/services/service_locator.dart';
+import 'package:ngo/models/room_model.dart';
 
 class RoomsPage extends StatefulWidget {
   const RoomsPage({super.key});
@@ -10,208 +13,318 @@ class RoomsPage extends StatefulWidget {
 }
 
 class _RoomsPageState extends State<RoomsPage> {
-  int selectedFloor = 1;
-  
-  // Mock data for rooms
-  final Map<int, List<RoomData>> roomsByFloor = {
-    1: [
-      RoomData(roomNumber: '101', floor: 1, isOccupied: true, capacity: 2),
-      RoomData(roomNumber: '102', floor: 1, isOccupied: false, capacity: 4),
-      RoomData(roomNumber: '103', floor: 1, isOccupied: true, capacity: 2),
-      RoomData(roomNumber: '104', floor: 1, isOccupied: false, capacity: 3),
-      RoomData(roomNumber: '105', floor: 1, isOccupied: true, capacity: 2),
-    ],
-    2: [
-      RoomData(roomNumber: '201', floor: 2, isOccupied: false, capacity: 2),
-      RoomData(roomNumber: '202', floor: 2, isOccupied: true, capacity: 4),
-      RoomData(roomNumber: '203', floor: 2, isOccupied: false, capacity: 2),
-      RoomData(roomNumber: '204', floor: 2, isOccupied: true, capacity: 3),
-    ],
-    3: [
-      RoomData(roomNumber: '301', floor: 3, isOccupied: true, capacity: 2),
-      RoomData(roomNumber: '302', floor: 3, isOccupied: false, capacity: 4),
-      RoomData(roomNumber: '303', floor: 3, isOccupied: true, capacity: 2),
-    ],
-  };
-
-  void _addRoom(String roomNumber, int floor, int capacity) {
-    setState(() {
-      roomsByFloor[floor]?.add(
-        RoomData(roomNumber: roomNumber, floor: floor, isOccupied: false, capacity: capacity),
-      );
-    });
-  }
+  String selectedRoomType = 'all'; // 'all', 'private', 'general'
+  int selectedFloor = 0; // 0 = all floors
 
   void _showAddRoomDialog() {
     showDialog(
       context: context,
       builder: (context) => AddRoomDialog(
-        onAdd: _addRoom,
-        selectedFloor: selectedFloor,
+        selectedFloor: selectedFloor == 0 ? 1 : selectedFloor,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentFloorRooms = roomsByFloor[selectedFloor] ?? [];
-    final occupiedCount = currentFloorRooms.where((r) => r.isOccupied).length;
-    final availableCount = currentFloorRooms.length - occupiedCount;
-
+    final roomService = ServiceLocator().roomService;
+    
     return Scaffold(
       backgroundColor: const Color(0xFFF0F7EA),
-      body: Column(
-        children: [
-          // Header with stats
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Color(0xFFFAFDF7),
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+      body: StreamBuilder<List<RoomModel>>(
+        stream: roomService.getRoomsStream(),
+        builder: (context, roomsSnapshot) {
+          // Show loading only on first load
+          if (roomsSnapshot.connectionState == ConnectionState.waiting && 
+              !roomsSnapshot.hasData) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF3B6D11)),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    "Loading rooms...",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF639922),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            );
+          }
+
+          if (roomsSnapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    size: 64,
+                    color: Colors.red.shade300,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading rooms',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${roomsSnapshot.error}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF639922),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          }
+
+          var rooms = roomsSnapshot.data ?? [];
+          
+          // Apply filters
+          if (selectedRoomType != 'all') {
+            rooms = rooms.where((r) => r.roomType == selectedRoomType).toList();
+          }
+          if (selectedFloor != 0) {
+            rooms = rooms.where((r) => r.floor == selectedFloor).toList();
+          }
+
+          // Calculate stats from rooms
+          final totalRooms = rooms.length;
+          final privateRooms = rooms.where((r) => r.isPrivate).length;
+          final generalRooms = rooms.where((r) => r.isGeneral).length;
+          final totalBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.totalBeds);
+          final occupiedBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.occupiedBeds);
+          final availableBeds = totalBeds - occupiedBeds;
+
+          return Column(
+            children: [
+              // Header with stats
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFAFDF7),
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Room Management",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF27500A),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => PricingSettingsDialog(),
+                                );
+                              },
+                              icon: const Icon(Icons.attach_money_rounded, size: 18),
+                              label: const Text("Pricing"),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF3B6D11),
+                                side: const BorderSide(color: Color(0xFF3B6D11), width: 1.5),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: _showAddRoomDialog,
+                              icon: const Icon(Icons.add_rounded, size: 18),
+                              label: const Text("Add Room"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF3B6D11),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        _StatCard(
+                          label: "Total Rooms",
+                          value: totalRooms.toString(),
+                          icon: Icons.meeting_room_outlined,
+                          color: const Color(0xFF3B6D11),
+                        ),
+                        const SizedBox(width: 12),
+                        _StatCard(
+                          label: "Private",
+                          value: privateRooms.toString(),
+                          icon: Icons.hotel_rounded,
+                          color: const Color(0xFF639922),
+                        ),
+                        const SizedBox(width: 12),
+                        _StatCard(
+                          label: "General",
+                          value: generalRooms.toString(),
+                          icon: Icons.bed_rounded,
+                          color: const Color(0xFF97C459),
+                        ),
+                        const SizedBox(width: 12),
+                        _StatCard(
+                          label: "Available Beds",
+                          value: availableBeds.toString(),
+                          icon: Icons.check_circle_outline_rounded,
+                          color: const Color(0xFF0F6E56),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Filters
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
                   children: [
                     const Text(
-                      "Room Management",
+                      "Room Type:",
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF27500A),
                       ),
                     ),
-                    ElevatedButton.icon(
-                      onPressed: _showAddRoomDialog,
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text("Add Room"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3B6D11),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                    const SizedBox(width: 12),
+                    _FilterTab(
+                      label: "All",
+                      isSelected: selectedRoomType == 'all',
+                      onTap: () => setState(() => selectedRoomType = 'all'),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: "Private",
+                      isSelected: selectedRoomType == 'private',
+                      onTap: () => setState(() => selectedRoomType = 'private'),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: "General",
+                      isSelected: selectedRoomType == 'general',
+                      onTap: () => setState(() => selectedRoomType = 'general'),
+                    ),
+                    const SizedBox(width: 24),
+                    const Text(
+                      "Floor:",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF27500A),
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    _FilterTab(
+                      label: "All",
+                      isSelected: selectedFloor == 0,
+                      onTap: () => setState(() => selectedFloor = 0),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: "1st",
+                      isSelected: selectedFloor == 1,
+                      onTap: () => setState(() => selectedFloor = 1),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: "2nd",
+                      isSelected: selectedFloor == 2,
+                      onTap: () => setState(() => selectedFloor = 2),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterTab(
+                      label: "3rd",
+                      isSelected: selectedFloor == 3,
+                      onTap: () => setState(() => selectedFloor = 3),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    _StatCard(
-                      label: "Total Rooms",
-                      value: currentFloorRooms.length.toString(),
-                      icon: Icons.meeting_room_outlined,
-                      color: const Color(0xFF3B6D11),
-                    ),
-                    const SizedBox(width: 12),
-                    _StatCard(
-                      label: "Occupied",
-                      value: occupiedCount.toString(),
-                      icon: Icons.person_rounded,
-                      color: const Color(0xFF639922),
-                    ),
-                    const SizedBox(width: 12),
-                    _StatCard(
-                      label: "Available",
-                      value: availableCount.toString(),
-                      icon: Icons.check_circle_outline_rounded,
-                      color: const Color(0xFF0F6E56),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+              ),
 
-          // Floor selector
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                const Text(
-                  "Select Floor:",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _FloorTab(
-                  label: "1st Floor",
-                  isSelected: selectedFloor == 1,
-                  onTap: () => setState(() => selectedFloor = 1),
-                ),
-                const SizedBox(width: 8),
-                _FloorTab(
-                  label: "2nd Floor",
-                  isSelected: selectedFloor == 2,
-                  onTap: () => setState(() => selectedFloor = 2),
-                ),
-                const SizedBox(width: 8),
-                _FloorTab(
-                  label: "3rd Floor",
-                  isSelected: selectedFloor == 3,
-                  onTap: () => setState(() => selectedFloor = 3),
-                ),
-              ],
-            ),
-          ),
-
-          // Rooms grid
-          Expanded(
-            child: currentFloorRooms.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.meeting_room_outlined,
-                          size: 64,
-                          color: const Color(0xFF639922).withOpacity(0.3),
+              // Rooms grid
+              Expanded(
+                child: rooms.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.meeting_room_outlined,
+                              size: 64,
+                              color: const Color(0xFF639922).withOpacity(0.3),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              "No rooms found",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: const Color(0xFF639922).withOpacity(0.6),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: _showAddRoomDialog,
+                              icon: const Icon(Icons.add_rounded),
+                              label: const Text("Add First Room"),
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF3B6D11),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          "No rooms on this floor",
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: const Color(0xFF639922).withOpacity(0.6),
-                          ),
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.all(20),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 1.2,
                         ),
-                        const SizedBox(height: 8),
-                        TextButton.icon(
-                          onPressed: _showAddRoomDialog,
-                          icon: const Icon(Icons.add_rounded),
-                          label: const Text("Add First Room"),
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF3B6D11),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : GridView.builder(
-                    padding: const EdgeInsets.all(20),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.2,
-                    ),
-                    itemCount: currentFloorRooms.length,
-                    itemBuilder: (context, index) {
-                      return RoomCard(room: currentFloorRooms[index]);
-                    },
-                  ),
-          ),
-        ],
+                        itemCount: rooms.length,
+                        itemBuilder: (context, index) {
+                          return RoomCard(room: rooms[index]);
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -281,13 +394,13 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// Floor tab widget
-class _FloorTab extends StatelessWidget {
+// Filter tab widget
+class _FilterTab extends StatelessWidget {
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _FloorTab({
+  const _FilterTab({
     required this.label,
     required this.isSelected,
     required this.onTap,
@@ -320,19 +433,4 @@ class _FloorTab extends StatelessWidget {
       ),
     );
   }
-}
-
-// Room data model
-class RoomData {
-  final String roomNumber;
-  final int floor;
-  final bool isOccupied;
-  final int capacity;
-
-  RoomData({
-    required this.roomNumber,
-    required this.floor,
-    required this.isOccupied,
-    required this.capacity,
-  });
 }
