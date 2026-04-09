@@ -1,34 +1,32 @@
 import 'bed_model.dart';
 
-/// RoomModel — RTDB-compatible data model for Room Management.
+/// RoomModel - RTDB-compatible data model for Room Management.
 ///
 /// Supports two room types:
-/// - `private`: Independent room with attendant-based pricing.
-/// - `general`: Bed-based system with individual bed tracking.
-///
-/// Room Classification Reference:
-/// - Private: 1A, 2A, 2B (Pricing: Attendant-based)
-/// - General: 1B, 1C, 1D, 2C, 2D, 2E (Pricing: Bed-based)
-///
-/// All dates are stored as `millisecondsSinceEpoch` (int) in RTDB.
+/// - private: independent room with attendant-based pricing
+/// - general: bed-based room with individual bed tracking
 class RoomModel {
   final String id;
   final String roomNumber;
-  final String roomIdentifier; // e.g., "1D", "1A", "2C" (alphanumeric)
+  final String roomIdentifier;
   final int floor;
   final String roomType; // 'private' or 'general'
-  final String status; // 'available', 'occupied', 'maintenance'
+  final String status; // 'available', 'occupied', 'pending_discharge', 'maintenance', 'unavailable'
 
-  // ── Private Room Fields ──
-  final int maxAttendants; // default: 5 for private
+  // Private room fields
+  final int maxAttendants;
   final int currentAttendants;
 
-  // ── General Room Fields (Hierarchical Bed System) ──
-  final List<BedModel> beds; // Individual bed tracking
-  final int totalBeds; // Legacy: default: 4, admin-editable
-  final int occupiedBeds; // Legacy: computed from beds
+  // Bed fields
+  final List<BedModel> beds;
+  final int totalBeds;
+  final int occupiedBeds;
 
-  // ── Metadata ──
+  // Availability metadata
+  final DateTime? expectedVacancyDate;
+  final DateTime? lastUpdated;
+
+  // Generic metadata
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -45,65 +43,71 @@ class RoomModel {
     this.beds = const [],
     this.totalBeds = 4,
     this.occupiedBeds = 0,
+    this.expectedVacancyDate,
+    this.lastUpdated,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
   });
 
-  // ── Computed Properties ──
-
   bool get isPrivate => roomType == 'private';
   bool get isGeneral => roomType == 'general';
   bool get isAvailable => status == 'available';
   bool get isOccupied => status == 'occupied';
+  bool get isPendingDischarge => status == 'pending_discharge';
 
-  // Hierarchical bed properties
   int get actualTotalBeds => beds.isNotEmpty ? beds.length : totalBeds;
   int get actualOccupiedBeds => beds.where((b) => b.isOccupied).length;
   int get actualAvailableBeds => beds.where((b) => b.isAvailable).length;
-  
-  // Legacy compatibility
-  int get availableBeds => isGeneral ? actualTotalBeds - actualOccupiedBeds : 0;
-  bool get hasAvailableBeds => isGeneral && actualAvailableBeds > 0;
+
+  // Compatibility aliases used by UI/business logic.
+  int get occupiedCount => actualOccupiedBeds;
+  DateTime? get nextExpectedVacancyDate => expectedVacancyDate;
+  int get availableBeds => actualAvailableBeds;
+  bool get hasAvailableBeds => actualAvailableBeds > 0;
   bool get canAddAttendant => isPrivate && currentAttendants < maxAttendants;
   bool get isFull => actualOccupiedBeds >= actualTotalBeds;
 
-  // ── Room Classification ──
+  /// Derived occupancy from bed states with pending-discharge precedence.
+  String get derivedOccupancyStatus {
+    if (status == 'maintenance') return 'maintenance';
+    if (status == 'pending_discharge') return 'pending_discharge';
 
-  /// Private room identifiers
+    final occupied = actualOccupiedBeds;
+    final total = actualTotalBeds;
+
+    if (occupied == 0) return 'available';
+    if (isPrivate) return 'occupied';
+    if (occupied >= total) return 'occupied';
+    return 'partially_occupied';
+  }
+
+  bool get isPartiallyOccupied => derivedOccupancyStatus == 'partially_occupied';
+  bool get isDerivedAvailable => derivedOccupancyStatus == 'available';
+  bool get isDerivedOccupied => derivedOccupancyStatus == 'occupied';
+
   static const List<String> privateRoomIdentifiers = ['1A', '2A', '2B'];
-
-  /// General ward identifiers
   static const List<String> generalWardIdentifiers = ['1B', '1C', '1D', '2C', '2D', '2E'];
-
-  /// Floor 1 rooms (Ground Floor)
   static const List<String> floor1Rooms = ['1A', '1B', '1C', '1D'];
-
-  /// Floor 2 rooms (First Floor)
   static const List<String> floor2Rooms = ['2A', '2B', '2C', '2D', '2E'];
 
-  /// Check if room identifier matches private room pattern
   static bool isPrivateRoomIdentifier(String identifier) {
     return privateRoomIdentifiers.contains(identifier.toUpperCase());
   }
 
-  /// Get room type from identifier
   static String getRoomTypeFromIdentifier(String identifier) {
     return isPrivateRoomIdentifier(identifier) ? 'private' : 'general';
   }
 
-  /// Get floor from room identifier
   static int getFloorFromIdentifier(String identifier) {
     final upper = identifier.toUpperCase();
     if (floor1Rooms.contains(upper)) return 1;
     if (floor2Rooms.contains(upper)) return 2;
-    // Fallback: check first character
     if (upper.startsWith('1')) return 1;
     if (upper.startsWith('2')) return 2;
-    return 1; // Default to floor 1
+    return 1;
   }
 
-  /// Validate room identifier for a specific floor
   static bool validateIdentifierForFloor(String identifier, int floor) {
     final upper = identifier.toUpperCase();
     if (floor == 1) {
@@ -114,22 +118,12 @@ class RoomModel {
     return false;
   }
 
-  /// Get valid room identifiers for a floor
   static List<String> getValidIdentifiersForFloor(int floor) {
     if (floor == 1) return List.from(floor1Rooms);
     if (floor == 2) return List.from(floor2Rooms);
     return [];
   }
 
-  // ── Dynamic Pricing Calculations ──
-
-  /// Calculate the total cost for a private room stay.
-  ///
-  /// [days] — number of stay days
-  /// [attendants] — number of attendants
-  /// [basePrice] — fetched from /admin_settings/pricing
-  /// [includedAttendants] — attendants included in base price
-  /// [extraAttendantFee] — fee per extra attendant per day
   static double calculatePrivateRoomCost({
     required int days,
     required int attendants,
@@ -138,27 +132,18 @@ class RoomModel {
     required double extraAttendantFee,
   }) {
     final baseCost = basePrice * days;
-    final extraAttendants =
-        attendants > includedAttendants ? attendants - includedAttendants : 0;
+    final extraAttendants = attendants > includedAttendants ? attendants - includedAttendants : 0;
     final extraCost = extraAttendants * extraAttendantFee * days;
     return baseCost + extraCost;
   }
 
-  /// Calculate the total cost for a general room bed.
-  ///
-  /// [days] — number of stay days
-  /// [bedPrice] — per-bed per-day rate from admin settings
-  /// [attendants] — number of attendants (1 included, max 2)
   static double calculateGeneralRoomCost({
     required int days,
     required double bedPrice,
     required int attendants,
   }) {
-    // Only 1 attendant included; 2nd is self-expense (no charge added)
     return bedPrice * days;
   }
-
-  // ── Serialization ──
 
   Map<String, dynamic> toMap() {
     return {
@@ -173,6 +158,8 @@ class RoomModel {
       'beds': beds.map((b) => b.toMap()).toList(),
       'totalBeds': totalBeds,
       'occupiedBeds': actualOccupiedBeds,
+      'expectedVacancyDate': expectedVacancyDate?.millisecondsSinceEpoch,
+      'lastUpdated': lastUpdated?.millisecondsSinceEpoch,
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -181,10 +168,7 @@ class RoomModel {
 
   Map<String, dynamic> toJson() => toMap();
 
-  // ── Deserialization ──
-
   factory RoomModel.fromMap(String id, Map<dynamic, dynamic> data) {
-    // Parse beds list
     final List<BedModel> bedsList = [];
     if (data['beds'] != null) {
       if (data['beds'] is List) {
@@ -202,9 +186,7 @@ class RoomModel {
         final bedsMap = Map<String, dynamic>.from(data['beds']);
         bedsMap.forEach((key, value) {
           if (value is Map) {
-            bedsList.add(
-              BedModel.fromMap(key, Map<String, dynamic>.from(value)),
-            );
+            bedsList.add(BedModel.fromMap(key, Map<String, dynamic>.from(value)));
           }
         });
       }
@@ -213,7 +195,10 @@ class RoomModel {
     return RoomModel(
       id: id,
       roomNumber: _parseString(data['roomNumber']),
-      roomIdentifier: _parseString(data['roomIdentifier'], fallback: data['roomNumber']?.toString() ?? ''),
+      roomIdentifier: _parseString(
+        data['roomIdentifier'],
+        fallback: data['roomNumber']?.toString() ?? '',
+      ),
       floor: _parseInt(data['floor'], fallback: 1),
       roomType: _parseString(data['roomType'], fallback: 'general'),
       status: _parseString(data['status'], fallback: 'available'),
@@ -222,13 +207,17 @@ class RoomModel {
       beds: bedsList,
       totalBeds: _parseInt(data['totalBeds'], fallback: 4),
       occupiedBeds: _parseInt(data['occupiedBeds']),
+      expectedVacancyDate: data['expectedVacancyDate'] != null
+          ? _parseDateTime(data['expectedVacancyDate'])
+          : null,
+      lastUpdated: data['lastUpdated'] != null
+          ? _parseDateTime(data['lastUpdated'])
+          : null,
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
     );
   }
-
-  // ── copyWith ──
 
   RoomModel copyWith({
     String? id,
@@ -242,6 +231,8 @@ class RoomModel {
     List<BedModel>? beds,
     int? totalBeds,
     int? occupiedBeds,
+    DateTime? expectedVacancyDate,
+    DateTime? lastUpdated,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -258,13 +249,13 @@ class RoomModel {
       beds: beds ?? this.beds,
       totalBeds: totalBeds ?? this.totalBeds,
       occupiedBeds: occupiedBeds ?? this.occupiedBeds,
+      expectedVacancyDate: expectedVacancyDate ?? this.expectedVacancyDate,
+      lastUpdated: lastUpdated ?? this.lastUpdated,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
-
-  // ── Helpers ──
 
   static String _parseString(dynamic value, {String fallback = ''}) {
     if (value == null) return fallback;
@@ -281,14 +272,13 @@ class RoomModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double) {
-      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-    }
+    if (value is double) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }
 
   @override
-  String toString() =>
-      'RoomModel(id: $id, room: $roomNumber, identifier: $roomIdentifier, type: $roomType, status: $status)';
+  String toString() {
+    return 'RoomModel(id: $id, room: $roomNumber, identifier: $roomIdentifier, type: $roomType, status: $status)';
+  }
 }

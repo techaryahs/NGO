@@ -2,6 +2,7 @@ import 'dart:async';
 import '../models/patient_model.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
+import 'room_service.dart';
 
 /// Service layer for all patient-related RTDB operations.
 ///
@@ -126,6 +127,8 @@ class PatientService {
     String? roomId,
     String? roomNumber,
     int? floor,
+    List<String>? bedIds,
+    List<String>? bedLabels,
     String? notes,
     required String createdBy,
   }) async {
@@ -154,6 +157,8 @@ class PatientService {
         roomId: roomId,
         roomNumber: roomNumber,
         floor: floor,
+        bedIds: bedIds,
+        bedLabels: bedLabels,
         notes: notes,
         createdAt: now,
         updatedAt: now,
@@ -232,6 +237,8 @@ class PatientService {
         'roomId': null,
         'roomNumber': null,
         'floor': null,
+        'bedIds': null,
+        'bedLabels': null,
       });
     } catch (e) {
       throw Exception('Failed to remove patient from room: $e');
@@ -266,6 +273,8 @@ class PatientService {
         'roomId': null,
         'roomNumber': null,
         'floor': null,
+        'bedIds': null,
+        'bedLabels': null,
       });
     } catch (e) {
       throw Exception('Failed to discharge patient: $e');

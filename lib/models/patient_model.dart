@@ -21,6 +21,8 @@ class PatientModel {
   final String? roomId;
   final String? roomNumber;
   final int? floor;
+  final List<String>? bedIds; // Added for explicit bed tracking
+  final List<String>? bedLabels; // Added for UI display
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -44,6 +46,8 @@ class PatientModel {
     this.roomId,
     this.roomNumber,
     this.floor,
+    this.bedIds,
+    this.bedLabels,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -74,6 +78,8 @@ class PatientModel {
       'roomId': roomId,
       'roomNumber': roomNumber,
       'floor': floor,
+      'bedIds': bedIds,
+      'bedLabels': bedLabels,
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -111,6 +117,8 @@ class PatientModel {
       roomId: data['roomId']?.toString(),
       roomNumber: data['roomNumber']?.toString(),
       floor: data['floor'] != null ? _parseInt(data['floor']) : null,
+      bedIds: data['bedIds'] != null ? List<String>.from(data['bedIds']) : null,
+      bedLabels: data['bedLabels'] != null ? List<String>.from(data['bedLabels']) : null,
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
@@ -178,6 +186,8 @@ class PatientModel {
     String? roomId,
     String? roomNumber,
     int? floor,
+    List<String>? bedIds,
+    List<String>? bedLabels,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -201,6 +211,8 @@ class PatientModel {
       roomId: roomId ?? this.roomId,
       roomNumber: roomNumber ?? this.roomNumber,
       floor: floor ?? this.floor,
+      bedIds: bedIds ?? this.bedIds,
+      bedLabels: bedLabels ?? this.bedLabels,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

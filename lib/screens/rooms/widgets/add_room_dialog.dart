@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/models/room_config.dart';
+import 'package:ngo/screens/rooms/widgets/add_room_dialog_components.dart';
 
 class AddRoomDialog extends StatefulWidget {
   final int selectedFloor;
 
-  const AddRoomDialog({
-    super.key,
-    required this.selectedFloor,
-  });
+  const AddRoomDialog({super.key, required this.selectedFloor});
 
   @override
   State<AddRoomDialog> createState() => _AddRoomDialogState();
@@ -18,7 +16,7 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
   final TextEditingController notesController = TextEditingController();
   final TextEditingController bedLabelsController = TextEditingController();
   final TextEditingController bedCountController = TextEditingController();
-  
+
   String selectedRoomType = 'private'; // 'private' or 'general'
   int selectedFloor = 1;
   String? selectedRoomIdentifier; // Dropdown selection
@@ -86,7 +84,9 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
       roomType: selectedRoomType,
     );
     // Filter out rooms that already exist in the database
-    return allRooms.where((room) => !existingRoomIdentifiers.contains(room)).toList();
+    return allRooms
+        .where((room) => !existingRoomIdentifiers.contains(room))
+        .toList();
   }
 
   /// Handle floor change - reset room identifier
@@ -102,7 +102,7 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
     setState(() {
       selectedRoomType = type;
       selectedRoomIdentifier = null; // Reset room selection
-      
+
       // Set default bed count based on type
       if (type == 'private') {
         bedCount = 2;
@@ -117,10 +117,10 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
   /// Handle room identifier selection - auto-populate bed count
   void _onRoomIdentifierChanged(String? identifier) {
     if (identifier == null || roomConfig == null) return;
-    
+
     setState(() {
       selectedRoomIdentifier = identifier;
-      
+
       // Auto-populate bed count from config
       final defaultBeds = roomConfig!.getDefaultBedCount(identifier);
       bedCount = defaultBeds;
@@ -135,11 +135,12 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
     }
 
     // Validate room configuration
-    if (roomConfig != null && !roomConfig!.isValidRoom(
-      roomIdentifier: selectedRoomIdentifier!,
-      floor: selectedFloor,
-      roomType: selectedRoomType,
-    )) {
+    if (roomConfig != null &&
+        !roomConfig!.isValidRoom(
+          roomIdentifier: selectedRoomIdentifier!,
+          floor: selectedFloor,
+          roomType: selectedRoomType,
+        )) {
       _showSnackBar("Invalid room configuration", isError: true);
       return;
     }
@@ -147,7 +148,10 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
     if (selectedRoomType == 'general') {
       if (useCustomBedLabels) {
         if (bedLabelsController.text.isEmpty) {
-          _showSnackBar("Please enter bed labels or disable custom labels", isError: true);
+          _showSnackBar(
+            "Please enter bed labels or disable custom labels",
+            isError: true,
+          );
           return;
         }
       } else {
@@ -163,7 +167,7 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
 
     try {
       final roomService = ServiceLocator().roomService;
-      
+
       // Parse bed labels if provided
       List<String>? bedLabels;
       if (selectedRoomType == 'general' && useCustomBedLabels) {
@@ -189,7 +193,9 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
         roomType: selectedRoomType,
         totalBeds: totalBeds,
         bedLabels: bedLabels,
-        notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+        notes: notesController.text.trim().isEmpty
+            ? null
+            : notesController.text.trim(),
       );
 
       if (mounted) {
@@ -211,7 +217,9 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -221,33 +229,7 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
   @override
   Widget build(BuildContext context) {
     if (configLoading) {
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(40),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF3B6D11)),
-              ),
-              SizedBox(height: 20),
-              Text(
-                "Loading room configuration...",
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF639922),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+      return const RoomConfigLoadingView();
     }
 
     final availableRooms = _getAvailableRooms();
@@ -308,81 +290,17 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
               const SizedBox(height: 24),
 
               // Step 1: Floor Selection
-              const Text(
-                "STEP 1: SELECT FLOOR",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF27500A),
-                  letterSpacing: 0.6,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _FloorOption(
-                      floor: 1,
-                      label: "Ground Floor",
-                      rooms: roomConfig?.getFloor(1)?.getAllRooms() ?? [],
-                      isSelected: selectedFloor == 1,
-                      onTap: () => _onFloorChanged(1),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _FloorOption(
-                      floor: 2,
-                      label: "First Floor",
-                      rooms: roomConfig?.getFloor(2)?.getAllRooms() ?? [],
-                      isSelected: selectedFloor == 2,
-                      onTap: () => _onFloorChanged(2),
-                    ),
-                  ),
-                ],
+              AddRoomFloorSelection(
+                selectedFloor: selectedFloor,
+                onFloorSelected: _onFloorChanged,
+                roomConfig: roomConfig,
               ),
               const SizedBox(height: 20),
 
               // Step 2: Room Type Selection
-              const Text(
-                "STEP 2: SELECT ROOM TYPE",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF27500A),
-                  letterSpacing: 0.6,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF4F9F0),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _RoomTypeButton(
-                        label: "Private Room",
-                        icon: Icons.hotel_rounded,
-                        subtitle: "Attendant-based pricing",
-                        isSelected: selectedRoomType == 'private',
-                        onTap: () => _onRoomTypeChanged('private'),
-                      ),
-                    ),
-                    Expanded(
-                      child: _RoomTypeButton(
-                        label: "General Ward",
-                        icon: Icons.bed_rounded,
-                        subtitle: "Bed-based pricing",
-                        isSelected: selectedRoomType == 'general',
-                        onTap: () => _onRoomTypeChanged('general'),
-                      ),
-                    ),
-                  ],
-                ),
+              AddRoomTypeSelection(
+                selectedRoomType: selectedRoomType,
+                onRoomTypeSelected: _onRoomTypeChanged,
               ),
               const SizedBox(height: 20),
 
@@ -404,11 +322,18 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                   decoration: BoxDecoration(
                     color: const Color(0xFFE8F5E0),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                    border: Border.all(
+                      color: const Color(0xFFC0DD97),
+                      width: 1,
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle_rounded, color: const Color(0xFF3B6D11), size: 24),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        color: const Color(0xFF3B6D11),
+                        size: 24,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -440,10 +365,14 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: canSelectRoom ? const Color(0xFFF4F9F0) : const Color(0xFFF0F0F0),
+                    color: canSelectRoom
+                        ? const Color(0xFFF4F9F0)
+                        : const Color(0xFFF0F0F0),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: canSelectRoom ? const Color(0xFFC0DD97) : const Color(0xFFE0E0E0),
+                      color: canSelectRoom
+                          ? const Color(0xFFC0DD97)
+                          : const Color(0xFFE0E0E0),
                       width: 1,
                     ),
                   ),
@@ -452,22 +381,25 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                       value: selectedRoomIdentifier,
                       isExpanded: true,
                       hint: Text(
-                        canSelectRoom 
-                            ? "Select a room identifier" 
+                        canSelectRoom
+                            ? "Select a room identifier"
                             : "Select floor and room type first",
                         style: TextStyle(
-                          color: canSelectRoom 
-                              ? const Color(0xFF97C459) 
+                          color: canSelectRoom
+                              ? const Color(0xFF97C459)
                               : const Color(0xFFBDBDBD),
                           fontSize: 14,
                         ),
                       ),
                       icon: Icon(
                         Icons.arrow_drop_down_rounded,
-                        color: canSelectRoom ? const Color(0xFF639922) : const Color(0xFFBDBDBD),
+                        color: canSelectRoom
+                            ? const Color(0xFF639922)
+                            : const Color(0xFFBDBDBD),
                       ),
                       items: availableRooms.map((room) {
-                        final defaultBeds = roomConfig?.getDefaultBedCount(room) ?? 0;
+                        final defaultBeds =
+                            roomConfig?.getDefaultBedCount(room) ?? 0;
                         return DropdownMenuItem(
                           value: room,
                           child: Row(
@@ -492,7 +424,9 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                           ),
                         );
                       }).toList(),
-                      onChanged: canSelectRoom ? _onRoomIdentifierChanged : null,
+                      onChanged: canSelectRoom
+                          ? _onRoomIdentifierChanged
+                          : null,
                     ),
                   ),
                 ),
@@ -501,7 +435,11 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                   padding: const EdgeInsets.only(top: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline_rounded, size: 14, color: Colors.orange.shade400),
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 14,
+                        color: Colors.orange.shade400,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -519,163 +457,32 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
 
               // Step 4: Bed Configuration (Auto-populated)
               if (selectedRoomIdentifier != null) ...[
-                const Text(
-                  "STEP 4: BED CONFIGURATION",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF27500A),
-                    letterSpacing: 0.6,
-                  ),
+                AddRoomBedConfiguration(
+                  selectedRoomType: selectedRoomType,
+                  useCustomBedLabels: useCustomBedLabels,
+                  bedLabelsController: bedLabelsController,
+                  bedCountController: bedCountController,
+                  onUseCustomBedLabelsChanged: (value) {
+                    setState(() => useCustomBedLabels = value);
+                  },
+                  defaultBeds: roomConfig?.getDefaultBedCount(selectedRoomIdentifier!) ?? 0,
+                  onDecreaseBedCount: () {
+                    final current = int.tryParse(bedCountController.text) ?? 4;
+                    if (current > 1) {
+                      setState(() {
+                        bedCountController.text = (current - 1).toString();
+                      });
+                    }
+                  },
+                  onIncreaseBedCount: () {
+                    final current = int.tryParse(bedCountController.text) ?? 4;
+                    if (current < 20) {
+                      setState(() {
+                        bedCountController.text = (current + 1).toString();
+                      });
+                    }
+                  },
                 ),
-                const SizedBox(height: 12),
-
-                // Custom Bed Labels Toggle (for general wards)
-                if (selectedRoomType == 'general') ...[
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: useCustomBedLabels,
-                        onChanged: (value) {
-                          setState(() => useCustomBedLabels = value ?? false);
-                        },
-                        activeColor: const Color(0xFF3B6D11),
-                      ),
-                      const Text(
-                        "Use custom bed labels (non-sequential)",
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF27500A),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-
-                if (useCustomBedLabels && selectedRoomType == 'general') ...[
-                  const Text(
-                    "BED LABELS (comma-separated)",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF27500A),
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: bedLabelsController,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      hintText: "e.g., 23, 21, 19, 17, 15, 13, 11, 9, 7, 5, 3, 1",
-                      hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 13),
-                      prefixIcon: const Padding(
-                        padding: EdgeInsets.only(bottom: 40),
-                        child: Icon(Icons.list_alt_rounded, color: Color(0xFF639922), size: 20),
-                      ),
-                      filled: true,
-                      fillColor: const Color(0xFFF4F9F0),
-                      contentPadding: const EdgeInsets.all(12),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  const Text(
-                    "NUMBER OF BEDS",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF27500A),
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      // Decrease button
-                      IconButton(
-                        onPressed: () {
-                          final current = int.tryParse(bedCountController.text) ?? 4;
-                          if (current > 1) {
-                            setState(() {
-                              bedCountController.text = (current - 1).toString();
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.remove_circle_outline_rounded),
-                        color: const Color(0xFF639922),
-                      ),
-                      // Number input
-                      Expanded(
-                        child: TextField(
-                          controller: bedCountController,
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.center,
-                          decoration: InputDecoration(
-                            hintText: "4",
-                            hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
-                            filled: true,
-                            fillColor: const Color(0xFFF4F9F0),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Increase button
-                      IconButton(
-                        onPressed: () {
-                          final current = int.tryParse(bedCountController.text) ?? 4;
-                          if (current < 20) {
-                            setState(() {
-                              bedCountController.text = (current + 1).toString();
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.add_circle_outline_rounded),
-                        color: const Color(0xFF639922),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E0),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF3B6D11)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "Default: ${roomConfig?.getDefaultBedCount(selectedRoomIdentifier!) ?? 0} beds (from configuration)",
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF3B6D11),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 20),
               ],
 
@@ -695,17 +502,26 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                 maxLines: 2,
                 decoration: InputDecoration(
                   hintText: "Add any additional notes...",
-                  hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                  hintStyle: const TextStyle(
+                    color: Color(0xFF97C459),
+                    fontSize: 14,
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF4F9F0),
                   contentPadding: const EdgeInsets.all(12),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFC0DD97),
+                      width: 1,
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF639922),
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
@@ -719,20 +535,27 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                     onPressed: isLoading ? null : () => Navigator.pop(context),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFF639922),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text("Cancel"),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: isLoading || selectedRoomIdentifier == null ? null : _handleAdd,
+                    onPressed: isLoading || selectedRoomIdentifier == null
+                        ? null
+                        : _handleAdd,
                     icon: isLoading
                         ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Icon(Icons.add_rounded, size: 18),
@@ -741,7 +564,10 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                       backgroundColor: const Color(0xFF3B6D11),
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -751,138 +577,6 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// Floor Option Widget
-class _FloorOption extends StatelessWidget {
-  final int floor;
-  final String label;
-  final List<String> rooms;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FloorOption({
-    required this.floor,
-    required this.label,
-    required this.rooms,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.layers_outlined,
-              color: isSelected ? Colors.white : const Color(0xFF639922),
-              size: 24,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Floor $floor",
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: isSelected ? Colors.white : const Color(0xFF27500A),
-              ),
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: isSelected ? Colors.white70 : const Color(0xFF97C459),
-              ),
-            ),
-            if (rooms.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                rooms.join(", "),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white60 : const Color(0xFF639922),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Room Type Button
-class _RoomTypeButton extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _RoomTypeButton({
-    required this.label,
-    required this.subtitle,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 24,
-              color: isSelected ? Colors.white : const Color(0xFF639922),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : const Color(0xFF27500A),
-              ),
-            ),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 9,
-                color: isSelected ? Colors.white70 : const Color(0xFF97C459),
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -4,6 +4,8 @@ import 'auth_service.dart';
 import 'patient_service.dart';
 import 'room_service.dart';
 
+export 'room_service.dart'; // Ensure extension methods are visible everywhere ServiceLocator is used
+
 /// Service Locator for dependency injection
 /// 
 /// Provides singleton instances of services throughout the app.

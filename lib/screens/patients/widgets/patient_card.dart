@@ -116,6 +116,14 @@ class PatientCard extends StatelessWidget {
                               color: const Color(0xFF3B6D11),
                             ),
                           ],
+                          if (patient.bedLabels != null && patient.bedLabels!.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            _InfoChip(
+                              icon: Icons.bed_outlined,
+                              label: patient.bedLabels!.join(", "),
+                              color: const Color(0xFF3B6D11),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 6),
