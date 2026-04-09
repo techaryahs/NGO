@@ -3,6 +3,7 @@ import '../patients/patients_screen.dart';
 import '../rooms/rooms_page.dart';
 import '../profile/profile_page.dart';
 import '../settings/settings_page.dart';
+import '../dashboard/dashboard_screen.dart';
 import 'widgets/sidebar.dart';
 import 'widgets/top_bar.dart';
 
@@ -28,7 +29,7 @@ class _MainLayoutState extends State<MainLayout> {
   ];
 
   final List<Widget> pages = const [
-    _PlaceholderPage(title: "Dashboard"),
+    DashboardScreen(),
     PatientsScreen(),
     RoomsPage(),
     _PlaceholderPage(title: "Stays"),

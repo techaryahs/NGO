@@ -128,6 +128,14 @@ class PatientService {
     int? floor,
     String? notes,
     required String createdBy,
+    // New fields
+    String? registrationNumber,
+    DateTime? registrationDate,
+    String? panCardNumber,
+    String? aadhaarCardNumber,
+    String? receiptNumber,
+    String? modeOfPayment,
+    String? utiNumber,
   }) async {
     try {
       final now = DateTime.now();
@@ -158,6 +166,13 @@ class PatientService {
         createdAt: now,
         updatedAt: now,
         createdBy: createdBy,
+        registrationNumber: registrationNumber,
+        registrationDate: registrationDate,
+        panCardNumber: panCardNumber,
+        aadhaarCardNumber: aadhaarCardNumber,
+        receiptNumber: receiptNumber,
+        modeOfPayment: modeOfPayment,
+        utiNumber: utiNumber,
       );
 
       // Push to generate unique key

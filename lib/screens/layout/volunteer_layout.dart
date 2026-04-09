@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/services/service_locator.dart';
+import '../dashboard/dashboard_screen.dart';
 
 class VolunteerLayout extends StatefulWidget {
   const VolunteerLayout({super.key});
@@ -348,6 +349,9 @@ class _PageContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (label == 'Dashboard') {
+      return const DashboardScreen();
+    }
     return Container(
       color: const Color(0xFFF0F7EA),
       padding: const EdgeInsets.all(20),

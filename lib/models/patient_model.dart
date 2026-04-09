@@ -26,6 +26,15 @@ class PatientModel {
   final DateTime updatedAt;
   final String createdBy;
 
+  // ── New administrative / identity fields ──────────────────────────────────
+  final String? registrationNumber;
+  final DateTime? registrationDate;
+  final String? panCardNumber;
+  final String? aadhaarCardNumber;
+  final String? receiptNumber;
+  final String? modeOfPayment;
+  final String? utiNumber;
+
   PatientModel({
     required this.id,
     required this.fullName,
@@ -48,6 +57,13 @@ class PatientModel {
     required this.createdAt,
     required this.updatedAt,
     required this.createdBy,
+    this.registrationNumber,
+    this.registrationDate,
+    this.panCardNumber,
+    this.aadhaarCardNumber,
+    this.receiptNumber,
+    this.modeOfPayment,
+    this.utiNumber,
   });
 
   // ---------------------------------------------------------------------------
@@ -78,6 +94,13 @@ class PatientModel {
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
       'createdBy': createdBy,
+      'registrationNumber': registrationNumber,
+      'registrationDate': registrationDate?.millisecondsSinceEpoch,
+      'panCardNumber': panCardNumber,
+      'aadhaarCardNumber': aadhaarCardNumber,
+      'receiptNumber': receiptNumber,
+      'modeOfPayment': modeOfPayment,
+      'utiNumber': utiNumber,
     };
   }
 
@@ -115,6 +138,15 @@ class PatientModel {
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
       createdBy: _parseString(data['createdBy']),
+      registrationNumber: data['registrationNumber']?.toString(),
+      registrationDate: data['registrationDate'] != null
+          ? _parseDateTime(data['registrationDate'])
+          : null,
+      panCardNumber: data['panCardNumber']?.toString(),
+      aadhaarCardNumber: data['aadhaarCardNumber']?.toString(),
+      receiptNumber: data['receiptNumber']?.toString(),
+      modeOfPayment: data['modeOfPayment']?.toString(),
+      utiNumber: data['utiNumber']?.toString(),
     );
   }
 
@@ -182,6 +214,13 @@ class PatientModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     String? createdBy,
+    String? registrationNumber,
+    DateTime? registrationDate,
+    String? panCardNumber,
+    String? aadhaarCardNumber,
+    String? receiptNumber,
+    String? modeOfPayment,
+    String? utiNumber,
   }) {
     return PatientModel(
       id: id ?? this.id,
@@ -205,6 +244,13 @@ class PatientModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       createdBy: createdBy ?? this.createdBy,
+      registrationNumber: registrationNumber ?? this.registrationNumber,
+      registrationDate: registrationDate ?? this.registrationDate,
+      panCardNumber: panCardNumber ?? this.panCardNumber,
+      aadhaarCardNumber: aadhaarCardNumber ?? this.aadhaarCardNumber,
+      receiptNumber: receiptNumber ?? this.receiptNumber,
+      modeOfPayment: modeOfPayment ?? this.modeOfPayment,
+      utiNumber: utiNumber ?? this.utiNumber,
     );
   }
 

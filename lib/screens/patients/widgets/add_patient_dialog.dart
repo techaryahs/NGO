@@ -32,8 +32,18 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _attendantAgeController = TextEditingController();
   final _relationController = TextEditingController();
 
+  // New field controllers
+  final _registrationNumberController = TextEditingController();
+  final _registrationDateController = TextEditingController();
+  final _panCardController = TextEditingController();
+  final _aadhaarCardController = TextEditingController();
+  final _receiptNumberController = TextEditingController();
+  final _utiNumberController = TextEditingController();
+
   String? _selectedGender;
   DateTime? _selectedDate;
+  DateTime? _selectedRegistrationDate;
+  String? _selectedModeOfPayment;
   
   // Room and Bed Selection
   RoomModel? _selectedRoom;
@@ -64,6 +74,12 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _attendantNameController.dispose();
     _attendantAgeController.dispose();
     _relationController.dispose();
+    _registrationNumberController.dispose();
+    _registrationDateController.dispose();
+    _panCardController.dispose();
+    _aadhaarCardController.dispose();
+    _receiptNumberController.dispose();
+    _utiNumberController.dispose();
     super.dispose();
   }
 
@@ -112,6 +128,35 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       setState(() {
         _selectedDate = picked;
         _dateController.text = '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
+      });
+    }
+  }
+
+  Future<void> _selectRegistrationDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF3B6D11),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedRegistrationDate = picked;
+        _registrationDateController.text =
+            '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
       });
     }
   }
@@ -230,6 +275,23 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         floor: _selectedRoom!.floor,
         notes: notesList.isEmpty ? null : notesList.join('\n'),
         createdBy: currentUser.uid,
+        registrationNumber: _registrationNumberController.text.trim().isNotEmpty
+            ? _registrationNumberController.text.trim()
+            : null,
+        registrationDate: _selectedRegistrationDate,
+        panCardNumber: _panCardController.text.trim().isNotEmpty
+            ? _panCardController.text.trim()
+            : null,
+        aadhaarCardNumber: _aadhaarCardController.text.trim().isNotEmpty
+            ? _aadhaarCardController.text.trim()
+            : null,
+        receiptNumber: _receiptNumberController.text.trim().isNotEmpty
+            ? _receiptNumberController.text.trim()
+            : null,
+        modeOfPayment: _selectedModeOfPayment,
+        utiNumber: _utiNumberController.text.trim().isNotEmpty
+            ? _utiNumberController.text.trim()
+            : null,
       );
 
       // Get attendant count (default to 1 if not specified)
@@ -327,6 +389,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 label: "File no",
                                 hint: "e.g. F-2024-001",
                                 controller: _fileNoController,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _Row2(
+                              _NatureField(
+                                label: "Registration number",
+                                hint: "e.g. REG-2024-001",
+                                controller: _registrationNumberController,
+                              ),
+                              _NatureField(
+                                label: "Registration date",
+                                hint: "",
+                                isDate: true,
+                                controller: _registrationDateController,
+                                onTap: () => _selectRegistrationDate(context),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -437,6 +514,23 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                       ),
                       const SizedBox(height: 20),
                       _Section(
+                        label: "Identity documents",
+                        child: _Row2(
+                          _NatureField(
+                            label: "PAN card number",
+                            hint: "ABCDE1234F",
+                            controller: _panCardController,
+                          ),
+                          _NatureField(
+                            label: "Aadhaar card number",
+                            hint: "XXXX XXXX XXXX",
+                            keyboard: TextInputType.number,
+                            controller: _aadhaarCardController,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      _Section(
                         label: "Office use",
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,6 +552,34 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 },
                               ),
                             ],
+                            const SizedBox(height: 12),
+                            _Row2(
+                              _NatureField(
+                                label: "Receipt number",
+                                hint: "e.g. RCP-2024-001",
+                                controller: _receiptNumberController,
+                              ),
+                              _NatureDropdown(
+                                label: "Mode of payment",
+                                items: const [
+                                  "Cash",
+                                  "UPI",
+                                  "Card",
+                                  "Cheque",
+                                  "NEFT / RTGS",
+                                  "Other",
+                                ],
+                                onChanged: (value) {
+                                  setState(() => _selectedModeOfPayment = value);
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _NatureField(
+                              label: "UTI number",
+                              hint: "Unique transaction identifier",
+                              controller: _utiNumberController,
+                            ),
                           ],
                         ),
                       ),

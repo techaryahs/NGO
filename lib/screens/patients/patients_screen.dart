@@ -4,6 +4,10 @@ import '../../services/service_locator.dart';
 import 'widgets/patient_card.dart';
 import 'widgets/add_patient_dialog.dart';
 import 'widgets/patient_details_dialog.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:excel/excel.dart' hide Border;
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({super.key});
@@ -66,6 +70,132 @@ class _PatientsScreenState extends State<PatientsScreen> {
     return patients.where((p) => p.status == _selectedFilter).toList();
   }
 
+  Future<void> _importFromExcel() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+        withData: true,
+      );
+
+      if (result != null) {
+        setState(() {
+          // You could add a loading state here
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Importing patients, please wait...'), duration: Duration(seconds: 2)),
+        );
+
+        var bytes = result.files.single.bytes;
+        if (bytes == null && result.files.single.path != null) {
+          bytes = await File(result.files.single.path!).readAsBytes();
+        }
+
+        if (bytes == null) {
+          throw Exception('Could not read file bytes');
+        }
+
+        var excel = Excel.decodeBytes(bytes);
+        int addedCount = 0;
+
+        final currentUser = ServiceLocator().authRestService.currentUser;
+        if (currentUser == null) {
+          throw Exception('User not authenticated');
+        }
+
+        for (var table in excel.tables.keys) {
+          var rows = excel.tables[table]?.rows ?? [];
+          // Skip header rows by finding where the actual data starts.
+          // Usually data row starts when column 0 is a number (Registration No)
+          for (var row in rows) {
+            String? regNo = row.length > 0 ? row[0]?.value?.toString() : null;
+            if (regNo == null || regNo.isEmpty || regNo.toLowerCase().contains("registration") || regNo.toLowerCase().contains("gistration")) {
+              continue; // Skip header or empty rows
+            }
+
+            // Map columns based on the image format
+            // Col 0: Registration No
+            // Col 1: Date of Receipt
+            // Col 2: Name of Patient
+            // Col 3: Address
+            // Col 4: PAN
+            // Col 5: Adhar
+            // Col 6: Amt Recd
+            // Col 7: Receipt No.
+            // Col 8: Mode of Payment
+            // Col 9: UTI No.
+
+            String dateStr = row.length > 1 ? (row[1]?.value?.toString() ?? '') : '';
+            DateTime regDate = DateTime.now();
+            if (dateStr.isNotEmpty) {
+               // Try parsing dd.MM.yyyy
+               final parts = dateStr.split('.');
+               if (parts.length == 3) {
+                 final day = int.tryParse(parts[0]) ?? 1;
+                 final month = int.tryParse(parts[1]) ?? 1;
+                 final year = int.tryParse(parts[2]) ?? 2000;
+                 regDate = DateTime(year, month, day);
+               }
+            }
+
+            String name = row.length > 2 ? (row[2]?.value?.toString() ?? 'Unknown') : 'Unknown';
+            String address = row.length > 3 ? (row[3]?.value?.toString() ?? '') : '';
+            String pan = row.length > 4 ? (row[4]?.value?.toString() ?? '') : '';
+            String adhar = row.length > 5 ? (row[5]?.value?.toString() ?? '') : '';
+            String amtRecd = row.length > 6 ? (row[6]?.value?.toString() ?? '') : '';
+            String receiptNo = row.length > 7 ? (row[7]?.value?.toString() ?? '') : '';
+            String modeOfPayment = row.length > 8 ? (row[8]?.value?.toString() ?? '') : '';
+            String utiNo = row.length > 9 ? (row[9]?.value?.toString() ?? '') : '';
+
+            List<String> notesList = [];
+            if (address.isNotEmpty) notesList.add('Address: $address');
+            if (amtRecd.isNotEmpty) notesList.add('Amt Recd: $amtRecd');
+
+            await ServiceLocator().patientService.addPatient(
+              fullName: name,
+              dateOfBirth: DateTime.now(), // Default since not provided
+              gender: 'unknown',
+              contactNumber: 'Not Provided',
+              emergencyContact: 'Not Provided',
+              emergencyContactName: 'Not Provided',
+              medicalCondition: 'Not Provided',
+              admissionDate: regDate,
+              createdBy: currentUser.uid,
+              registrationNumber: regNo,
+              registrationDate: regDate,
+              panCardNumber: pan.isNotEmpty ? pan : null,
+              aadhaarCardNumber: adhar.isNotEmpty ? adhar : null,
+              receiptNumber: receiptNo.isNotEmpty ? receiptNo : null,
+              modeOfPayment: modeOfPayment.isNotEmpty ? modeOfPayment : null,
+              utiNumber: utiNo.isNotEmpty ? utiNo : null,
+              notes: notesList.isNotEmpty ? notesList.join('\n') : null,
+            );
+            addedCount++;
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully imported $addedCount patients!'),
+              backgroundColor: const Color(0xFF3B6D11),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error importing Excel: $e'),
+            backgroundColor: const Color(0xFFD32F2F),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,6 +233,25 @@ class _PatientsScreenState extends State<PatientsScreen> {
                             color: Color(0xFF27500A),
                           ),
                         ),
+                        ElevatedButton.icon(
+                          onPressed: _importFromExcel,
+                          icon: const Icon(Icons.upload_file_rounded, size: 18),
+                          label: const Text("Import Excel"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF3B6D11),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: const BorderSide(color: Color(0xFF3B6D11)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         ElevatedButton.icon(
                           onPressed: _showAddPatientDialog,
                           icon: const Icon(Icons.add_rounded, size: 18),
