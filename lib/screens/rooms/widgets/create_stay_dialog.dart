@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/models/room_model.dart';
+import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
 
@@ -17,7 +18,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
   DateTime admissionDate = DateTime.now();
   int durationDays = 7;
   int attendantCount = 1;
-  int? selectedBedNumber;
+  BedModel? selectedBed;
   final TextEditingController notesController = TextEditingController();
   
   bool isLoading = false;
@@ -80,8 +81,8 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
       return;
     }
 
-    if (widget.room.isGeneral && selectedBedNumber == null) {
-      _showSnackBar("Please select a bed number", isError: true);
+    if (widget.room.isGeneral && selectedBed == null) {
+      _showSnackBar("Please select a bed", isError: true);
       return;
     }
 
@@ -102,7 +103,8 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
         admissionDate: admissionDate,
         durationDays: durationDays,
         attendantCount: attendantCount,
-        bedNumber: selectedBedNumber,
+        bedId: selectedBed?.id,
+        bedLabel: selectedBed?.bedLabel,
         notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
         createdBy: user.email,
       );
@@ -153,7 +155,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
       backgroundColor: Colors.transparent,
       child: Container(
         width: 600,
-        constraints: const BoxConstraints(maxHeight: 700),
+        constraints: const BoxConstraints(maxHeight: 750),
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -195,7 +197,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                           ),
                         ),
                         Text(
-                          "Room ${widget.room.roomNumber} • ${widget.room.isPrivate ? 'Private' : 'General'}",
+                          "Room ${widget.room.roomIdentifier} • ${widget.room.isPrivate ? 'Private' : 'General'}",
                           style: const TextStyle(
                             fontSize: 13,
                             color: Color(0xFF639922),
@@ -427,10 +429,30 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                       ),
                     const SizedBox(height: 20),
 
-                    // Bed Selection (for general rooms)
-                    if (widget.room.isGeneral) ...[
+                    // Bed Selection (for general rooms with hierarchical beds)
+                    if (widget.room.isGeneral && widget.room.beds.isNotEmpty) ...[
                       const Text(
                         "SELECT BED",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF27500A),
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _BedSelectionGrid(
+                        beds: widget.room.beds,
+                        selectedBed: selectedBed,
+                        onBedSelected: (bed) {
+                          setState(() => selectedBed = bed);
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                    ] else if (widget.room.isGeneral) ...[
+                      // Legacy bed number selection
+                      const Text(
+                        "SELECT BED NUMBER",
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -446,9 +468,15 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                           final bedNum = index + 1;
                           return _CountChip(
                             count: bedNum,
-                            isSelected: selectedBedNumber == bedNum,
+                            isSelected: selectedBed?.bedLabel == bedNum.toString(),
                             onTap: () {
-                              setState(() => selectedBedNumber = bedNum);
+                              setState(() {
+                                selectedBed = BedModel(
+                                  id: '${widget.room.id}_$bedNum',
+                                  bedLabel: bedNum.toString(),
+                                  status: 'available',
+                                );
+                              });
                             },
                           );
                         }),
@@ -566,6 +594,81 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Bed Selection Grid with color-coded status
+class _BedSelectionGrid extends StatelessWidget {
+  final List<BedModel> beds;
+  final BedModel? selectedBed;
+  final Function(BedModel) onBedSelected;
+
+  const _BedSelectionGrid({
+    required this.beds,
+    required this.selectedBed,
+    required this.onBedSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: beds.map((bed) {
+        final isSelected = selectedBed?.id == bed.id;
+        final isAvailable = bed.isAvailable;
+
+        Color bgColor;
+        Color textColor;
+        Color borderColor;
+
+        if (isSelected) {
+          bgColor = const Color(0xFF3B6D11);
+          textColor = Colors.white;
+          borderColor = const Color(0xFF3B6D11);
+        } else if (!isAvailable) {
+          bgColor = const Color(0xFFFFE5E7);
+          textColor = const Color(0xFFD32F2F).withOpacity(0.5);
+          borderColor = const Color(0xFFE8B4B8);
+        } else {
+          bgColor = const Color(0xFFF4F9F0);
+          textColor = const Color(0xFF27500A);
+          borderColor = const Color(0xFFC0DD97);
+        }
+
+        return InkWell(
+          onTap: isAvailable ? () => onBedSelected(bed) : null,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: borderColor, width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isAvailable ? Icons.bed_outlined : Icons.bed_rounded,
+                  size: 16,
+                  color: textColor,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  bed.bedLabel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

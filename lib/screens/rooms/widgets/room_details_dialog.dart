@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/models/room_model.dart';
+import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/rooms/widgets/create_stay_dialog.dart';
@@ -17,8 +18,8 @@ class RoomDetailsDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
-        width: 700,
-        constraints: const BoxConstraints(maxHeight: 700),
+        width: 750,
+        constraints: const BoxConstraints(maxHeight: 750),
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -52,7 +53,7 @@ class RoomDetailsDialog extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Room ${room.roomNumber}",
+                          "Room ${room.roomIdentifier}",
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
@@ -108,7 +109,7 @@ class RoomDetailsDialog extends StatelessWidget {
                     Expanded(
                       child: _InfoItem(
                         label: "Beds",
-                        value: "${room.occupiedBeds}/${room.totalBeds}",
+                        value: "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
                         icon: Icons.bed_outlined,
                       ),
                     ),
@@ -123,6 +124,21 @@ class RoomDetailsDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+
+            // Hierarchical Bed Display for General Rooms
+            if (room.isGeneral && room.beds.isNotEmpty) ...[
+              const Text(
+                "Bed Status",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _BedStatusGrid(beds: room.beds),
+              const SizedBox(height: 20),
+            ],
 
             // Active Stays Section
             Row(
@@ -211,6 +227,94 @@ class RoomDetailsDialog extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Bed Status Grid - Shows all beds with their status
+class _BedStatusGrid extends StatelessWidget {
+  final List<BedModel> beds;
+
+  const _BedStatusGrid({required this.beds});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: beds.map((bed) => _BedStatusCard(bed: bed)).toList(),
+    );
+  }
+}
+
+/// Individual Bed Status Card
+class _BedStatusCard extends StatelessWidget {
+  final BedModel bed;
+
+  const _BedStatusCard({required this.bed});
+
+  @override
+  Widget build(BuildContext context) {
+    Color bgColor;
+    Color textColor;
+    Color borderColor;
+    IconData icon;
+
+    switch (bed.status) {
+      case 'occupied':
+        bgColor = const Color(0xFFFFE5E7);
+        textColor = const Color(0xFFD32F2F);
+        borderColor = const Color(0xFFE8B4B8);
+        icon = Icons.bed_rounded;
+        break;
+      case 'maintenance':
+        bgColor = const Color(0xFFFFF3E0);
+        textColor = const Color(0xFFE65100);
+        borderColor = const Color(0xFFFFB74D);
+        icon = Icons.build_rounded;
+        break;
+      default:
+        bgColor = const Color(0xFFE8F5E0);
+        textColor = const Color(0xFF3B6D11);
+        borderColor = const Color(0xFFC0DD97);
+        icon = Icons.bed_outlined;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: textColor),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Bed ${bed.bedLabel}",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              Text(
+                bed.status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: textColor.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -351,13 +455,23 @@ class _StayCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    if (stay.bedNumber != null)
-                      Text(
-                        "Bed ${stay.bedNumber}",
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF639922),
-                        ),
+                    if (stay.bedId != null || stay.bedNumber != null)
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.bed_outlined,
+                            size: 14,
+                            color: Color(0xFF639922),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "Bed ${stay.bedNumber ?? stay.bedId?.split('_').last ?? 'N/A'}",
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF639922),
+                            ),
+                          ),
+                        ],
                       ),
                   ],
                 ),

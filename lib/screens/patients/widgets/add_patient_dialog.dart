@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/service_locator.dart';
+import '../../../models/room_model.dart';
+import '../../../models/bed_model.dart';
 
 class AddPatientDialog extends StatefulWidget {
   final Function()? onPatientAdded;
@@ -29,10 +31,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _attendantNameController = TextEditingController();
   final _attendantAgeController = TextEditingController();
   final _relationController = TextEditingController();
-  final _bedNoController = TextEditingController();
 
   String? _selectedGender;
   DateTime? _selectedDate;
+  
+  // Room and Bed Selection
+  RoomModel? _selectedRoom;
+  List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
+  List<RoomModel> _availableRooms = [];
+  List<BedModel> _availableBeds = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableRooms();
+  }
 
   @override
   void dispose() {
@@ -51,8 +64,28 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _attendantNameController.dispose();
     _attendantAgeController.dispose();
     _relationController.dispose();
-    _bedNoController.dispose();
     super.dispose();
+  }
+
+  /// Load all rooms (no filtering)
+  Future<void> _loadAvailableRooms() async {
+    try {
+      final rooms = await ServiceLocator().roomService.getRoomsStream().first;
+      setState(() {
+        _availableRooms = rooms; // Show all rooms without filtering
+      });
+    } catch (e) {
+      // Silently fail - user can retry by reopening dialog
+    }
+  }
+
+  /// Handle room selection and load available beds
+  void _onRoomSelected(RoomModel? room) {
+    setState(() {
+      _selectedRoom = room;
+      _selectedBeds = []; // Reset bed selection
+      _availableBeds = room?.beds.where((b) => b.isAvailable).toList() ?? [];
+    });
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -109,6 +142,16 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter attendant name');
       return;
     }
+    
+    // Room and bed validation
+    if (_selectedRoom == null) {
+      _showError('Please select a room');
+      return;
+    }
+    if (_selectedBeds.isEmpty) {
+      _showError('Please select at least one bed');
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -116,6 +159,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       final currentUser = ServiceLocator().authRestService.currentUser;
       if (currentUser == null) {
         throw Exception('User not authenticated');
+      }
+
+      // Concurrency check: Re-fetch room to verify beds are still available
+      final roomService = ServiceLocator().roomService;
+      final room = await roomService.getRoom(_selectedRoom!.id);
+      if (room == null) {
+        throw Exception('Selected room no longer exists');
+      }
+      
+      // Check all selected beds are still available
+      for (final selectedBed in _selectedBeds) {
+        final bed = room.beds.where((b) => b.id == selectedBed.id).firstOrNull;
+        if (bed == null || !bed.isAvailable) {
+          throw Exception('Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.');
+        }
       }
 
       // Calculate date of birth from age
@@ -154,11 +212,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       if (_relationController.text.trim().isNotEmpty) {
         notesList.add('Relation: ${_relationController.text.trim()}');
       }
-      if (_bedNoController.text.trim().isNotEmpty) {
-        notesList.add('Bed No: ${_bedNoController.text.trim()}');
-      }
+      notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
+      notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
 
-      await ServiceLocator().patientService.addPatient(
+      // Create patient
+      final patientId = await ServiceLocator().patientService.addPatient(
         fullName: _patientNameController.text.trim(),
         dateOfBirth: dateOfBirth,
         gender: _selectedGender!.toLowerCase(),
@@ -167,14 +225,40 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         emergencyContactName: _attendantNameController.text.trim(),
         medicalCondition: _diagnosisController.text.trim(),
         admissionDate: admissionDate,
+        roomId: _selectedRoom!.id,
+        roomNumber: _selectedRoom!.roomIdentifier,
+        floor: _selectedRoom!.floor,
         notes: notesList.isEmpty ? null : notesList.join('\n'),
         createdBy: currentUser.uid,
       );
 
+      // Get attendant count (default to 1 if not specified)
+      final attendantCount = int.tryParse(_attendantAgeController.text.trim()) != null ? 1 : 1;
+
+      // Create a stay for each selected bed
+      for (final bed in _selectedBeds) {
+        await roomService.createStay(
+          patientId: patientId,
+          patientName: _patientNameController.text.trim(),
+          roomId: _selectedRoom!.id,
+          roomNumber: _selectedRoom!.roomIdentifier,
+          roomType: _selectedRoom!.roomType,
+          admissionDate: admissionDate,
+          durationDays: 7, // Default 7 days
+          attendantCount: attendantCount,
+          bedId: bed.id,
+          bedLabel: bed.bedLabel,
+          notes: _selectedBeds.length > 1 
+              ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+              : 'Initial admission',
+          createdBy: currentUser.uid,
+        );
+      }
+
       if (mounted) {
         Navigator.of(context).pop();
         widget.onPatientAdded?.call();
-        _showSuccess('Patient added successfully');
+        _showSuccess('Patient admitted successfully with ${_selectedBeds.length} bed(s)');
       }
     } catch (e) {
       _showError('Failed to add patient: ${e.toString()}');
@@ -354,13 +438,27 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                       const SizedBox(height: 20),
                       _Section(
                         label: "Office use",
-                        child: SizedBox(
-                          width: 180,
-                          child: _NatureField(
-                            label: "Bed no",
-                            hint: "e.g. B-04",
-                            controller: _bedNoController,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _RoomDropdown(
+                              label: "Room",
+                              rooms: _availableRooms,
+                              selectedRoom: _selectedRoom,
+                              onChanged: _onRoomSelected,
+                            ),
+                            if (_selectedRoom != null) ...[
+                              const SizedBox(height: 12),
+                              _BedSelection(
+                                label: "Bed",
+                                beds: _availableBeds,
+                                selectedBeds: _selectedBeds,
+                                onChanged: (beds) {
+                                  setState(() => _selectedBeds = beds);
+                                },
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ],
@@ -696,3 +794,209 @@ class _NatureDropdownState extends State<_NatureDropdown> {
     );
   }
 }
+
+// ── Room Dropdown ─────────────────────────────────────────────────────────────
+
+class _RoomDropdown extends StatelessWidget {
+  final String label;
+  final List<RoomModel> rooms;
+  final RoomModel? selectedRoom;
+  final ValueChanged<RoomModel?>? onChanged;
+
+  const _RoomDropdown({
+    required this.label,
+    required this.rooms,
+    this.selectedRoom,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF27500A),
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 5),
+        DropdownButtonFormField<RoomModel>(
+          value: selectedRoom,
+          hint: Text(
+            "Select room",
+            style: TextStyle(color: const Color(0xFF97C459).withOpacity(0.75), fontSize: 13),
+          ),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
+          dropdownColor: const Color(0xFFF4F9F0),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFFF4F9F0),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+            ),
+          ),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 20),
+          items: rooms.map((room) {
+            final floorName = room.floor == 1 ? 'Ground' : 'First';
+            final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
+            final availableBeds = room.actualAvailableBeds;
+            
+            return DropdownMenuItem(
+              value: room,
+              child: Text(
+                '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds beds available',
+                style: const TextStyle(fontSize: 13),
+              ),
+            );
+          }).toList(),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+// ── Bed Selection ─────────────────────────────────────────────────────────────
+
+class _BedSelection extends StatelessWidget {
+  final String label;
+  final List<BedModel> beds;
+  final List<BedModel> selectedBeds;
+  final ValueChanged<List<BedModel>>? onChanged;
+
+  const _BedSelection({
+    required this.label,
+    required this.beds,
+    required this.selectedBeds,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF27500A),
+                letterSpacing: 0.5,
+              ),
+            ),
+            if (selectedBeds.isNotEmpty)
+              Text(
+                '${selectedBeds.length} selected',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF3B6D11),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (beds.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF3CD),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFFE69C)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Color(0xFF856404), size: 16),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No beds available in this room',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF856404)),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: beds.map((bed) {
+                  final isSelected = selectedBeds.any((b) => b.id == bed.id);
+                  return FilterChip(
+                    label: Text('Bed ${bed.bedLabel}'),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      final newSelection = List<BedModel>.from(selectedBeds);
+                      if (selected) {
+                        newSelection.add(bed);
+                      } else {
+                        newSelection.removeWhere((b) => b.id == bed.id);
+                      }
+                      onChanged?.call(newSelection);
+                    },
+                    backgroundColor: const Color(0xFFF4F9F0),
+                    selectedColor: const Color(0xFF3B6D11),
+                    checkmarkColor: Colors.white,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected ? Colors.white : const Color(0xFF27500A),
+                    ),
+                    side: BorderSide(
+                      color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+                      width: 1,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E0),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF3B6D11)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You can select multiple beds for patient + attendants',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF3B6D11),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
