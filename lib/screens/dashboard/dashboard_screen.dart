@@ -61,7 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildPrimaryStatsRow() {
     return StreamBuilder<Map<String, dynamic>>(
-      stream: Rx.combineLatest2(
+      stream: RoomService.combineLatest2(
         ServiceLocator().patientService.getPatientStatsStream(),
         ServiceLocator().roomService.getFullCensusStream(),
         (Map<String, int> patientStats, Map<String, dynamic> census) {

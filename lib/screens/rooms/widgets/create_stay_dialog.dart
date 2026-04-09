@@ -239,33 +239,18 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                     ),
                     const SizedBox(height: 8),
                     StreamBuilder<List<PatientModel>>(
-<<<<<<< HEAD
                       stream: ServiceLocator().patientService.getPatientsByStatus('active'),
-                        builder: (context, snapshot) {
-                          final patients = snapshot.data ?? [];
-                          final availablePatients =
-                          patients.where((p) => p.roomId == null).toList();
-
-                          // ✅ FIX: reset invalid selection (OUTSIDE map)
-                          if (selectedPatient != null &&
-                              !availablePatients.any((p) => p.id == selectedPatient!.id)) {
-                            selectedPatient = null;
-                          }
-
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF4F9F0),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-=======
-                      stream: ServiceLocator().patientService
-                          .getPatientsByStatus('active'),
                       builder: (context, snapshot) {
                         final patients = snapshot.data ?? [];
                         final availablePatients = patients
                             .where((p) => p.roomId == null)
                             .toList();
+
+                        // ✅ FIX: reset invalid selection (OUTSIDE map)
+                        if (selectedPatient != null &&
+                            !availablePatients.any((p) => p.id == selectedPatient!.id)) {
+                          selectedPatient = null;
+                        }
 
                         return Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -295,27 +280,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                               onChanged: (value) {
                                 setState(() => selectedPatient = value);
                               },
->>>>>>> origin/sahil
                             ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<PatientModel>(
-                                value: selectedPatient,
-                                isExpanded: true,
-                                hint: const Text("Select a patient"),
-                                icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                                items: availablePatients.map((patient) {
-                                  return DropdownMenuItem(
-                                    value: patient,
-                                    child: Text(patient.fullName),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() => selectedPatient = value);
-                                },
-                              ),
-                            ),
-                          );
-                        }
+                          ),
+                        );
+                      }
                     ),
                     const SizedBox(height: 20),
 
