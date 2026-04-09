@@ -101,26 +101,24 @@ class _RoomsPageState extends State<RoomsPage> {
             rooms = rooms.where((r) => r.floor == selectedFloor).toList();
           }
 
-          // Calculate overall stats
+          // Calculate overall stats using derived occupancy for accuracy
           final totalRooms = rooms.length;
           final privateRooms = rooms.where((r) => r.isPrivate).length;
           final generalRooms = rooms.where((r) => r.isGeneral).length;
-          final totalBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualTotalBeds);
-          final occupiedBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final totalBeds = rooms.fold(0, (sum, r) => sum + r.actualTotalBeds);
+          final occupiedBeds = rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
           final availableBeds = totalBeds - occupiedBeds;
 
-          // Calculate per-floor stats
+          // Calculate per-floor stats using derived occupancy
           final allRooms = roomsSnapshot.data ?? [];
           final floor1Rooms = allRooms.where((r) => r.floor == 1).toList();
           final floor2Rooms = allRooms.where((r) => r.floor == 2).toList();
 
-          final floor1Patients = floor1Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds) +
-              floor1Rooms.where((r) => r.isPrivate && r.isOccupied).length;
-          final floor1VacantBeds = floor1Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
 
-          final floor2Patients = floor2Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds) +
-              floor2Rooms.where((r) => r.isPrivate && r.isOccupied).length;
-          final floor2VacantBeds = floor2Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
 
           return Column(
             children: [

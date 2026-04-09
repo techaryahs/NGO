@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
+import 'patient_form_components.dart';
 
 class AddPatientDialog extends StatefulWidget {
   final Function()? onPatientAdded;
@@ -14,6 +15,7 @@ class AddPatientDialog extends StatefulWidget {
 
 class _AddPatientDialogState extends State<AddPatientDialog> {
   bool _isLoading = false;
+  bool _isLoadingRooms = true;
 
   // Controllers
   final _dateController = TextEditingController();
@@ -30,6 +32,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _hospitalNameController = TextEditingController();
   final _attendantNameController = TextEditingController();
   final _attendantAgeController = TextEditingController();
+  final _attendantCountController = TextEditingController();
   final _relationController = TextEditingController();
 
   // New field controllers
@@ -73,6 +76,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _hospitalNameController.dispose();
     _attendantNameController.dispose();
     _attendantAgeController.dispose();
+    _attendantCountController.dispose();
     _relationController.dispose();
     _registrationNumberController.dispose();
     _registrationDateController.dispose();
@@ -83,15 +87,22 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     super.dispose();
   }
 
-  /// Load all rooms (no filtering)
+  /// Load available rooms (filter out fully occupied rooms)
   Future<void> _loadAvailableRooms() async {
     try {
       final rooms = await ServiceLocator().roomService.getRoomsStream().first;
-      setState(() {
-        _availableRooms = rooms; // Show all rooms without filtering
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingRooms = false;
+          // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
+          _availableRooms = List.from(rooms)
+            ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
+        });
+      }
     } catch (e) {
-      // Silently fail - user can retry by reopening dialog
+      if (mounted) {
+        setState(() => _isLoadingRooms = false);
+      }
     }
   }
 
@@ -100,7 +111,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     setState(() {
       _selectedRoom = room;
       _selectedBeds = []; // Reset bed selection
+      // Only show available beds for selection
       _availableBeds = room?.beds.where((b) => b.isAvailable).toList() ?? [];
+
+      // For private rooms, automatically select ALL beds
+      if (room != null && room.isPrivate) {
+        _selectedBeds = List.from(room.beds);
+        // Set default attendant count to 1 if not already set
+        if (_attendantCountController.text.trim().isEmpty) {
+          _attendantCountController.text = '1';
+        }
+      }
     });
   }
 
@@ -187,7 +208,20 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter attendant name');
       return;
     }
-    
+
+    // Validate attendant count for private rooms
+    if (_selectedRoom?.isPrivate == true) {
+      final attendantCount = int.tryParse(
+        _attendantCountController.text.trim(),
+      );
+      if (attendantCount == null || attendantCount < 1 || attendantCount > 5) {
+        _showError(
+          'Please enter a valid attendant count (1-5) for private rooms',
+        );
+        return;
+      }
+    }
+
     // Room and bed validation
     if (_selectedRoom == null) {
       _showError('Please select a room');
@@ -212,12 +246,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       if (room == null) {
         throw Exception('Selected room no longer exists');
       }
-      
+
+      // Additional check for private rooms - ensure room is not occupied
+      if (room.isPrivate && room.derivedOccupancyStatus != 'available') {
+        throw Exception(
+          'Private room ${room.roomIdentifier} is no longer available. Please select another room.',
+        );
+      }
+
       // Check all selected beds are still available
       for (final selectedBed in _selectedBeds) {
         final bed = room.beds.where((b) => b.id == selectedBed.id).firstOrNull;
         if (bed == null || !bed.isAvailable) {
-          throw Exception('Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.');
+          throw Exception(
+            'Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.',
+          );
         }
       }
 
@@ -254,6 +297,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       if (_attendantAgeController.text.trim().isNotEmpty) {
         notesList.add('Attendant Age: ${_attendantAgeController.text.trim()}');
       }
+      if (_attendantCountController.text.trim().isNotEmpty) {
+        notesList.add(
+          'Attendant Count: ${_attendantCountController.text.trim()}',
+        );
+      }
       if (_relationController.text.trim().isNotEmpty) {
         notesList.add('Relation: ${_relationController.text.trim()}');
       }
@@ -273,6 +321,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         roomId: _selectedRoom!.id,
         roomNumber: _selectedRoom!.roomIdentifier,
         floor: _selectedRoom!.floor,
+        bedIds: _selectedBeds.map((b) => b.id).toList(),
+        bedLabels: _selectedBeds.map((b) => b.bedLabel).toList(),
         notes: notesList.isEmpty ? null : notesList.join('\n'),
         createdBy: currentUser.uid,
         registrationNumber: _registrationNumberController.text.trim().isNotEmpty
@@ -295,10 +345,12 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       );
 
       // Get attendant count (default to 1 if not specified)
-      final attendantCount = int.tryParse(_attendantAgeController.text.trim()) != null ? 1 : 1;
+      final attendantCount =
+          int.tryParse(_attendantCountController.text.trim()) ?? 1;
 
-      // Create a stay for each selected bed
-      for (final bed in _selectedBeds) {
+      // Handle stay creation based on room type
+      if (_selectedRoom!.isPrivate) {
+        // Private room: 1 patient + attendants, single stay for the room
         await roomService.createStay(
           patientId: patientId,
           patientName: _patientNameController.text.trim(),
@@ -308,19 +360,41 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           admissionDate: admissionDate,
           durationDays: 7, // Default 7 days
           attendantCount: attendantCount,
-          bedId: bed.id,
-          bedLabel: bed.bedLabel,
-          notes: _selectedBeds.length > 1 
-              ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
-              : 'Initial admission',
+          bedId: _selectedBeds.isNotEmpty ? _selectedBeds.first.id : null,
+          bedLabel: _selectedBeds.isNotEmpty
+              ? _selectedBeds.map((b) => b.bedLabel).join(", ")
+              : null,
+          notes: 'Private room admission with $attendantCount attendant(s)',
           createdBy: currentUser.uid,
         );
+      } else {
+        // General room: Create separate stay for each selected bed
+        for (final bed in _selectedBeds) {
+          await roomService.createStay(
+            patientId: patientId,
+            patientName: _patientNameController.text.trim(),
+            roomId: _selectedRoom!.id,
+            roomNumber: _selectedRoom!.roomIdentifier,
+            roomType: _selectedRoom!.roomType,
+            admissionDate: admissionDate,
+            durationDays: 7, // Default 7 days
+            attendantCount: 1, // General rooms: 1 attendant per bed
+            bedId: bed.id,
+            bedLabel: bed.bedLabel,
+            notes: _selectedBeds.length > 1
+                ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                : 'General ward admission',
+            createdBy: currentUser.uid,
+          );
+        }
       }
 
       if (mounted) {
         Navigator.of(context).pop();
         widget.onPatientAdded?.call();
-        _showSuccess('Patient admitted successfully with ${_selectedBeds.length} bed(s)');
+        _showSuccess(
+          'Patient admitted successfully with ${_selectedBeds.length} bed(s)',
+        );
       }
     } catch (e) {
       _showError('Failed to add patient: ${e.toString()}');
@@ -357,7 +431,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       child: Container(
         width: 620,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.97),
+          color: Colors.white.withValues(alpha: 0.97),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
         ),
@@ -366,26 +440,30 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _DialogHeader(),
+              const PatientDialogHeader(
+                title: "Add patient",
+                subtitle: "Fill in the details below to register a new patient",
+                icon: Icons.person_add_outlined,
+              ),
               Flexible(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _Section(
+                      PatientFormSection(
                         label: "Patient information",
                         child: Column(
                           children: [
-                            _Row2(
-                              _NatureField(
+                            PatientFormRow2(
+                              PatientFormField(
                                 label: "Date",
                                 hint: "",
                                 isDate: true,
                                 controller: _dateController,
                                 onTap: () => _selectDate(context),
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "File no",
                                 hint: "e.g. F-2024-001",
                                 controller: _fileNoController,
@@ -413,7 +491,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 hint: "Full name",
                                 controller: _patientNameController,
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Mobile no",
                                 hint: "+91 XXXXX XXXXX",
                                 keyboard: TextInputType.phone,
@@ -421,21 +499,22 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            _Row3(
-                              _NatureDropdown(
+                            PatientFormRow3(
+                              PatientFormDropdown(
                                 label: "Gender",
                                 items: const ["Male", "Female", "Other"],
+                                value: _selectedGender,
                                 onChanged: (value) {
                                   setState(() => _selectedGender = value);
                                 },
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Age",
                                 hint: "Years",
                                 keyboard: TextInputType.number,
                                 controller: _ageController,
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Pincode",
                                 hint: "000000",
                                 keyboard: TextInputType.number,
@@ -443,19 +522,19 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            _NatureField(
+                            PatientFormField(
                               label: "Permanent address",
                               hint: "Street, city, district",
                               controller: _addressController,
                             ),
                             const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
+                            PatientFormRow2(
+                              PatientFormField(
                                 label: "State",
                                 hint: "State",
                                 controller: _stateController,
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Mumbai local contact address",
                                 hint: "Local address",
                                 controller: _localAddressController,
@@ -465,23 +544,23 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Medical details",
                         child: Column(
                           children: [
-                            _NatureField(
+                            PatientFormField(
                               label: "Diagnosis",
                               hint: "Primary diagnosis",
                               controller: _diagnosisController,
                             ),
                             const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
+                            PatientFormRow2(
+                              PatientFormField(
                                 label: "Doctor name",
                                 hint: "Dr. name",
                                 controller: _doctorNameController,
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Hospital name",
                                 hint: "Hospital / clinic",
                                 controller: _hospitalNameController,
@@ -491,7 +570,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Attendant details",
                         child: _Row3(
                           _NatureField(

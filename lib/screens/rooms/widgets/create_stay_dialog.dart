@@ -3,6 +3,7 @@ import 'package:ngo/models/room_model.dart';
 import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
+import 'package:ngo/screens/rooms/widgets/create_stay_dialog_components.dart';
 
 class CreateStayDialog extends StatefulWidget {
   final RoomModel room;
@@ -20,7 +21,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
   int attendantCount = 1;
   BedModel? selectedBed;
   final TextEditingController notesController = TextEditingController();
-  
+
   bool isLoading = false;
   Map<String, dynamic>? pricing;
   double calculatedCost = 0;
@@ -56,8 +57,9 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
     if (widget.room.isPrivate) {
       final basePrice = (pricing!['privateRoomBasePrice'] ?? 600).toDouble();
       final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 2;
-      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200).toDouble();
-      
+      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200)
+          .toDouble();
+
       calculatedCost = RoomModel.calculatePrivateRoomCost(
         days: durationDays,
         attendants: attendantCount,
@@ -105,7 +107,9 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
         attendantCount: attendantCount,
         bedId: selectedBed?.id,
         bedLabel: selectedBed?.bedLabel,
-        notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+        notes: notesController.text.trim().isEmpty
+            ? null
+            : notesController.text.trim(),
         createdBy: user.email,
       );
 
@@ -128,7 +132,9 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -233,6 +239,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                     ),
                     const SizedBox(height: 8),
                     StreamBuilder<List<PatientModel>>(
+<<<<<<< HEAD
                       stream: ServiceLocator().patientService.getPatientsByStatus('active'),
                         builder: (context, snapshot) {
                           final patients = snapshot.data ?? [];
@@ -251,6 +258,44 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                               color: const Color(0xFFF4F9F0),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+=======
+                      stream: ServiceLocator().patientService
+                          .getPatientsByStatus('active'),
+                      builder: (context, snapshot) {
+                        final patients = snapshot.data ?? [];
+                        final availablePatients = patients
+                            .where((p) => p.roomId == null)
+                            .toList();
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F9F0),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFFC0DD97),
+                              width: 1,
+                            ),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<PatientModel>(
+                              value: selectedPatient,
+                              isExpanded: true,
+                              hint: const Text("Select a patient"),
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Color(0xFF639922),
+                              ),
+                              items: availablePatients.map((patient) {
+                                return DropdownMenuItem(
+                                  value: patient,
+                                  child: Text(patient.fullName),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() => selectedPatient = value);
+                              },
+>>>>>>> origin/sahil
                             ),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<PatientModel>(
@@ -292,11 +337,18 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                         decoration: BoxDecoration(
                           color: const Color(0xFFF4F9F0),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                          border: Border.all(
+                            color: const Color(0xFFC0DD97),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.calendar_today_rounded, color: Color(0xFF639922), size: 20),
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              color: Color(0xFF639922),
+                              size: 20,
+                            ),
                             const SizedBox(width: 12),
                             Text(
                               "${admissionDate.day}/${admissionDate.month}/${admissionDate.year}",
@@ -342,7 +394,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                             decoration: BoxDecoration(
                               color: const Color(0xFFF4F9F0),
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                              border: Border.all(
+                                color: const Color(0xFFC0DD97),
+                                width: 1,
+                              ),
                             ),
                             child: Text(
                               "$durationDays days",
@@ -381,27 +436,30 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      children: List.generate(
-                        widget.room.isPrivate ? 5 : 2,
-                        (index) {
-                          final count = index + 1;
-                          return Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(right: index < (widget.room.isPrivate ? 4 : 1) ? 8 : 0),
-                              child: _CountChip(
-                                count: count,
-                                isSelected: attendantCount == count,
-                                onTap: () {
-                                  setState(() {
-                                    attendantCount = count;
-                                    _calculateCost();
-                                  });
-                                },
-                              ),
+                      children: List.generate(widget.room.isPrivate ? 5 : 2, (
+                        index,
+                      ) {
+                        final count = index + 1;
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: index < (widget.room.isPrivate ? 4 : 1)
+                                  ? 8
+                                  : 0,
                             ),
-                          );
-                        },
-                      ),
+                            child: CreateStayCountChip(
+                              count: count,
+                              isSelected: attendantCount == count,
+                              onTap: () {
+                                setState(() {
+                                  attendantCount = count;
+                                  _calculateCost();
+                                });
+                              },
+                            ),
+                          ),
+                        );
+                      }),
                     ),
                     if (!widget.room.isPrivate && attendantCount == 2)
                       Padding(
@@ -411,16 +469,26 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFF3E0),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFFFB74D), width: 1),
+                            border: Border.all(
+                              color: const Color(0xFFFFB74D),
+                              width: 1,
+                            ),
                           ),
                           child: Row(
                             children: const [
-                              Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFFE65100)),
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 16,
+                                color: Color(0xFFE65100),
+                              ),
                               SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   "2nd attendant is self-expense (not included in package)",
-                                  style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFFE65100),
+                                  ),
                                 ),
                               ),
                             ],
@@ -430,7 +498,8 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                     const SizedBox(height: 20),
 
                     // Bed Selection (for general rooms with hierarchical beds)
-                    if (widget.room.isGeneral && widget.room.beds.isNotEmpty) ...[
+                    if (widget.room.isGeneral &&
+                        widget.room.beds.isNotEmpty) ...[
                       const Text(
                         "SELECT BED",
                         style: TextStyle(
@@ -441,7 +510,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _BedSelectionGrid(
+                      CreateStayBedSelectionGrid(
                         beds: widget.room.beds,
                         selectedBed: selectedBed,
                         onBedSelected: (bed) {
@@ -466,9 +535,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                         runSpacing: 8,
                         children: List.generate(widget.room.totalBeds, (index) {
                           final bedNum = index + 1;
-                          return _CountChip(
+                          return CreateStayCountChip(
                             count: bedNum,
-                            isSelected: selectedBed?.bedLabel == bedNum.toString(),
+                            isSelected:
+                                selectedBed?.bedLabel == bedNum.toString(),
                             onTap: () {
                               setState(() {
                                 selectedBed = BedModel(
@@ -491,7 +561,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                         decoration: BoxDecoration(
                           color: const Color(0xFFEAF3DE),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                          border: Border.all(
+                            color: const Color(0xFFC0DD97),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -533,17 +606,26 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                       maxLines: 2,
                       decoration: InputDecoration(
                         hintText: "Add any additional notes...",
-                        hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF97C459),
+                          fontSize: 14,
+                        ),
                         filled: true,
                         fillColor: const Color(0xFFF4F9F0),
                         contentPadding: const EdgeInsets.all(12),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFC0DD97),
+                            width: 1,
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF639922),
+                            width: 1.5,
+                          ),
                         ),
                       ),
                     ),
@@ -561,7 +643,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                   onPressed: isLoading ? null : () => Navigator.pop(context),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF639922),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                   ),
                   child: const Text("Cancel"),
                 ),
@@ -574,7 +659,9 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : const Icon(Icons.check_rounded, size: 18),
@@ -583,7 +670,10 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                     backgroundColor: const Color(0xFF3B6D11),
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -592,122 +682,6 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Bed Selection Grid with color-coded status
-class _BedSelectionGrid extends StatelessWidget {
-  final List<BedModel> beds;
-  final BedModel? selectedBed;
-  final Function(BedModel) onBedSelected;
-
-  const _BedSelectionGrid({
-    required this.beds,
-    required this.selectedBed,
-    required this.onBedSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: beds.map((bed) {
-        final isSelected = selectedBed?.id == bed.id;
-        final isAvailable = bed.isAvailable;
-
-        Color bgColor;
-        Color textColor;
-        Color borderColor;
-
-        if (isSelected) {
-          bgColor = const Color(0xFF3B6D11);
-          textColor = Colors.white;
-          borderColor = const Color(0xFF3B6D11);
-        } else if (!isAvailable) {
-          bgColor = const Color(0xFFFFE5E7);
-          textColor = const Color(0xFFD32F2F).withOpacity(0.5);
-          borderColor = const Color(0xFFE8B4B8);
-        } else {
-          bgColor = const Color(0xFFF4F9F0);
-          textColor = const Color(0xFF27500A);
-          borderColor = const Color(0xFFC0DD97);
-        }
-
-        return InkWell(
-          onTap: isAvailable ? () => onBedSelected(bed) : null,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: borderColor, width: 1.5),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isAvailable ? Icons.bed_outlined : Icons.bed_rounded,
-                  size: 16,
-                  color: textColor,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  bed.bedLabel,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _CountChip extends StatelessWidget {
-  final int count;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _CountChip({
-    required this.count,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-            width: 1.5,
-          ),
-        ),
-        child: Text(
-          "$count",
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: isSelected ? Colors.white : const Color(0xFF27500A),
-          ),
         ),
       ),
     );

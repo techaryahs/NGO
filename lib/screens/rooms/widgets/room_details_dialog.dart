@@ -93,7 +93,7 @@ class RoomDetailsDialog extends StatelessWidget {
                   Expanded(
                     child: _InfoItem(
                       label: "Status",
-                      value: room.status.toUpperCase(),
+                      value: room.derivedOccupancyStatus.toUpperCase().replaceAll('_', ' '),
                       icon: Icons.info_outline_rounded,
                     ),
                   ),
@@ -125,8 +125,8 @@ class RoomDetailsDialog extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Hierarchical Bed Display for General Rooms
-            if (room.isGeneral && room.beds.isNotEmpty) ...[
+            // Hierarchical Bed Display for all rooms with beds
+            if (room.beds.isNotEmpty) ...[
               const Text(
                 "Bed Status",
                 style: TextStyle(
@@ -152,7 +152,7 @@ class RoomDetailsDialog extends StatelessWidget {
                     color: Color(0xFF27500A),
                   ),
                 ),
-                if (room.isAvailable || (room.isGeneral && room.hasAvailableBeds))
+                if (room.isDerivedAvailable || room.isPartiallyOccupied)
                   ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);

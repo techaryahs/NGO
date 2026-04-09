@@ -1,12 +1,12 @@
-/// StayModel — RTDB-compatible data model for Stay Management.
+/// StayModel - RTDB-compatible data model for Stay Management.
 ///
 /// Tracks a patient's stay in a room, including:
-/// - Duration and expiry date calculation
-/// - Stay extensions (appended to extensions list)
+/// - Duration and expected discharge date
+/// - Stay extensions
 /// - Attendant tracking
-/// - Dynamic pricing breakdown
+/// - Pricing breakdown
 ///
-/// All dates stored as `millisecondsSinceEpoch` (int) in RTDB.
+/// All dates are stored as millisecondsSinceEpoch in RTDB.
 class StayModel {
   final String id;
   final String patientId;
@@ -15,31 +15,32 @@ class StayModel {
   final String roomNumber;
   final String roomType; // 'private' or 'general'
 
-  // ── Duration ──
+  // Duration
   final DateTime admissionDate;
-  final int durationDays; // original duration
-  final DateTime expiryDate; // calculated: admissionDate + durationDays
-  final int totalExtendedDays; // sum of all extensions
+  final int durationDays;
+  final DateTime expectedDischargeDate;
+  final DateTime expiryDate; // kept for backward compatibility
+  final int totalExtendedDays;
 
-  // ── Attendants ──
+  // Attendants
   final int attendantCount;
 
-  // ── Pricing ──
+  // Pricing
   final double totalCost;
   final double baseCost;
   final double extraAttendantCost;
 
-  // ── Extensions History ──
+  // Extensions history
   final List<StayExtension> extensions;
 
-  // ── Status ──
+  // Status
   final String status; // 'active', 'completed', 'cancelled'
 
-  // ── Bed (for general rooms) ──
+  // Bed (for general rooms)
   final int? bedNumber;
-  final String? bedId; // Reference to BedModel.id for hierarchical tracking
+  final String? bedId;
 
-  // ── Metadata ──
+  // Metadata
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -54,6 +55,7 @@ class StayModel {
     required this.roomType,
     required this.admissionDate,
     required this.durationDays,
+    required this.expectedDischargeDate,
     required this.expiryDate,
     this.totalExtendedDays = 0,
     this.attendantCount = 0,
@@ -70,26 +72,22 @@ class StayModel {
     required this.createdBy,
   });
 
-  // ── Computed Properties ──
-
   bool get isActive => status == 'active';
+
+  /// Uses expected discharge date plus extensions to determine effective expiry.
+  DateTime get effectiveExpiryDate {
+    return expectedDischargeDate.add(Duration(days: totalExtendedDays));
+  }
+
   bool get isExpired => DateTime.now().isAfter(effectiveExpiryDate);
+
   int get totalDays => durationDays + totalExtendedDays;
 
-  /// Effective expiry = admissionDate + durationDays + totalExtendedDays
-  DateTime get effectiveExpiryDate =>
-      admissionDate.add(Duration(days: totalDays));
+  int get daysRemaining => effectiveExpiryDate.difference(DateTime.now()).inDays;
 
-  /// Days remaining until expiry (negative = overdue)
-  int get daysRemaining =>
-      effectiveExpiryDate.difference(DateTime.now()).inDays;
-
-  /// Calculate expiry date from admission + days
   static DateTime calculateExpiryDate(DateTime admissionDate, int days) {
     return admissionDate.add(Duration(days: days));
   }
-
-  // ── Serialization ──
 
   Map<String, dynamic> toMap() {
     return {
@@ -101,6 +99,8 @@ class StayModel {
       'roomType': roomType,
       'admissionDate': admissionDate.millisecondsSinceEpoch,
       'durationDays': durationDays,
+      'expectedDischargeDate': expectedDischargeDate.millisecondsSinceEpoch,
+      // Keep legacy field while transitioning existing UI/logic.
       'expiryDate': expiryDate.millisecondsSinceEpoch,
       'totalExtendedDays': totalExtendedDays,
       'attendantCount': attendantCount,
@@ -120,31 +120,28 @@ class StayModel {
 
   Map<String, dynamic> toJson() => toMap();
 
-  // ── Deserialization ──
-
   factory StayModel.fromMap(String id, Map<dynamic, dynamic> data) {
-    // Parse extensions list
     final List<StayExtension> extensionsList = [];
     if (data['extensions'] != null) {
       if (data['extensions'] is List) {
         for (var ext in data['extensions']) {
           if (ext is Map) {
-            extensionsList.add(
-              StayExtension.fromMap(Map<String, dynamic>.from(ext)),
-            );
+            extensionsList.add(StayExtension.fromMap(Map<String, dynamic>.from(ext)));
           }
         }
       } else if (data['extensions'] is Map) {
         final extMap = Map<String, dynamic>.from(data['extensions']);
-        extMap.forEach((key, value) {
+        extMap.forEach((_, value) {
           if (value is Map) {
-            extensionsList.add(
-              StayExtension.fromMap(Map<String, dynamic>.from(value)),
-            );
+            extensionsList.add(StayExtension.fromMap(Map<String, dynamic>.from(value)));
           }
         });
       }
     }
+
+    final expectedDischarge = _parseDateTime(
+      data['expectedDischargeDate'] ?? data['expiryDate'],
+    );
 
     return StayModel(
       id: id,
@@ -155,7 +152,8 @@ class StayModel {
       roomType: _parseString(data['roomType'], fallback: 'general'),
       admissionDate: _parseDateTime(data['admissionDate']),
       durationDays: _parseInt(data['durationDays']),
-      expiryDate: _parseDateTime(data['expiryDate']),
+      expectedDischargeDate: expectedDischarge,
+      expiryDate: _parseDateTime(data['expiryDate'] ?? data['expectedDischargeDate']),
       totalExtendedDays: _parseInt(data['totalExtendedDays']),
       attendantCount: _parseInt(data['attendantCount']),
       totalCost: _parseDouble(data['totalCost']),
@@ -172,8 +170,6 @@ class StayModel {
     );
   }
 
-  // ── copyWith ──
-
   StayModel copyWith({
     String? id,
     String? patientId,
@@ -183,6 +179,7 @@ class StayModel {
     String? roomType,
     DateTime? admissionDate,
     int? durationDays,
+    DateTime? expectedDischargeDate,
     DateTime? expiryDate,
     int? totalExtendedDays,
     int? attendantCount,
@@ -207,6 +204,7 @@ class StayModel {
       roomType: roomType ?? this.roomType,
       admissionDate: admissionDate ?? this.admissionDate,
       durationDays: durationDays ?? this.durationDays,
+      expectedDischargeDate: expectedDischargeDate ?? this.expectedDischargeDate,
       expiryDate: expiryDate ?? this.expiryDate,
       totalExtendedDays: totalExtendedDays ?? this.totalExtendedDays,
       attendantCount: attendantCount ?? this.attendantCount,
@@ -223,8 +221,6 @@ class StayModel {
       createdBy: createdBy ?? this.createdBy,
     );
   }
-
-  // ── Helpers ──
 
   static String _parseString(dynamic value, {String fallback = ''}) {
     if (value == null) return fallback;
@@ -248,16 +244,15 @@ class StayModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double) {
-      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-    }
+    if (value is double) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }
 
   @override
-  String toString() =>
-      'StayModel(id: $id, patient: $patientName, room: $roomNumber, status: $status, daysLeft: $daysRemaining)';
+  String toString() {
+    return 'StayModel(id: $id, patient: $patientName, room: $roomNumber, status: $status, daysLeft: $daysRemaining)';
+  }
 }
 
 /// Extension record for tracking stay extensions.
@@ -296,9 +291,7 @@ class StayExtension {
           ? data['additionalCost']
           : (data['additionalCost'] is int
               ? (data['additionalCost'] as int).toDouble()
-              : double.tryParse(
-                      data['additionalCost']?.toString() ?? '0') ??
-                  0),
+              : double.tryParse(data['additionalCost']?.toString() ?? '0') ?? 0),
     );
   }
 }

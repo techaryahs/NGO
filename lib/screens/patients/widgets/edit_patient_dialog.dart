@@ -3,6 +3,7 @@ import '../../../models/patient_model.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../services/service_locator.dart';
+import 'patient_form_components.dart';
 
 class EditPatientDialog extends StatefulWidget {
   final PatientModel patient;
@@ -20,6 +21,7 @@ class EditPatientDialog extends StatefulWidget {
 
 class _EditPatientDialogState extends State<EditPatientDialog> {
   bool _isLoading = false;
+  bool _isLoadingRooms = true;
 
   // Controllers
   late TextEditingController _patientNameController;
@@ -33,7 +35,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
   String? _selectedGender;
   String? _selectedBloodType;
-  
+
   // Room and Bed Selection
   RoomModel? _selectedRoom;
   List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
@@ -41,23 +43,46 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   List<BedModel> _availableBeds = [];
   List<String> _currentStayIds = []; // Track multiple stays
 
-  final List<String> _bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+  final List<String> _bloodTypes = [
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O-',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _patientNameController = TextEditingController(text: widget.patient.fullName);
-    _mobileController = TextEditingController(text: widget.patient.contactNumber);
+    _patientNameController = TextEditingController(
+      text: widget.patient.fullName,
+    );
+    _mobileController = TextEditingController(
+      text: widget.patient.contactNumber,
+    );
     _ageController = TextEditingController(text: widget.patient.age.toString());
-    _diagnosisController = TextEditingController(text: widget.patient.medicalCondition);
-    _attendantNameController = TextEditingController(text: widget.patient.emergencyContactName);
-    _attendantContactController = TextEditingController(text: widget.patient.emergencyContact);
-    _allergiesController = TextEditingController(text: widget.patient.allergies ?? '');
+    _diagnosisController = TextEditingController(
+      text: widget.patient.medicalCondition,
+    );
+    _attendantNameController = TextEditingController(
+      text: widget.patient.emergencyContactName,
+    );
+    _attendantContactController = TextEditingController(
+      text: widget.patient.emergencyContact,
+    );
+    _allergiesController = TextEditingController(
+      text: widget.patient.allergies ?? '',
+    );
     _notesController = TextEditingController(text: widget.patient.notes ?? '');
-    
-    _selectedGender = widget.patient.gender[0].toUpperCase() + widget.patient.gender.substring(1);
+
+    _selectedGender =
+        widget.patient.gender[0].toUpperCase() +
+        widget.patient.gender.substring(1);
     _selectedBloodType = widget.patient.bloodType;
-    
+
     _loadRoomsAndCurrentStay();
   }
 
@@ -66,24 +91,30 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final rooms = await roomService.getRoomsStream().first;
-      
+
       // Load current stays to get bed info
       if (widget.patient.roomId != null) {
-        final stays = await roomService.getStaysByPatientStream(widget.patient.id).first;
+        final stays = await roomService
+            .getStaysByPatientStream(widget.patient.id)
+            .first;
         final activeStays = stays.where((s) => s.status == 'active').toList();
-        
+
         if (activeStays.isNotEmpty) {
           _currentStayIds = activeStays.map((s) => s.id).toList();
-          
+
           // Find current room and beds
-          final currentRoom = rooms.where((r) => r.id == widget.patient.roomId).firstOrNull;
+          final currentRoom = rooms
+              .where((r) => r.id == widget.patient.roomId)
+              .firstOrNull;
           if (currentRoom != null) {
             _selectedRoom = currentRoom;
-            
+
             // Collect all beds from active stays
             for (final stay in activeStays) {
               if (stay.bedId != null) {
-                final bed = currentRoom.beds.where((b) => b.id == stay.bedId).firstOrNull;
+                final bed = currentRoom.beds
+                    .where((b) => b.id == stay.bedId)
+                    .firstOrNull;
                 if (bed != null && !_selectedBeds.any((b) => b.id == bed.id)) {
                   _selectedBeds.add(bed);
                 }
@@ -92,17 +123,27 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           }
         }
       }
-      
-      setState(() {
-        _availableRooms = rooms;
-        if (_selectedRoom != null) {
-          _availableBeds = _selectedRoom!.beds.where((b) => 
-            b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id)
-          ).toList();
-        }
-      });
+
+      if (mounted) {
+        setState(() {
+          _isLoadingRooms = false;
+          _availableRooms = List.from(rooms)
+            ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
+
+          if (_selectedRoom != null) {
+            _availableBeds = _selectedRoom!.beds
+                .where(
+                  (b) =>
+                      b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id),
+                )
+                .toList();
+          }
+        });
+      }
     } catch (e) {
-      // Silently fail - user can still edit other fields
+      if (mounted) {
+        setState(() => _isLoadingRooms = false);
+      }
     }
   }
 
@@ -114,9 +155,19 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       if (room?.id != widget.patient.roomId) {
         _selectedBeds = [];
       }
-      _availableBeds = room?.beds.where((b) => 
-        b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id)
-      ).toList() ?? [];
+      _availableBeds =
+          room?.beds
+              .where(
+                (b) =>
+                    b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id),
+              )
+              .toList() ??
+          [];
+          
+      // For private rooms, automatically select ALL beds
+      if (room != null && room.isPrivate) {
+        _selectedBeds = List.from(room.beds);
+      }
     });
   }
 
@@ -165,7 +216,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
-      
+
       // Calculate new date of birth from age
       final age = int.tryParse(_ageController.text.trim()) ?? 0;
       final dateOfBirth = DateTime.now().subtract(Duration(days: age * 365));
@@ -179,49 +230,67 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'medicalCondition': _diagnosisController.text.trim(),
         'emergencyContactName': _attendantNameController.text.trim(),
         'emergencyContact': _attendantContactController.text.trim(),
-        'allergies': _allergiesController.text.trim().isEmpty 
-            ? null 
+        'allergies': _allergiesController.text.trim().isEmpty
+            ? null
             : _allergiesController.text.trim(),
         'bloodType': _selectedBloodType,
-        'notes': _notesController.text.trim().isEmpty 
-            ? null 
+        'notes': _notesController.text.trim().isEmpty
+            ? null
             : _notesController.text.trim(),
       };
 
       // Handle room/bed change
-      final roomChanged = _selectedRoom != null && _selectedRoom!.id != widget.patient.roomId;
-      final bedsChanged = _selectedBeds.isNotEmpty && 
-          !_selectedBeds.every((bed) => _currentStayIds.isNotEmpty);
-      
+      final roomChanged =
+          _selectedRoom != null && _selectedRoom!.id != widget.patient.roomId;
+      bool bedsChanged = false;
+      if (_selectedBeds.length != _currentStayIds.length) {
+        bedsChanged = true;
+      } else {
+        for (final bed in _selectedBeds) {
+          if (bed.currentStayId == null || !_currentStayIds.contains(bed.currentStayId)) {
+            bedsChanged = true;
+            break;
+          }
+        }
+      }
+
       if (roomChanged || bedsChanged) {
         if (_selectedRoom == null || _selectedBeds.isEmpty) {
           _showError('Please select room and at least one bed');
           setState(() => _isLoading = false);
           return;
         }
-        
+
         // Concurrency check: Re-fetch room to verify beds are still available
         final room = await roomService.getRoom(_selectedRoom!.id);
         if (room == null) {
           throw Exception('Selected room no longer exists');
         }
-        
+
         // Check all selected beds
         for (final selectedBed in _selectedBeds) {
-          final bed = room.beds.where((b) => b.id == selectedBed.id).firstOrNull;
-          if (bed == null || (!bed.isAvailable && !_currentStayIds.contains(bed.currentStayId))) {
-            throw Exception('Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.');
+          final bed = room.beds
+              .where((b) => b.id == selectedBed.id)
+              .firstOrNull;
+          if (bed == null ||
+              (!bed.isAvailable &&
+                  !_currentStayIds.contains(bed.currentStayId))) {
+            throw Exception(
+              'Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.',
+            );
           }
         }
-        
+
         // Complete all old stays
         for (final stayId in _currentStayIds) {
           await roomService.completeStay(stayId);
         }
-        
-        // Create new stays for each selected bed
+
+        // Create new stays for selected bed(s)
         final currentUser = ServiceLocator().authRestService.currentUser;
-        for (final bed in _selectedBeds) {
+        if (_selectedRoom!.isPrivate) {
+          // For private rooms, we only need to create one stay which reserves the whole room
+          final bed = _selectedBeds.first;
           await roomService.createStay(
             patientId: widget.patient.id,
             patientName: _patientNameController.text.trim(),
@@ -238,12 +307,31 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                 : 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
             createdBy: currentUser?.uid ?? 'system',
           );
+        } else {
+          for (final bed in _selectedBeds) {
+            await roomService.createStay(
+              patientId: widget.patient.id,
+              patientName: _patientNameController.text.trim(),
+              roomId: _selectedRoom!.id,
+              roomNumber: _selectedRoom!.roomIdentifier,
+              roomType: _selectedRoom!.roomType,
+              admissionDate: widget.patient.admissionDate,
+              durationDays: 7, // Default duration
+              attendantCount: 1,
+              bedId: bed.id,
+              bedLabel: bed.bedLabel,
+              notes: 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
+              createdBy: currentUser?.uid ?? 'system',
+            );
+          }
         }
-        
+
         // Update patient room info
         updates['roomId'] = _selectedRoom!.id;
         updates['roomNumber'] = _selectedRoom!.roomIdentifier;
         updates['floor'] = _selectedRoom!.floor;
+        updates['bedIds'] = _selectedBeds.map((b) => b.id).toList();
+        updates['bedLabels'] = _selectedBeds.map((b) => b.bedLabel).toList();
       }
 
       await patientService.updatePatient(widget.patient.id, updates);
@@ -289,7 +377,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         width: 620,
         constraints: const BoxConstraints(maxHeight: 700),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.97),
+          color: Colors.white.withValues(alpha: 0.97),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
         ),
@@ -299,62 +387,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Header
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF4F9F0),
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF3DE),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFFC0DD97),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.edit_outlined,
-                        color: Color(0xFF3B6D11),
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Edit patient",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF27500A),
-                            ),
-                          ),
-                          Text(
-                            "Update patient information",
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF639922),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                      color: const Color(0xFF639922),
-                    ),
-                  ],
+              PatientDialogHeader(
+                title: "Edit patient",
+                subtitle: "Update patient information",
+                icon: Icons.edit_outlined,
+                trailing: IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                  color: const Color(0xFF639922),
                 ),
               ),
 
@@ -365,24 +405,24 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _Section(
+                      PatientFormSection(
                         label: "Personal Information",
                         child: Column(
                           children: [
-                            _NatureField(
+                            PatientFormField(
                               label: "Patient name",
                               hint: "Full name",
                               controller: _patientNameController,
                             ),
                             const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
+                            PatientFormRow2(
+                              PatientFormField(
                                 label: "Mobile no",
                                 hint: "+91 XXXXX XXXXX",
                                 keyboard: TextInputType.phone,
                                 controller: _mobileController,
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Age",
                                 hint: "Years",
                                 keyboard: TextInputType.number,
@@ -390,7 +430,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            _NatureDropdown(
+                            PatientFormDropdown(
                               label: "Gender",
                               items: const ["Male", "Female", "Other"],
                               value: _selectedGender,
@@ -402,18 +442,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Medical Information",
                         child: Column(
                           children: [
-                            _NatureField(
+                            PatientFormField(
                               label: "Diagnosis",
                               hint: "Primary diagnosis",
                               controller: _diagnosisController,
                             ),
                             const SizedBox(height: 12),
-                            _Row2(
-                              _NatureDropdown(
+                            PatientFormRow2(
+                              PatientFormDropdown(
                                 label: "Blood Type",
                                 items: _bloodTypes,
                                 value: _selectedBloodType,
@@ -421,7 +461,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                   setState(() => _selectedBloodType = value);
                                 },
                               ),
-                              _NatureField(
+                              PatientFormField(
                                 label: "Allergies",
                                 hint: "Known allergies",
                                 controller: _allergiesController,
@@ -431,15 +471,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Emergency Contact",
-                        child: _Row2(
-                          _NatureField(
+                        child: PatientFormRow2(
+                          PatientFormField(
                             label: "Contact Name",
                             hint: "Full name",
                             controller: _attendantNameController,
                           ),
-                          _NatureField(
+                          PatientFormField(
                             label: "Contact Number",
                             hint: "Phone number",
                             keyboard: TextInputType.phone,
@@ -448,9 +488,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Additional Notes",
-                        child: _NatureField(
+                        child: PatientFormField(
                           label: "Notes",
                           hint: "Any additional information",
                           controller: _notesController,
@@ -458,23 +498,77 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      _Section(
+                      PatientFormSection(
                         label: "Room Assignment",
-                        child: Column(
+                        child: _isLoadingRooms
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(vertical: 24),
+                                child: const Column(
+                                  children: [
+                                    SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          Color(0xFF3B6D11),
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(height: 12),
+                                    Text(
+                                      'Loading rooms...',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF639922),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _RoomDropdown(
+                            PatientRoomDropdown(
                               label: "Room",
                               rooms: _availableRooms,
                               selectedRoom: _selectedRoom,
+                              isRoomEnabled: (room) {
+                                if (room.id == widget.patient.roomId) return true;
+                                if (room.isPrivate) return room.occupiedCount == 0;
+                                return room.occupiedCount < room.actualTotalBeds;
+                              },
+                              itemBuilder: (room, enabled) {
+                                String subtitle;
+                                if (room.id == widget.patient.roomId) {
+                                  subtitle = ' - Current';
+                                } else if (!enabled && room.expectedVacancyDate != null) {
+                                  final date = room.expectedVacancyDate!;
+                                  subtitle = ' - Expected Free: ${date.day}/${date.month}/${date.year}';
+                                } else if (!enabled) {
+                                  subtitle = ' - Full';
+                                } else if (room.isPrivate) {
+                                  subtitle = ' - Available';
+                                } else {
+                                  subtitle = ' - ${room.actualAvailableBeds} beds available';
+                                }
+                                return Text(
+                                  '${room.roomIdentifier}$subtitle',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: enabled ? const Color(0xFF27500A) : const Color(0xFF999999),
+                                  ),
+                                );
+                              },
                               onChanged: _onRoomSelected,
                             ),
                             if (_selectedRoom != null) ...[
                               const SizedBox(height: 12),
-                              _BedSelection(
+                              PatientBedSelection(
                                 label: "Bed",
                                 beds: _availableBeds,
                                 selectedBeds: _selectedBeds,
+                                isPrivateRoom: _selectedRoom?.isPrivate ?? false,
                                 onChanged: (beds) {
                                   setState(() => _selectedBeds = beds);
                                 },
@@ -488,70 +582,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                 ),
               ),
 
-              // Footer
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF4F9F0),
-                  border: Border(
-                    top: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: _isLoading ? null : () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF639922),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: const BorderSide(color: Color(0xFFC0DD97)),
-                        ),
-                      ),
-                      child: const Text("Cancel", style: TextStyle(fontSize: 13)),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _updatePatient,
-                      icon: _isLoading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFEAF3DE),
-                                ),
-                              ),
-                            )
-                          : const Icon(Icons.check_rounded, size: 16),
-                      label: Text(
-                        _isLoading ? "Updating..." : "Update patient",
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3B6D11),
-                        foregroundColor: const Color(0xFFEAF3DE),
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              PatientDialogFooter(
+                onCancel: () => Navigator.pop(context),
+                onSave: _isLoading ? null : _updatePatient,
+                isLoading: _isLoading,
+                submitLabel: 'Update patient',
               ),
             ],
           ),
@@ -560,394 +595,3 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     );
   }
 }
-
-// Section
-class _Section extends StatelessWidget {
-  final String label;
-  final Widget child;
-  const _Section({required this.label, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF639922),
-                letterSpacing: 0.6,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Divider(color: Color(0xFFC0DD97), thickness: 0.5),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        child,
-      ],
-    );
-  }
-}
-
-// Row2 helper
-class _Row2 extends StatelessWidget {
-  final Widget a, b;
-  const _Row2(this.a, this.b);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: a),
-        const SizedBox(width: 12),
-        Expanded(child: b),
-      ],
-    );
-  }
-}
-
-// Field
-class _NatureField extends StatelessWidget {
-  final String label;
-  final String hint;
-  final TextInputType keyboard;
-  final TextEditingController? controller;
-  final int maxLines;
-
-  const _NatureField({
-    required this.label,
-    required this.hint,
-    this.keyboard = TextInputType.text,
-    this.controller,
-    this.maxLines = 1,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF27500A),
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 5),
-        TextField(
-          controller: controller,
-          keyboardType: keyboard,
-          maxLines: maxLines,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(
-              color: const Color(0xFF97C459).withOpacity(0.75),
-              fontSize: 13,
-            ),
-            filled: true,
-            fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// Dropdown
-class _NatureDropdown extends StatelessWidget {
-  final String label;
-  final List<String> items;
-  final String? value;
-  final ValueChanged<String?>? onChanged;
-
-  const _NatureDropdown({
-    required this.label,
-    required this.items,
-    this.value,
-    this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF27500A),
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 5),
-        DropdownButtonFormField<String>(
-          value: value,
-          hint: Text(
-            "Select",
-            style: TextStyle(
-              color: const Color(0xFF97C459).withOpacity(0.75),
-              fontSize: 13,
-            ),
-          ),
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
-          dropdownColor: const Color(0xFFF4F9F0),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-            ),
-          ),
-          icon: const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: Color(0xFF639922),
-            size: 20,
-          ),
-          items: items
-              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-              .toList(),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-}
-
-// Room Dropdown
-class _RoomDropdown extends StatelessWidget {
-  final String label;
-  final List<RoomModel> rooms;
-  final RoomModel? selectedRoom;
-  final ValueChanged<RoomModel?>? onChanged;
-
-  const _RoomDropdown({
-    required this.label,
-    required this.rooms,
-    this.selectedRoom,
-    this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF27500A),
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: 5),
-        DropdownButtonFormField<RoomModel>(
-          value: selectedRoom,
-          hint: Text(
-            "Select room",
-            style: TextStyle(color: const Color(0xFF97C459).withOpacity(0.75), fontSize: 13),
-          ),
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
-          dropdownColor: const Color(0xFFF4F9F0),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-            ),
-          ),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 20),
-          items: rooms.map((room) {
-            final floorName = room.floor == 1 ? 'Ground' : 'First';
-            final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
-            final availableBeds = room.actualAvailableBeds;
-            
-            return DropdownMenuItem(
-              value: room,
-              child: Text(
-                '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds beds available',
-                style: const TextStyle(fontSize: 13),
-              ),
-            );
-          }).toList(),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-}
-
-// Bed Selection
-class _BedSelection extends StatelessWidget {
-  final String label;
-  final List<BedModel> beds;
-  final List<BedModel> selectedBeds;
-  final ValueChanged<List<BedModel>>? onChanged;
-
-  const _BedSelection({
-    required this.label,
-    required this.beds,
-    required this.selectedBeds,
-    this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF27500A),
-                letterSpacing: 0.5,
-              ),
-            ),
-            if (selectedBeds.isNotEmpty)
-              Text(
-                '${selectedBeds.length} selected',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF3B6D11),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (beds.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF3CD),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFFE69C)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Color(0xFF856404), size: 16),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'No beds available in this room',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF856404)),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: beds.map((bed) {
-                  final isSelected = selectedBeds.any((b) => b.id == bed.id);
-                  return FilterChip(
-                    label: Text('Bed ${bed.bedLabel}'),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      final newSelection = List<BedModel>.from(selectedBeds);
-                      if (selected) {
-                        newSelection.add(bed);
-                      } else {
-                        newSelection.removeWhere((b) => b.id == bed.id);
-                      }
-                      onChanged?.call(newSelection);
-                    },
-                    backgroundColor: const Color(0xFFF4F9F0),
-                    selectedColor: const Color(0xFF3B6D11),
-                    checkmarkColor: Colors.white,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? Colors.white : const Color(0xFF27500A),
-                    ),
-                    side: BorderSide(
-                      color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-                      width: 1,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E0),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF3B6D11)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'You can select multiple beds for patient + attendants',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF3B6D11),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-
-}
-

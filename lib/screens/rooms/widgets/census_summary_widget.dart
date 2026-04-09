@@ -39,17 +39,15 @@ class CensusSummaryWidget extends StatelessWidget {
 
             final rooms = roomsSnapshot.data ?? [];
 
-            // Calculate per-floor stats
+            // Calculate per-floor stats using derived occupancy
             final floor1Rooms = rooms.where((r) => r.floor == 1).toList();
             final floor2Rooms = rooms.where((r) => r.floor == 2).toList();
 
-            final floor1Patients = floor1Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds) +
-                floor1Rooms.where((r) => r.isPrivate && r.isOccupied).length;
-            final floor1VacantBeds = floor1Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualAvailableBeds);
+            final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+            final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
 
-            final floor2Patients = floor2Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds) +
-                floor2Rooms.where((r) => r.isPrivate && r.isOccupied).length;
-            final floor2VacantBeds = floor2Rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualAvailableBeds);
+            final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+            final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
 
             return Container(
               padding: const EdgeInsets.all(20),
