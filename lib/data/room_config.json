@@ -1,0 +1,25 @@
+{
+  "floors": [
+    {
+      "floor_number": 1,
+      "private_rooms": ["1A"],
+      "general_wards": ["1B", "1C", "1D"]
+    },
+    {
+      "floor_number": 2,
+      "private_rooms": ["2A", "2B"],
+      "general_wards": ["2C", "2D", "2E"]
+    }
+  ],
+  "default_bed_counts": {
+    "1A": 2,
+    "1B": 5,
+    "1C": 4,
+    "1D": 12,
+    "2A": 2,
+    "2B": 2,
+    "2C": 5,
+    "2D": 4,
+    "2E": 12
+  }
+}

@@ -37,6 +37,7 @@ class StayModel {
 
   // ── Bed (for general rooms) ──
   final int? bedNumber;
+  final String? bedId; // Reference to BedModel.id for hierarchical tracking
 
   // ── Metadata ──
   final String? notes;
@@ -62,6 +63,7 @@ class StayModel {
     this.extensions = const [],
     required this.status,
     this.bedNumber,
+    this.bedId,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -108,6 +110,7 @@ class StayModel {
       'extensions': extensions.map((e) => e.toMap()).toList(),
       'status': status,
       'bedNumber': bedNumber,
+      'bedId': bedId,
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -161,6 +164,7 @@ class StayModel {
       extensions: extensionsList,
       status: _parseString(data['status'], fallback: 'active'),
       bedNumber: data['bedNumber'] != null ? _parseInt(data['bedNumber']) : null,
+      bedId: data['bedId']?.toString(),
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
@@ -188,6 +192,7 @@ class StayModel {
     List<StayExtension>? extensions,
     String? status,
     int? bedNumber,
+    String? bedId,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -211,6 +216,7 @@ class StayModel {
       extensions: extensions ?? this.extensions,
       status: status ?? this.status,
       bedNumber: bedNumber ?? this.bedNumber,
+      bedId: bedId ?? this.bedId,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

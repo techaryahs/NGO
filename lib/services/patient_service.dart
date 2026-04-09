@@ -1,6 +1,7 @@
 import 'dart:async';
 import '../models/patient_model.dart';
 import 'firebase_rtdb_rest_service.dart';
+import 'service_locator.dart';
 
 /// Service layer for all patient-related RTDB operations.
 ///
@@ -242,8 +243,24 @@ class PatientService {
   // ===========================================================================
 
   /// Discharges a patient: sets status to 'discharged' and clears room.
+  /// Also releases the bed by completing the active stay.
   Future<void> dischargePatient(String patientId) async {
     try {
+      // Get patient to find their room/bed
+      final patient = await getPatient(patientId);
+      if (patient == null) throw Exception('Patient not found');
+      
+      // Find active stay for this patient
+      final roomService = ServiceLocator().roomService;
+      final stays = await roomService.getStaysByPatientStream(patientId).first;
+      final activeStay = stays.where((s) => s.status == 'active').firstOrNull;
+      
+      // Complete the stay (this releases the bed)
+      if (activeStay != null) {
+        await roomService.completeStay(activeStay.id);
+      }
+      
+      // Update patient status
       await updatePatient(patientId, {
         'status': 'discharged',
         'roomId': null,
