@@ -28,10 +28,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   late TextEditingController _mobileController;
   late TextEditingController _ageController;
   late TextEditingController _diagnosisController;
-  late TextEditingController _attendantNameController;
-  late TextEditingController _attendantContactController;
   late TextEditingController _allergiesController;
   late TextEditingController _notesController;
+
+  final List<_AttendantEntry> _attendants = [];
 
   String? _selectedGender;
   String? _selectedBloodType;
@@ -67,15 +67,27 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _diagnosisController = TextEditingController(
       text: widget.patient.medicalCondition,
     );
-    _attendantNameController = TextEditingController(
-      text: widget.patient.emergencyContactName,
-    );
-    _attendantContactController = TextEditingController(
-      text: widget.patient.emergencyContact,
-    );
     _allergiesController = TextEditingController(
       text: widget.patient.allergies ?? '',
     );
+    
+    // Initialize attendants
+    if (widget.patient.attendants != null && widget.patient.attendants!.isNotEmpty) {
+      for (final att in widget.patient.attendants!) {
+        final entry = _AttendantEntry();
+        entry.nameController.text = att.name;
+        entry.ageController.text = att.age ?? '';
+        entry.relationController.text = att.relation ?? '';
+        _attendants.add(entry);
+      }
+    } else {
+      // Fallback for legacy patients
+      final entry = _AttendantEntry();
+      if (widget.patient.emergencyContactName.isNotEmpty) {
+        entry.nameController.text = widget.patient.emergencyContactName;
+      }
+      _attendants.add(entry);
+    }
     _notesController = TextEditingController(text: widget.patient.notes ?? '');
 
     _selectedGender =
@@ -177,10 +189,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _mobileController.dispose();
     _ageController.dispose();
     _diagnosisController.dispose();
-    _attendantNameController.dispose();
-    _attendantContactController.dispose();
     _allergiesController.dispose();
     _notesController.dispose();
+    for (final att in _attendants) {
+      att.dispose();
+    }
     super.dispose();
   }
 
@@ -206,8 +219,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_attendantNameController.text.trim().isEmpty) {
-      _showError('Please enter attendant name');
+    if (_attendants.isEmpty || _attendants.first.nameController.text.trim().isEmpty) {
+      _showError('Please enter at least one attendant name');
       return;
     }
 
@@ -221,6 +234,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final age = int.tryParse(_ageController.text.trim()) ?? 0;
       final dateOfBirth = DateTime.now().subtract(Duration(days: age * 365));
 
+      final structuredAttendants = <AttendantModel>[];
+      for (final att in _attendants) {
+        final name = att.nameController.text.trim();
+        if (name.isNotEmpty) {
+          structuredAttendants.add(AttendantModel(
+            name: name,
+            age: att.ageController.text.trim().isNotEmpty ? att.ageController.text.trim() : null,
+            relation: att.relationController.text.trim().isNotEmpty ? att.relationController.text.trim() : null,
+          ));
+        }
+      }
+
       final updates = <String, dynamic>{
         'fullName': _patientNameController.text.trim(),
         'contactNumber': _mobileController.text.trim(),
@@ -228,8 +253,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'dateOfBirth': dateOfBirth.millisecondsSinceEpoch,
         'age': age,
         'medicalCondition': _diagnosisController.text.trim(),
-        'emergencyContactName': _attendantNameController.text.trim(),
-        'emergencyContact': _attendantContactController.text.trim(),
+        'emergencyContactName': structuredAttendants.isNotEmpty ? structuredAttendants.first.name : '',
         'allergies': _allergiesController.text.trim().isEmpty
             ? null
             : _allergiesController.text.trim(),
@@ -237,6 +261,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'notes': _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        'attendants': structuredAttendants.map((a) => a.toMap()).toList(),
       };
 
       // Handle room/bed change
@@ -472,19 +497,119 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                       ),
                       const SizedBox(height: 20),
                       PatientFormSection(
-                        label: "Emergency Contact",
-                        child: PatientFormRow2(
-                          PatientFormField(
-                            label: "Contact Name",
-                            hint: "Full name",
-                            controller: _attendantNameController,
-                          ),
-                          PatientFormField(
-                            label: "Contact Number",
-                            hint: "Phone number",
-                            keyboard: TextInputType.phone,
-                            controller: _attendantContactController,
-                          ),
+                        label: "Attendant details",
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (int i = 0; i < _attendants.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF4F9F0),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                                  ),
+                                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 12),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 22,
+                                        height: 22,
+                                        margin: const EdgeInsets.only(top: 18, right: 8),
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF3B6D11),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            '${i + 1}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _Row3(
+                                          _NatureField(
+                                            label: "Attendant name",
+                                            hint: "Full name",
+                                            controller: _attendants[i].nameController,
+                                          ),
+                                          _NatureField(
+                                            label: "Age",
+                                            hint: "Years",
+                                            keyboard: TextInputType.number,
+                                            controller: _attendants[i].ageController,
+                                          ),
+                                          _NatureField(
+                                            label: "Relation",
+                                            hint: "e.g. Spouse",
+                                            controller: _attendants[i].relationController,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_attendants.length > 1)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 14),
+                                          child: IconButton(
+                                            icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFD32F2F), size: 20),
+                                            tooltip: "Remove attendant",
+                                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            onPressed: () {
+                                              setState(() {
+                                                _attendants[i].dispose();
+                                                _attendants.removeAt(i);
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            // ── Add Attendant Button ──
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _attendants.add(_AttendantEntry());
+                                });
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEAF3DE),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFF3B6D11),
+                                    width: 1,
+                                    style: BorderStyle.solid,
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_circle_rounded, size: 18, color: Color(0xFF3B6D11)),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      "Add another attendant",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF3B6D11),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -577,6 +702,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                           ],
                         ),
                       ),
+                      const SizedBox(height: 20),
+                      // ── Payment Summary ──
+                      _PaymentSummary(
+                        bedsCount: _selectedBeds.length,
+                        attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
+                        roomIdentifier: _selectedRoom?.roomIdentifier,
+                      ),
                     ],
                   ),
                 ),
@@ -592,6 +725,329 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Components required inside this dialog ────────────────────────────────────
+
+class _AttendantEntry {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController ageController = TextEditingController();
+  final TextEditingController relationController = TextEditingController();
+
+  void dispose() {
+    nameController.dispose();
+    ageController.dispose();
+    relationController.dispose();
+  }
+}
+
+class _Row3 extends StatelessWidget {
+  final Widget a, b, c;
+  const _Row3(this.a, this.b, this.c);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: a),
+        const SizedBox(width: 12),
+        Expanded(child: b),
+        const SizedBox(width: 12),
+        Expanded(child: c),
+      ],
+    );
+  }
+}
+
+class _NatureField extends StatelessWidget {
+  final String label;
+  final String hint;
+  final bool isDate;
+  final TextInputType keyboard;
+  final TextEditingController? controller;
+  final VoidCallback? onTap;
+
+  const _NatureField({
+    required this.label,
+    required this.hint,
+    this.isDate = false,
+    this.keyboard = TextInputType.text,
+    this.controller,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF27500A),
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 5),
+        TextField(
+          controller: controller,
+          readOnly: isDate,
+          onTap: onTap,
+          keyboardType: isDate ? TextInputType.datetime : keyboard,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
+          decoration: InputDecoration(
+            hintText: isDate ? "DD / MM / YYYY" : hint,
+            hintStyle: TextStyle(
+              color: const Color(0xFF97C459).withValues(alpha: 0.75),
+              fontSize: 13,
+            ),
+            suffixIcon: isDate
+                ? const Icon(Icons.calendar_today_outlined, color: Color(0xFF639922), size: 16)
+                : null,
+            filled: true,
+            fillColor: const Color(0xFFF4F9F0),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaymentSummary extends StatelessWidget {
+  final int bedsCount;
+  final int attendantsCount;
+  final bool isPrivateRoom;
+  final String? roomIdentifier;
+
+  static const double _bedRatePerDay = 500.0;         // ₹ per bed per day
+  static const double _attendantRatePerDay = 150.0;   // ₹ per attendant per day
+  static const int _defaultDays = 7;                  // default stay duration
+
+  const _PaymentSummary({
+    required this.bedsCount,
+    required this.attendantsCount,
+    required this.isPrivateRoom,
+    this.roomIdentifier,
+  });
+
+  String _fmt(double amount) {
+    if (amount >= 1000) {
+      return '₹${amount.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'),
+        (m) => '${m[1]},',
+      )}';
+    }
+    return '₹${amount.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (roomIdentifier == null) return const SizedBox.shrink();
+
+    final bedTotal = bedsCount * _bedRatePerDay * _defaultDays;
+    final attendantTotal = attendantsCount * _attendantRatePerDay * _defaultDays;
+    final grandTotal = bedTotal + attendantTotal;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF3B6D11), Color(0xFF5A9A1A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF3B6D11).withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              children: [
+                const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'PAYMENT SUMMARY',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$_defaultDays-day estimate',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              children: [
+                _SummaryRow(
+                  icon: Icons.bed_outlined,
+                  label: 'Beds',
+                  count: bedsCount,
+                  rate: _bedRatePerDay,
+                  total: bedTotal,
+                  days: _defaultDays,
+                ),
+                const SizedBox(height: 8),
+                _SummaryRow(
+                  icon: Icons.person_outline_rounded,
+                  label: 'Attendants',
+                  count: attendantsCount,
+                  rate: _attendantRatePerDay,
+                  total: attendantTotal,
+                  days: _defaultDays,
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Estimated Total',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  _fmt(grandTotal),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.15),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+            ),
+            child: const Text(
+              '* Estimate based on standard rates. Actual charges may vary.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 9.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int count;
+  final double rate;
+  final double total;
+  final int days;
+
+  const _SummaryRow({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.rate,
+    required this.total,
+    required this.days,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isZero = count == 0;
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 15),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$label × $count',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Text(
+          isZero ? '—' : '₹${rate.toStringAsFixed(0)}/day × $days days',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 10.5,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 72,
+          child: Text(
+            isZero ? '₹0' : '₹${total.toStringAsFixed(0)}',
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

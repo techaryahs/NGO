@@ -1,3 +1,28 @@
+/// AttendantModel — RTDB-compatible data model for patient attendants.
+class AttendantModel {
+  final String name;
+  final String? age;
+  final String? relation;
+
+  AttendantModel({required this.name, this.age, this.relation});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'age': age,
+      'relation': relation,
+    };
+  }
+
+  factory AttendantModel.fromMap(Map<dynamic, dynamic> data) {
+    return AttendantModel(
+      name: data['name']?.toString() ?? '',
+      age: data['age']?.toString(),
+      relation: data['relation']?.toString(),
+    );
+  }
+}
+
 /// PatientModel — RTDB-compatible data model.
 ///
 /// All dates are stored as `millisecondsSinceEpoch` (int) in RTDB.
@@ -37,6 +62,9 @@ class PatientModel {
   final String? modeOfPayment;
   final String? utiNumber;
 
+  // ── Structured Attendants ─────────────────────────────────────────────────
+  final List<AttendantModel>? attendants;
+
   PatientModel({
     required this.id,
     required this.fullName,
@@ -68,6 +96,7 @@ class PatientModel {
     this.receiptNumber,
     this.modeOfPayment,
     this.utiNumber,
+    this.attendants,
   });
 
   // ---------------------------------------------------------------------------
@@ -107,6 +136,7 @@ class PatientModel {
       'receiptNumber': receiptNumber,
       'modeOfPayment': modeOfPayment,
       'utiNumber': utiNumber,
+      'attendants': attendants?.map((a) => a.toMap()).toList(),
     };
   }
 
@@ -155,6 +185,11 @@ class PatientModel {
       receiptNumber: data['receiptNumber']?.toString(),
       modeOfPayment: data['modeOfPayment']?.toString(),
       utiNumber: data['utiNumber']?.toString(),
+      attendants: data['attendants'] != null
+          ? (data['attendants'] as List)
+              .map((a) => AttendantModel.fromMap(Map<String, dynamic>.from(a as Map)))
+              .toList()
+          : null,
     );
   }
 
@@ -231,6 +266,7 @@ class PatientModel {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    List<AttendantModel>? attendants,
   }) {
     return PatientModel(
       id: id ?? this.id,
@@ -263,6 +299,7 @@ class PatientModel {
       receiptNumber: receiptNumber ?? this.receiptNumber,
       modeOfPayment: modeOfPayment ?? this.modeOfPayment,
       utiNumber: utiNumber ?? this.utiNumber,
+      attendants: attendants ?? this.attendants,
     );
   }
 

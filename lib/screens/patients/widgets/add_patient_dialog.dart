@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
+import '../../../models/patient_model.dart';
 import 'patient_form_components.dart';
+import 'payment_dialog.dart';
 
 class AddPatientDialog extends StatefulWidget {
   final Function()? onPatientAdded;
@@ -30,10 +32,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _diagnosisController = TextEditingController();
   final _doctorNameController = TextEditingController();
   final _hospitalNameController = TextEditingController();
-  final _attendantNameController = TextEditingController();
-  final _attendantAgeController = TextEditingController();
   final _attendantCountController = TextEditingController();
-  final _relationController = TextEditingController();
+  
+  // List to hold multiple attendants
+  final List<_AttendantEntry> _attendants = [_AttendantEntry()];
 
   // New field controllers
   final _registrationNumberController = TextEditingController();
@@ -74,10 +76,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _diagnosisController.dispose();
     _doctorNameController.dispose();
     _hospitalNameController.dispose();
-    _attendantNameController.dispose();
-    _attendantAgeController.dispose();
+    for (final attendant in _attendants) {
+      attendant.dispose();
+    }
     _attendantCountController.dispose();
-    _relationController.dispose();
     _registrationNumberController.dispose();
     _registrationDateController.dispose();
     _panCardController.dispose();
@@ -182,6 +184,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     }
   }
 
+  /// Step 1 — Validate form, show payment dialog, then save on confirmation.
   Future<void> _savePatient() async {
     // Validation
     if (_patientNameController.text.trim().isEmpty) {
@@ -204,25 +207,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_attendantNameController.text.trim().isEmpty) {
-      _showError('Please enter attendant name');
+    if (_attendants.isEmpty || _attendants.first.nameController.text.trim().isEmpty) {
+      _showError('Please enter at least one attendant name');
       return;
     }
-
-    // Validate attendant count for private rooms
     if (_selectedRoom?.isPrivate == true) {
-      final attendantCount = int.tryParse(
-        _attendantCountController.text.trim(),
-      );
+      final attendantCount = int.tryParse(_attendantCountController.text.trim());
       if (attendantCount == null || attendantCount < 1 || attendantCount > 5) {
-        _showError(
-          'Please enter a valid attendant count (1-5) for private rooms',
-        );
+        _showError('Please enter a valid attendant count (1-5) for private rooms');
         return;
       }
     }
-
-    // Room and bed validation
     if (_selectedRoom == null) {
       _showError('Please select a room');
       return;
@@ -232,6 +227,22 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       return;
     }
 
+    // Show payment dialog before saving.
+    final confirmed = await showPatientPaymentDialog(
+      context: context,
+      patientName: _patientNameController.text.trim(),
+      contactNumber: _mobileController.text.trim(),
+      bedsCount: _selectedBeds.length,
+      attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+      roomIdentifier: _selectedRoom?.roomIdentifier,
+    );
+    if (!confirmed) return; // User cancelled
+
+    await _doSavePatient();
+  }
+
+  /// Step 2 — Actual database save (validation already done by _savePatient).
+  Future<void> _doSavePatient() async {
     setState(() => _isLoading = true);
 
     try {
@@ -294,16 +305,26 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       if (_hospitalNameController.text.trim().isNotEmpty) {
         notesList.add('Hospital: ${_hospitalNameController.text.trim()}');
       }
-      if (_attendantAgeController.text.trim().isNotEmpty) {
-        notesList.add('Attendant Age: ${_attendantAgeController.text.trim()}');
-      }
       if (_attendantCountController.text.trim().isNotEmpty) {
         notesList.add(
           'Attendant Count: ${_attendantCountController.text.trim()}',
         );
       }
-      if (_relationController.text.trim().isNotEmpty) {
-        notesList.add('Relation: ${_relationController.text.trim()}');
+      final structuredAttendants = <AttendantModel>[];
+
+      for (int i = 0; i < _attendants.length; i++) {
+        final att = _attendants[i];
+        final name = att.nameController.text.trim();
+        final age = att.ageController.text.trim();
+        final relation = att.relationController.text.trim();
+        if (name.isNotEmpty) {
+          notesList.add('Attendant ${i + 1}: $name (Age: ${age.isEmpty ? 'N/A' : age}, Relation: ${relation.isEmpty ? 'N/A' : relation})');
+          structuredAttendants.add(AttendantModel(
+            name: name,
+            age: age.isNotEmpty ? age : null,
+            relation: relation.isNotEmpty ? relation : null,
+          ));
+        }
       }
       notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
       notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
@@ -315,7 +336,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         gender: _selectedGender!.toLowerCase(),
         contactNumber: _mobileController.text.trim(),
         emergencyContact: _mobileController.text.trim(),
-        emergencyContactName: _attendantNameController.text.trim(),
+        emergencyContactName: _attendants.isNotEmpty ? _attendants.first.nameController.text.trim() : "",
         medicalCondition: _diagnosisController.text.trim(),
         admissionDate: admissionDate,
         roomId: _selectedRoom!.id,
@@ -342,6 +363,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         utiNumber: _utiNumberController.text.trim().isNotEmpty
             ? _utiNumberController.text.trim()
             : null,
+        attendants: structuredAttendants.isNotEmpty ? structuredAttendants : null,
       );
 
       // Get attendant count (default to 1 if not specified)
@@ -572,23 +594,118 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                       const SizedBox(height: 20),
                       PatientFormSection(
                         label: "Attendant details",
-                        child: _Row3(
-                          _NatureField(
-                            label: "Attendant name",
-                            hint: "Full name",
-                            controller: _attendantNameController,
-                          ),
-                          _NatureField(
-                            label: "Attendant age",
-                            hint: "Years",
-                            keyboard: TextInputType.number,
-                            controller: _attendantAgeController,
-                          ),
-                          _NatureField(
-                            label: "Relation to patient",
-                            hint: "e.g. Spouse",
-                            controller: _relationController,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (int i = 0; i < _attendants.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF4F9F0),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                                  ),
+                                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 12),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 22,
+                                        height: 22,
+                                        margin: const EdgeInsets.only(top: 18, right: 8),
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF3B6D11),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            '${i + 1}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _Row3(
+                                          _NatureField(
+                                            label: "Attendant name",
+                                            hint: "Full name",
+                                            controller: _attendants[i].nameController,
+                                          ),
+                                          _NatureField(
+                                            label: "Age",
+                                            hint: "Years",
+                                            keyboard: TextInputType.number,
+                                            controller: _attendants[i].ageController,
+                                          ),
+                                          _NatureField(
+                                            label: "Relation",
+                                            hint: "e.g. Spouse",
+                                            controller: _attendants[i].relationController,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_attendants.length > 1)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 14),
+                                          child: IconButton(
+                                            icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFD32F2F), size: 20),
+                                            tooltip: "Remove attendant",
+                                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            onPressed: () {
+                                              setState(() {
+                                                _attendants[i].dispose();
+                                                _attendants.removeAt(i);
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            // ── Add Attendant Button ──
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _attendants.add(_AttendantEntry());
+                                });
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEAF3DE),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFF3B6D11),
+                                    width: 1,
+                                    style: BorderStyle.solid,
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_circle_rounded, size: 18, color: Color(0xFF3B6D11)),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      "Add another attendant",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF3B6D11),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -661,6 +778,14 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 20),
+                      // ── Payment Summary ──
+                      _PaymentSummary(
+                        bedsCount: _selectedBeds.length,
+                        attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
+                        roomIdentifier: _selectedRoom?.roomIdentifier,
                       ),
                     ],
                   ),
@@ -1201,3 +1326,255 @@ class _BedSelection extends StatelessWidget {
   }
 }
 
+class _AttendantEntry {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController ageController = TextEditingController();
+  final TextEditingController relationController = TextEditingController();
+
+  void dispose() {
+    nameController.dispose();
+    ageController.dispose();
+    relationController.dispose();
+  }
+}
+
+// ── Payment Summary ───────────────────────────────────────────────────────────
+
+class _PaymentSummary extends StatelessWidget {
+  final int bedsCount;
+  final int attendantsCount;
+  final bool isPrivateRoom;
+  final String? roomIdentifier;
+
+  // ── Pricing constants (edit here to update rates) ──
+  static const double _bedRatePerDay = 500.0;         // ₹ per bed per day
+  static const double _attendantRatePerDay = 150.0;   // ₹ per attendant per day
+  static const int _defaultDays = 7;                  // default stay duration
+
+  const _PaymentSummary({
+    required this.bedsCount,
+    required this.attendantsCount,
+    required this.isPrivateRoom,
+    this.roomIdentifier,
+  });
+
+  String _fmt(double amount) {
+    if (amount >= 1000) {
+      return '₹${amount.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'),
+        (m) => '${m[1]},',
+      )}';
+    }
+    return '₹${amount.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Don't show until a room is selected
+    if (roomIdentifier == null) return const SizedBox.shrink();
+
+    final bedTotal = bedsCount * _bedRatePerDay * _defaultDays;
+    final attendantTotal = attendantsCount * _attendantRatePerDay * _defaultDays;
+    final grandTotal = bedTotal + attendantTotal;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF3B6D11), Color(0xFF5A9A1A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF3B6D11).withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              children: [
+                const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'PAYMENT SUMMARY',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$_defaultDays-day estimate',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Divider
+          Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+
+          // Breakdown rows
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              children: [
+                _SummaryRow(
+                  icon: Icons.bed_outlined,
+                  label: 'Beds',
+                  count: bedsCount,
+                  rate: _bedRatePerDay,
+                  total: bedTotal,
+                  days: _defaultDays,
+                ),
+                const SizedBox(height: 8),
+                _SummaryRow(
+                  icon: Icons.person_outline_rounded,
+                  label: 'Attendants',
+                  count: attendantsCount,
+                  rate: _attendantRatePerDay,
+                  total: attendantTotal,
+                  days: _defaultDays,
+                ),
+              ],
+            ),
+          ),
+
+          // Divider
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+          ),
+
+          // Grand total
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Estimated Total',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  _fmt(grandTotal),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Disclaimer
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.15),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+            ),
+            child: const Text(
+              '* Estimate based on standard rates. Actual charges may vary.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 9.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int count;
+  final double rate;
+  final double total;
+  final int days;
+
+  const _SummaryRow({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.rate,
+    required this.total,
+    required this.days,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isZero = count == 0;
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 15),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$label × $count',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Text(
+          isZero ? '—' : '₹${rate.toStringAsFixed(0)}/day × $days days',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 10.5,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 72,
+          child: Text(
+            isZero ? '₹0' : '₹${total.toStringAsFixed(0)}',
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}

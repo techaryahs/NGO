@@ -139,6 +139,7 @@ class PatientService {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    List<AttendantModel>? attendants,
   }) async {
     try {
       final now = DateTime.now();
@@ -178,6 +179,7 @@ class PatientService {
         receiptNumber: receiptNumber,
         modeOfPayment: modeOfPayment,
         utiNumber: utiNumber,
+        attendants: attendants,
       );
 
       // Push to generate unique key
