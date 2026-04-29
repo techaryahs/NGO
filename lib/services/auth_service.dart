@@ -96,6 +96,37 @@ class AuthService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getAllAdmins() async {
+    try {
+      final data = await _rtdb.get('users');
+
+      if (data == null || data is! Map) {
+        return [];
+      }
+
+      List<Map<String, dynamic>> admins = [];
+
+      Map<String, dynamic> users =
+      Map<String, dynamic>.from(data);
+
+      users.forEach((uid, userData) {
+        final user = Map<String, dynamic>.from(userData);
+
+        if (user['role'] == 'admin') {
+          admins.add({
+            'uid': uid,
+            ...user,
+          });
+        }
+      });
+
+      return admins;
+    } catch (e) {
+      print("Error fetching admins: $e");
+      return [];
+    }
+  }
+
   // Sign out
   Future<void> signOut() async {
     await _auth.signOut();

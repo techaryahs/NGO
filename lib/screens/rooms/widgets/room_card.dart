@@ -26,8 +26,6 @@ class RoomCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use derived occupancy status instead of stored status
-    // to avoid showing stale "Occupied" for rooms with no active stays
     final occupancyStatus = room.derivedOccupancyStatus;
     final isMaintenance = occupancyStatus == 'maintenance';
     final isFullyOccupied = occupancyStatus == 'occupied';
@@ -61,13 +59,14 @@ class RoomCard extends StatelessWidget {
     }
 
     return Container(
+      height: 270, // Fixed height for consistency
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: Colors.black.withOpacity(0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -82,9 +81,8 @@ class RoomCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Header
+                /// HEADER
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -99,7 +97,9 @@ class RoomCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+
                     const SizedBox(width: 8),
+
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -118,26 +118,27 @@ class RoomCard extends StatelessWidget {
                         ),
                       ),
                     ),
+
                     const SizedBox(width: 4),
-                    // Three-dot menu
+
                     InkWell(
                       onTap: () => _showRoomMenu(context),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
                         child: Icon(
                           Icons.more_vert_rounded,
                           size: 20,
-                          color: const Color(0xFF639922),
+                          color: Color(0xFF639922),
                         ),
                       ),
                     ),
                   ],
                 ),
 
-                // Room Type Badge
+                const SizedBox(height: 10),
+
+                /// ROOM TYPE BADGE
                 Container(
-                  margin: const EdgeInsets.only(top: 8),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 4,
@@ -175,73 +176,62 @@ class RoomCard extends StatelessWidget {
                   ),
                 ),
 
-                const Spacer(),
+                const SizedBox(height: 12),
 
-                // Hierarchical Bed Display for all rooms with beds
-                if (room.beds.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  RoomBedGrid(beds: room.beds),
-                  if (room.isPrivate) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.people_outline_rounded,
-                          size: 14,
-                          color: Color(0xFF639922),
+                /// SCROLLABLE BED SECTION
+                if (room.beds.isNotEmpty)
+                  Expanded(
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        child: RoomBedGrid(
+                          beds: room.beds,
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          "Attendants: ${room.currentAttendants}/${room.maxAttendants}",
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF639922),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ],
-                ] else if (room.isPrivate) ...[
-                  // Private room attendants (no beds data)
+                  )
+
+                else if (room.isPrivate)
                   Row(
                     children: [
                       const Icon(
                         Icons.people_outline_rounded,
-                        size: 16,
+                        size: 14,
                         color: Color(0xFF639922),
                       ),
                       const SizedBox(width: 4),
                       Text(
                         "Attendants: ${room.currentAttendants}/${room.maxAttendants}",
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           color: Color(0xFF639922),
                         ),
                       ),
                     ],
-                  ),
-                ] else ...[
-                  // Legacy general room without beds
+                  )
+
+                else
                   Row(
                     children: [
                       const Icon(
                         Icons.bed_outlined,
-                        size: 16,
+                        size: 14,
                         color: Color(0xFF639922),
                       ),
                       const SizedBox(width: 4),
                       Text(
                         "Beds: ${room.actualOccupiedBeds}/${room.actualTotalBeds}",
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           color: Color(0xFF639922),
                         ),
                       ),
                     ],
                   ),
-                ],
-                const SizedBox(height: 8),
-                // Floor badge
+
+                const SizedBox(height: 12),
+
+                /// FLOOR BADGE
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -249,8 +239,8 @@ class RoomCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: room.floor == 1
-                        ? const Color(0xFF3B6D11).withValues(alpha: 0.1)
-                        : const Color(0xFF639922).withValues(alpha: 0.1),
+                        ? const Color(0xFF3B6D11).withOpacity(0.1)
+                        : const Color(0xFF639922).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Row(
@@ -265,7 +255,7 @@ class RoomCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        room.floor == 1 ? "Ground" : "Floor 2",
+                        room.floor == 1 ? "Ground Floor" : "Floor 2",
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
