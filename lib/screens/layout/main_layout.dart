@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ngo/screens/attendance/attendance.dart';
 import '../patients/patients_screen.dart';
 import '../rooms/rooms_page.dart';
 import '../profile/profile_page.dart';
@@ -33,7 +34,7 @@ class _MainLayoutState extends State<MainLayout> {
     PatientsScreen(),
     RoomsPage(),
     _PlaceholderPage(title: "Stays"),
-    _PlaceholderPage(title: "Attendance"),
+    Attendance(),
     _PlaceholderPage(title: "Payments"),
     _PlaceholderPage(title: "Reports"),
     SettingsPage(),
