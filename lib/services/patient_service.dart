@@ -23,24 +23,55 @@ class PatientService {
   // ===========================================================================
 
   /// Stream of ALL patients, sorted by admission date (newest first).
+  // Stream<List<PatientModel>> getPatientsStream() {
+  //   return _rtdb.stream(_patientsPath).map((data) {
+  //     final List<PatientModel> patients = [];
+  //     if (data != null && data is Map) {
+  //       final mapData = Map<String, dynamic>.from(data);
+  //       mapData.forEach((key, value) {
+  //         if (value is Map) {
+  //           patients.add(
+  //             PatientModel.fromMap(key, Map<String, dynamic>.from(value)),
+  //           );
+  //         }
+  //       });
+  //       // Sort by admission date descending (newest first)
+  //       patients.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
+  //     }
+  //     return patients;
+  //   });
+    
+  // }
   Stream<List<PatientModel>> getPatientsStream() {
-    return _rtdb.stream(_patientsPath).map((data) {
-      final List<PatientModel> patients = [];
-      if (data != null && data is Map) {
-        final mapData = Map<String, dynamic>.from(data);
-        mapData.forEach((key, value) {
-          if (value is Map) {
-            patients.add(
-              PatientModel.fromMap(key, Map<String, dynamic>.from(value)),
-            );
-          }
-        });
-        // Sort by admission date descending (newest first)
-        patients.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
-      }
-      return patients;
-    });
-  }
+  return _rtdb
+      .stream(_patientsPath)
+      .map((data) {
+        final List<PatientModel> patients = [];
+
+        if (data != null && data is Map) {
+          final mapData = Map<String, dynamic>.from(data);
+
+          mapData.forEach((key, value) {
+            if (value is Map) {
+              patients.add(
+                PatientModel.fromMap(
+                  key,
+                  Map<String, dynamic>.from(value),
+                ),
+              );
+            }
+          });
+
+          // Sort by admission date descending
+          patients.sort(
+            (a, b) => b.admissionDate.compareTo(a.admissionDate),
+          );
+        }
+
+        return patients;
+      })
+      .asBroadcastStream(); // 🔥 THIS LINE FIXES YOUR ERROR
+}
 
   /// Stream of patients filtered by [status] ('active', 'discharged', etc).
   ///

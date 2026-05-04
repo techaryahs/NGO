@@ -40,6 +40,7 @@ dependencies:
   excel: ^4.0.6
   file_picker: ^8.1.2
   url_launcher: ^6.3.0
+  shimmer: ^3.0.0
 
 dev_dependencies:
   flutter_test:
