@@ -189,13 +189,6 @@ class _RoomsPageState extends State<RoomsPage> {
                     Row(
                       children: [
                         _StatCard(
-                          label: "Total Rooms",
-                          value: totalRooms.toString(),
-                          icon: Icons.meeting_room_outlined,
-                          color: const Color(0xFF3B6D11),
-                        ),
-                        const SizedBox(width: 12),
-                        _StatCard(
                           label: "Private",
                           value: privateRooms.toString(),
                           icon: Icons.hotel_rounded,
@@ -207,6 +200,13 @@ class _RoomsPageState extends State<RoomsPage> {
                           value: generalRooms.toString(),
                           icon: Icons.bed_rounded,
                           color: const Color(0xFF97C459),
+                        ),
+                        const SizedBox(width: 12),
+                        _StatCard(
+                          label: "Total Rooms",
+                          value: totalRooms.toString(),
+                          icon: Icons.meeting_room_outlined,
+                          color: const Color(0xFF3B6D11),
                         ),
                         const SizedBox(width: 12),
                         _StatCard(
@@ -224,7 +224,7 @@ class _RoomsPageState extends State<RoomsPage> {
                         Expanded(
                           child: _FloorStatCard(
                             floor: 1,
-                            label: "Ground Floor",
+                            label: "First Floor",
                             patients: floor1Patients,
                             vacantBeds: floor1VacantBeds,
                             isSelected: selectedFloor == 1,
@@ -235,7 +235,7 @@ class _RoomsPageState extends State<RoomsPage> {
                         Expanded(
                           child: _FloorStatCard(
                             floor: 2,
-                            label: "First Floor",
+                            label: "Second Floor",
                             patients: floor2Patients,
                             vacantBeds: floor2VacantBeds,
                             isSelected: selectedFloor == 2,

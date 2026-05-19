@@ -186,6 +186,7 @@ class RoomCard extends StatelessWidget {
                       child: SingleChildScrollView(
                         child: RoomBedGrid(
                           beds: room.beds,
+                          roomType: room.roomType,
                         ),
                       ),
                     ),

@@ -99,6 +99,15 @@ class BedModel {
 
   // ── Helpers ──
 
+  static String formatBedLabel(String rawLabel, String roomType) {
+    if (roomType != 'general') return rawLabel;
+    final val = int.tryParse(rawLabel);
+    if (val == null || val <= 0) return rawLabel;
+    final start = (val * 2) - 1;
+    final end = val * 2;
+    return '$start/$end';
+  }
+
   static String _parseString(dynamic value, {String fallback = ''}) {
     if (value == null) return fallback;
     return value.toString();

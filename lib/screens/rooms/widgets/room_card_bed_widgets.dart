@@ -3,23 +3,35 @@ import 'package:ngo/models/bed_model.dart';
 
 class RoomBedGrid extends StatelessWidget {
   final List<BedModel> beds;
+  final String roomType;
 
-  const RoomBedGrid({super.key, required this.beds});
+  const RoomBedGrid({super.key, required this.beds, required this.roomType});
 
   @override
   Widget build(BuildContext context) {
+    final Map<String, BedModel> uniqueBeds = {};
+    for (final bed in beds) {
+      final label = BedModel.formatBedLabel(bed.bedLabel, roomType);
+      final existing = uniqueBeds[label];
+      if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
+        uniqueBeds[label] = bed;
+      }
+    }
+    final displayBeds = uniqueBeds.values.toList();
+
     return Wrap(
       spacing: 6,
       runSpacing: 6,
-      children: beds.map((bed) => RoomBedChip(bed: bed)).toList(),
+      children: displayBeds.map((bed) => RoomBedChip(bed: bed, roomType: roomType)).toList(),
     );
   }
 }
 
 class RoomBedChip extends StatelessWidget {
   final BedModel bed;
+  final String roomType;
 
-  const RoomBedChip({super.key, required this.bed});
+  const RoomBedChip({super.key, required this.bed, required this.roomType});
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +73,7 @@ class RoomBedChip extends StatelessWidget {
           Icon(icon, size: 12, color: textColor),
           const SizedBox(width: 4),
           Text(
-            bed.bedLabel,
+            BedModel.formatBedLabel(bed.bedLabel, roomType),
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,

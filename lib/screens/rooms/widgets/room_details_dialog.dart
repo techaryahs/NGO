@@ -136,7 +136,7 @@ class RoomDetailsDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              _BedStatusGrid(beds: room.beds),
+              _BedStatusGrid(beds: room.beds, roomType: room.roomType),
               const SizedBox(height: 20),
             ],
 
@@ -219,7 +219,7 @@ class RoomDetailsDialog extends StatelessWidget {
                     itemCount: stays.length,
                     itemBuilder: (context, index) {
                       final stay = stays[index];
-                      return _StayCard(stay: stay);
+                      return _StayCard(stay: stay, roomType: room.roomType);
                     },
                   );
                 },
@@ -235,15 +235,26 @@ class RoomDetailsDialog extends StatelessWidget {
 /// Bed Status Grid - Shows all beds with their status
 class _BedStatusGrid extends StatelessWidget {
   final List<BedModel> beds;
+  final String roomType;
 
-  const _BedStatusGrid({required this.beds});
+  const _BedStatusGrid({required this.beds, required this.roomType});
 
   @override
   Widget build(BuildContext context) {
+    final Map<String, BedModel> uniqueBeds = {};
+    for (final bed in beds) {
+      final label = BedModel.formatBedLabel(bed.bedLabel, roomType);
+      final existing = uniqueBeds[label];
+      if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
+        uniqueBeds[label] = bed;
+      }
+    }
+    final displayBeds = uniqueBeds.values.toList();
+
     return Wrap(
       spacing: 10,
       runSpacing: 10,
-      children: beds.map((bed) => _BedStatusCard(bed: bed)).toList(),
+      children: displayBeds.map((bed) => _BedStatusCard(bed: bed, roomType: roomType)).toList(),
     );
   }
 }
@@ -251,8 +262,9 @@ class _BedStatusGrid extends StatelessWidget {
 /// Individual Bed Status Card
 class _BedStatusCard extends StatelessWidget {
   final BedModel bed;
+  final String roomType;
 
-  const _BedStatusCard({required this.bed});
+  const _BedStatusCard({required this.bed, required this.roomType});
 
   @override
   Widget build(BuildContext context) {
@@ -297,7 +309,7 @@ class _BedStatusCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Bed ${bed.bedLabel}",
+                "Bed ${BedModel.formatBedLabel(bed.bedLabel, roomType)}",
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -359,8 +371,9 @@ class _InfoItem extends StatelessWidget {
 
 class _StayCard extends StatelessWidget {
   final StayModel stay;
+  final String roomType;
 
-  const _StayCard({required this.stay});
+  const _StayCard({required this.stay, required this.roomType});
 
   void _showExtendDialog(BuildContext context) {
     showDialog(
@@ -465,7 +478,7 @@ class _StayCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            "Bed ${stay.bedNumber ?? stay.bedId?.split('_').last ?? 'N/A'}",
+                            "Bed ${BedModel.formatBedLabel((stay.bedNumber ?? stay.bedId?.split('_').last ?? 'N/A').toString(), roomType)}",
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF639922),

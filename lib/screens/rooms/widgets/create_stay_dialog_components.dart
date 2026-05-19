@@ -6,21 +6,34 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
   final List<BedModel> beds;
   final BedModel? selectedBed;
   final Function(BedModel) onBedSelected;
+  final String roomType;
 
   const CreateStayBedSelectionGrid({
     super.key,
     required this.beds,
     required this.selectedBed,
     required this.onBedSelected,
+    required this.roomType,
   });
 
   @override
   Widget build(BuildContext context) {
+    final Map<String, BedModel> uniqueBeds = {};
+    for (final bed in beds) {
+      final label = BedModel.formatBedLabel(bed.bedLabel, roomType);
+      final existing = uniqueBeds[label];
+      if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
+        uniqueBeds[label] = bed;
+      }
+    }
+    final displayBeds = uniqueBeds.values.toList();
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: beds.map((bed) {
-        final isSelected = selectedBed?.id == bed.id;
+      children: displayBeds.map((bed) {
+        final isSelected = selectedBed != null && 
+            BedModel.formatBedLabel(selectedBed!.bedLabel, roomType) == BedModel.formatBedLabel(bed.bedLabel, roomType);
         final isAvailable = bed.isAvailable;
 
         Color bgColor;
@@ -33,7 +46,7 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
           borderColor = const Color(0xFF3B6D11);
         } else if (!isAvailable) {
           bgColor = const Color(0xFFFFE5E7);
-          textColor = const Color(0xFFD32F2F).withValues(alpha: 0.5);
+          textColor = const Color(0xFFD32F2F).withOpacity(0.5);
           borderColor = const Color(0xFFE8B4B8);
         } else {
           bgColor = const Color(0xFFF4F9F0);
@@ -61,7 +74,7 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  bed.bedLabel,
+                  BedModel.formatBedLabel(bed.bedLabel, roomType),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,

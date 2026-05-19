@@ -42,6 +42,34 @@
       "stats": {
         ".write": "auth != null"
       }
+    },
+    "inventory_items": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "vendors": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "purchases": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "expense_entries": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "salaries": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "payment_details": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "sponsorships": {
+      ".read": "auth != null",
+      ".write": "auth != null"
     }
   }
 }

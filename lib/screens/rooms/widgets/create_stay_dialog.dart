@@ -484,6 +484,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                         onBedSelected: (bed) {
                           setState(() => selectedBed = bed);
                         },
+                        roomType: widget.room.roomType,
                       ),
                       const SizedBox(height: 20),
                     ] else if (widget.room.isGeneral) ...[
