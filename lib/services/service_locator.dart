@@ -5,6 +5,7 @@ import 'patient_service.dart';
 import 'room_service.dart';
 import 'inventory_expense_service.dart';
 import 'sponsorship_service.dart';
+import 'payment_service.dart';
 
 export 'room_service.dart'; // Ensure extension methods are visible everywhere ServiceLocator is used
 
@@ -24,6 +25,7 @@ class ServiceLocator {
   RoomService? _roomService;
   InventoryExpenseService? _inventoryExpenseService;
   SponsorshipService? _sponsorshipService;
+  PaymentService? _paymentService;
 
   /// Initialize services with Firebase project configuration
   void initialize({
@@ -53,6 +55,7 @@ class ServiceLocator {
     _roomService = RoomService(rtdbService: _rtdbService!);
     _inventoryExpenseService = InventoryExpenseService(rtdbService: _rtdbService!);
     _sponsorshipService = SponsorshipService(rtdbService: _rtdbService!);
+    _paymentService = PaymentService(_rtdbService!);
   }
 
   /// Get Auth REST service instance
@@ -111,6 +114,14 @@ class ServiceLocator {
     return _sponsorshipService!;
   }
 
+  /// Get Payment service instance
+  PaymentService get paymentService {
+    if (_paymentService == null) {
+      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+    }
+    return _paymentService!;
+  }
+
   /// Dispose all services
   void dispose() {
     _authRestService?.dispose();
@@ -122,5 +133,6 @@ class ServiceLocator {
     _roomService = null;
     _inventoryExpenseService = null;
     _sponsorshipService = null;
+    _paymentService = null;
   }
 }

@@ -7,6 +7,7 @@ import '../settings/settings_page.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../inventory_expense/inventory_expense_screen.dart';
 import '../sponsorship/sponsorship_screen.dart';
+import '../payments/payments_screen.dart';
 import 'widgets/sidebar.dart';
 import 'widgets/top_bar.dart';
 
@@ -28,8 +29,6 @@ class _MainLayoutState extends State<MainLayout> {
     NavItem("Attendance", Icons.calendar_today_outlined),
     NavItem("Payments", Icons.payments_outlined),
     NavItem("Reports", Icons.bar_chart_rounded),
-    NavItem("Inventory & Expenses", Icons.inventory_2_outlined),
-    NavItem("Sponsorships", Icons.card_giftcard_rounded),
     NavItem("Settings", Icons.tune_rounded),
   ];
 
@@ -41,13 +40,11 @@ class _MainLayoutState extends State<MainLayout> {
     Attendance(),
     _PlaceholderPage(title: "Payments"),
     _PlaceholderPage(title: "Reports"),
-    InventoryExpenseScreen(),
-    SponsorshipScreen(),
     SettingsPage(),
   ];
 
   void _navigateToSettings() {
-    setState(() => selectedIndex = 9);
+    setState(() => selectedIndex = 7);
   }
 
   void _navigateToProfile() {

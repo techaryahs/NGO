@@ -125,4 +125,13 @@ class BedModel {
 
   @override
   String toString() => 'BedModel(id: $id, label: $bedLabel, status: $status)';
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is BedModel && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }

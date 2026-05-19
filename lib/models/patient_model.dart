@@ -21,6 +21,80 @@ class AttendantModel {
       relation: data['relation']?.toString(),
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is AttendantModel &&
+        other.name == name &&
+        other.age == age &&
+        other.relation == relation;
+  }
+
+  @override
+  int get hashCode => name.hashCode ^ age.hashCode ^ relation.hashCode;
+}
+
+/// PaymentModel — Represents a single payment transaction.
+class PaymentModel {
+  final String id;
+  final double amount;
+  final String method; // 'cash', 'check', 'online'
+  final DateTime date;
+  final String? receiptNumber;
+  final String? checkNumber;
+  final String? bankName;
+  final String? transactionId; // For online payments
+  final String? notes;
+
+  PaymentModel({
+    required this.id,
+    required this.amount,
+    required this.method,
+    required this.date,
+    this.receiptNumber,
+    this.checkNumber,
+    this.bankName,
+    this.transactionId,
+    this.notes,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'amount': amount,
+      'method': method,
+      'date': date.millisecondsSinceEpoch,
+      'receiptNumber': receiptNumber,
+      'checkNumber': checkNumber,
+      'bankName': bankName,
+      'transactionId': transactionId,
+      'notes': notes,
+    };
+  }
+
+  factory PaymentModel.fromMap(String id, Map<dynamic, dynamic> data) {
+    return PaymentModel(
+      id: id,
+      amount: (data['amount'] ?? 0).toDouble(),
+      method: data['method']?.toString() ?? 'cash',
+      date: DateTime.fromMillisecondsSinceEpoch(data['date'] ?? 0),
+      receiptNumber: data['receiptNumber']?.toString(),
+      checkNumber: data['checkNumber']?.toString(),
+      bankName: data['bankName']?.toString(),
+      transactionId: data['transactionId']?.toString(),
+      notes: data['notes']?.toString(),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is PaymentModel && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 /// PatientModel — RTDB-compatible data model.
@@ -65,6 +139,9 @@ class PatientModel {
   // ── Structured Attendants ─────────────────────────────────────────────────
   final List<AttendantModel>? attendants;
 
+  // ── Payment History ───────────────────────────────────────────────────────
+  final List<PaymentModel>? payments;
+
   PatientModel({
     required this.id,
     required this.fullName,
@@ -97,6 +174,7 @@ class PatientModel {
     this.modeOfPayment,
     this.utiNumber,
     this.attendants,
+    this.payments,
   });
 
   // ---------------------------------------------------------------------------
@@ -137,6 +215,7 @@ class PatientModel {
       'modeOfPayment': modeOfPayment,
       'utiNumber': utiNumber,
       'attendants': attendants?.map((a) => a.toMap()).toList(),
+      'payments': payments?.map((p) => p.toMap()).toList(),
     };
   }
 
@@ -186,11 +265,30 @@ class PatientModel {
       modeOfPayment: data['modeOfPayment']?.toString(),
       utiNumber: data['utiNumber']?.toString(),
       attendants: data['attendants'] != null
-          ? (data['attendants'] as List)
-              .map((a) => AttendantModel.fromMap(Map<String, dynamic>.from(a as Map)))
-              .toList()
+          ? _parseList(data['attendants'], (item) => AttendantModel.fromMap(Map<String, dynamic>.from(item as Map)))
+          : null,
+      payments: data['payments'] != null
+          ? _parseList(data['payments'], (item) {
+              final p = item as Map;
+              return PaymentModel.fromMap(
+                p['id']?.toString() ?? '',
+                Map<String, dynamic>.from(p),
+              );
+            })
           : null,
     );
+  }
+
+  /// Helper to parse potentially List or Map structures from RTDB
+  static List<T> _parseList<T>(dynamic data, T Function(dynamic) mapper) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.where((e) => e != null).map((e) => mapper(e)).toList();
+    }
+    if (data is Map) {
+      return data.values.where((e) => e != null).map((e) => mapper(e)).toList();
+    }
+    return [];
   }
 
   // ---------------------------------------------------------------------------
@@ -267,6 +365,7 @@ class PatientModel {
     String? modeOfPayment,
     String? utiNumber,
     List<AttendantModel>? attendants,
+    List<PaymentModel>? payments,
   }) {
     return PatientModel(
       id: id ?? this.id,
@@ -300,9 +399,19 @@ class PatientModel {
       modeOfPayment: modeOfPayment ?? this.modeOfPayment,
       utiNumber: utiNumber ?? this.utiNumber,
       attendants: attendants ?? this.attendants,
+      payments: payments ?? this.payments,
     );
   }
 
   @override
   String toString() => 'PatientModel(id: $id, fullName: $fullName, status: $status)';
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is PatientModel && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }
