@@ -171,6 +171,7 @@ class PatientService {
     String? modeOfPayment,
     String? utiNumber,
     List<AttendantModel>? attendants,
+    List<PaymentModel>? payments,
   }) async {
     try {
       final now = DateTime.now();
@@ -211,6 +212,7 @@ class PatientService {
         modeOfPayment: modeOfPayment,
         utiNumber: utiNumber,
         attendants: attendants,
+        payments: payments,
       );
 
       // Push to generate unique key
@@ -219,9 +221,45 @@ class PatientService {
       // Update the ID field in the database
       await _rtdb.patch('$_patientsPath/$patientId', {'id': patientId});
       
+      // Also record any initial payments in the global history
+      if (payments != null && payments.isNotEmpty) {
+        for (final payment in payments) {
+          final globalPaymentData = payment.toMap();
+          globalPaymentData['patientId'] = patientId;
+          globalPaymentData['patientName'] = fullName;
+          await _rtdb.push('payments', globalPaymentData);
+        }
+      }
+      
       return patientId;
     } catch (e) {
       throw Exception('Failed to add patient: $e');
+    }
+  }
+
+  /// Records a new payment for a patient and also adds it to a global payments collection.
+  Future<void> recordPayment(String patientId, PaymentModel payment) async {
+    try {
+      final patient = await getPatient(patientId);
+      if (patient == null) throw Exception('Patient not found');
+
+      final updatedPayments = List<PaymentModel>.from(patient.payments ?? []);
+      updatedPayments.add(payment);
+
+      // Update patient record
+      await _rtdb.patch('$_patientsPath/$patientId', {
+        'payments': updatedPayments.map((p) => p.toMap()).toList(),
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      // Also record in global payments collection for the "Payments" section
+      final globalPaymentData = payment.toMap();
+      globalPaymentData['patientId'] = patientId;
+      globalPaymentData['patientName'] = patient.fullName;
+      
+      await _rtdb.push('payments', globalPaymentData);
+    } catch (e) {
+      throw Exception('Failed to record payment: $e');
     }
   }
 

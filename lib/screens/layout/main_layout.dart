@@ -5,6 +5,7 @@ import '../rooms/rooms_page.dart';
 import '../profile/profile_page.dart';
 import '../settings/settings_page.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../payments/payments_screen.dart';
 import 'widgets/sidebar.dart';
 import 'widgets/top_bar.dart';
 
@@ -35,7 +36,7 @@ class _MainLayoutState extends State<MainLayout> {
     RoomsPage(),
     _PlaceholderPage(title: "Stays"),
     Attendance(),
-    _PlaceholderPage(title: "Payments"),
+    PaymentsScreen(),
     _PlaceholderPage(title: "Reports"),
     SettingsPage(),
   ];

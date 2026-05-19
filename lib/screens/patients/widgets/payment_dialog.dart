@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import '../../../models/patient_model.dart';
 import '../../../services/razorpay_service.dart';
 
 // ── Pricing constants ─────────────────────────────────────────────────────────
@@ -11,10 +13,13 @@ const int _kDefaultDays = 7;
 // ── Poll interval ─────────────────────────────────────────────────────────────
 const Duration _kPollInterval = Duration(seconds: 5);
 
+// ── Payment Methods ───────────────────────────────────────────────────────────
+enum PaymentMethod { cash, check, online }
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Public helper — returns true if user confirmed/paid, false if cancelled.
+// Public helper — returns PaymentModel if user confirmed/paid, null if cancelled.
 // ─────────────────────────────────────────────────────────────────────────────
-Future<bool> showPatientPaymentDialog({
+Future<PaymentModel?> showPatientPaymentDialog({
   required BuildContext context,
   required String patientName,
   required String contactNumber,
@@ -22,7 +27,7 @@ Future<bool> showPatientPaymentDialog({
   required int attendantsCount,
   required String? roomIdentifier,
 }) {
-  return showDialog<bool>(
+  return showDialog<PaymentModel?>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _PatientPaymentDialog(
@@ -32,11 +37,11 @@ Future<bool> showPatientPaymentDialog({
       attendantsCount: attendantsCount,
       roomIdentifier: roomIdentifier,
     ),
-  ).then((v) => v ?? false);
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-enum _PaymentStep { invoice, waiting, done }
+enum _PaymentStep { selectMethod, process, done }
 
 // ─────────────────────────────────────────────────────────────────────────────
 class _PatientPaymentDialog extends StatefulWidget {
@@ -59,15 +64,22 @@ class _PatientPaymentDialog extends StatefulWidget {
 }
 
 class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
-  _PaymentStep _step = _PaymentStep.invoice;
+  _PaymentStep _step = _PaymentStep.selectMethod;
+  PaymentMethod _selectedMethod = PaymentMethod.cash;
+  
+  // Forms
+  final _receiptController = TextEditingController();
+  final _checkNoController = TextEditingController();
+  final _bankNameController = TextEditingController();
+  final _notesController = TextEditingController();
+
+  // Online / Razorpay
   bool _isCreatingLink = false;
   RazorpayPaymentLink? _paymentLink;
-  RazorpayPaymentStatus? _paymentStatus;
   String? _error;
-
   Timer? _pollTimer;
   int _pollCount = 0;
-  static const int _maxPolls = 72; // 72 × 5s = 6 minutes timeout
+  static const int _maxPolls = 72;
 
   // ── Amounts ────────────────────────────────────────────────────────────────
   double get _bedTotal => widget.bedsCount * _kBedRatePerDay * _kDefaultDays;
@@ -86,27 +98,31 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     return '₹${v.toStringAsFixed(0)}';
   }
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _receiptController.dispose();
+    _checkNoController.dispose();
+    _bankNameController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
-  // ── Open Razorpay ──────────────────────────────────────────────────────────
-  Future<void> _openRazorpay() async {
+  // ── Online Logic ──────────────────────────────────────────────────────────
+  Future<void> _startOnlinePayment() async {
     setState(() {
       _isCreatingLink = true;
       _error = null;
+      _step = _PaymentStep.process;
     });
 
     try {
-      final link = await RazorpayService.createAndOpen(
+      final link = await RazorpayService.createPaymentLink(
         amountInPaise: _amountInPaise,
         patientName: widget.patientName,
         contactNumber: widget.contactNumber,
         description:
-            'Patient Admission — ${widget.patientName} (Room ${widget.roomIdentifier ?? 'N/A'})',
+            'Admission — ${widget.patientName} (Room ${widget.roomIdentifier ?? 'N/A'})',
         notes: {
           'beds': widget.bedsCount.toString(),
           'attendants': widget.attendantsCount.toString(),
@@ -116,18 +132,19 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
 
       setState(() {
         _paymentLink = link;
-        _step = _PaymentStep.waiting;
       });
 
       _startPolling(link.id);
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _step = _PaymentStep.selectMethod;
+      });
     } finally {
       if (mounted) setState(() => _isCreatingLink = false);
     }
   }
 
-  // ── Polling ────────────────────────────────────────────────────────────────
   void _startPolling(String linkId) {
     _pollCount = 0;
     _pollTimer?.cancel();
@@ -147,106 +164,79 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
 
       if (status.isPaid) {
         _pollTimer?.cancel();
-        setState(() {
-          _paymentStatus = status;
-          _step = _PaymentStep.done;
-        });
-
-        // Auto-close after 3 seconds showing the receipt
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) Navigator.of(context).pop(true);
-        });
+        _onPaymentSuccess(
+          transactionId: status.paymentId,
+          methodName: 'Online (Razorpay - ${status.method ?? 'UPI'})',
+        );
       }
-    } catch (_) {
-      // Silently ignore poll errors — keep trying
-    }
-  }
-
-  // ── Manual confirm (fallback if auto-poll misses) ──────────────────────────
-  void _confirmManually() {
-    _pollTimer?.cancel();
-    setState(() => _step = _PaymentStep.done);
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) Navigator.of(context).pop(true);
-    });
-  }
-
-  // ── Reopen link ────────────────────────────────────────────────────────────
-  Future<void> _reopenLink() async {
-    if (_paymentLink == null) return;
-    try {
-      await RazorpayService.openInBrowser(_paymentLink!.url);
     } catch (_) {}
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
+  void _onPaymentSuccess({String? transactionId, String? methodName}) {
+    final payment = PaymentModel(
+      id: 'pay_${DateTime.now().millisecondsSinceEpoch}',
+      amount: _grandTotal,
+      method: methodName ?? _selectedMethod.name.toUpperCase(),
+      date: DateTime.now(),
+      receiptNumber: _receiptController.text.trim().isEmpty ? null : _receiptController.text.trim(),
+      checkNumber: _checkNoController.text.trim().isEmpty ? null : _checkNoController.text.trim(),
+      bankName: _bankNameController.text.trim().isEmpty ? null : _bankNameController.text.trim(),
+      transactionId: transactionId,
+      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+    );
+
+    setState(() => _step = _PaymentStep.done);
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) Navigator.of(context).pop(payment);
+    });
+  }
+
+  void _confirmManual() {
+    if (_selectedMethod == PaymentMethod.online) {
+      _onPaymentSuccess(transactionId: 'MANUAL_ONLINE', methodName: 'Online (QR Code)');
+    } else if (_selectedMethod == PaymentMethod.cash) {
+      if (_receiptController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter receipt number');
+        return;
+      }
+      _onPaymentSuccess(methodName: 'Cash');
+    } else {
+      if (_checkNoController.text.trim().isEmpty) {
+        setState(() => _error = 'Please enter check number');
+        return;
+      }
+      _onPaymentSuccess(methodName: 'Check');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(40),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
       child: Container(
-        width: 480,
+        width: 520,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 32,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _Header(step: _step),
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                transitionBuilder: (child, anim) =>
-                    FadeTransition(opacity: anim, child: child),
-                child: _step == _PaymentStep.invoice
-                    ? _InvoiceBody(
-                        key: const ValueKey('invoice'),
-                        patientName: widget.patientName,
-                        bedsCount: widget.bedsCount,
-                        attendantsCount: widget.attendantsCount,
-                        bedTotal: _bedTotal,
-                        attendantTotal: _attendantTotal,
-                        grandTotal: _grandTotal,
-                        fmt: _fmt,
-                        error: _error,
-                        isLoading: _isCreatingLink,
-                        onPay: _openRazorpay,
-                        onSkip: () => Navigator.of(context).pop(true),
-                        onCancel: () => Navigator.of(context).pop(false),
-                      )
-                    : _step == _PaymentStep.waiting
-                        ? _WaitingBody(
-                            key: const ValueKey('waiting'),
-                            paymentLink: _paymentLink!,
-                            grandTotal: _grandTotal,
-                            fmt: _fmt,
-                            pollCount: _pollCount,
-                            onReopen: _reopenLink,
-                            onConfirmManually: _confirmManually,
-                            onCancel: () {
-                              _pollTimer?.cancel();
-                              Navigator.of(context).pop(false);
-                            },
-                          )
-                        : _ReceiptBody(
-                            key: const ValueKey('done'),
-                            patientName: widget.patientName,
-                            grandTotal: _grandTotal,
-                            fmt: _fmt,
-                            status: _paymentStatus,
-                            roomIdentifier: widget.roomIdentifier,
-                          ),
+                duration: const Duration(milliseconds: 300),
+                child: _buildBody(),
               ),
             ],
           ),
@@ -254,11 +244,52 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       ),
     );
   }
+
+  Widget _buildBody() {
+    if (_step == _PaymentStep.selectMethod) {
+      return _SelectMethodBody(
+        patientName: widget.patientName,
+        grandTotal: _grandTotal,
+        fmt: _fmt,
+        selectedMethod: _selectedMethod,
+        error: _error,
+        onMethodChanged: (m) => setState(() => _selectedMethod = m),
+        onProceed: () {
+          if (_selectedMethod == PaymentMethod.online) {
+            _startOnlinePayment();
+          } else {
+            setState(() => _step = _PaymentStep.process);
+          }
+        },
+        onCancel: () => Navigator.of(context).pop(null),
+      );
+    } else if (_step == _PaymentStep.process) {
+      return _ProcessBody(
+        method: _selectedMethod,
+        patientName: widget.patientName,
+        grandTotal: _grandTotal,
+        fmt: _fmt,
+        paymentLink: _paymentLink,
+        pollCount: _pollCount,
+        error: _error,
+        isLoading: _isCreatingLink,
+        receiptController: _receiptController,
+        checkNoController: _checkNoController,
+        bankNameController: _bankNameController,
+        notesController: _notesController,
+        onConfirm: _confirmManual,
+        onBack: () => setState(() => _step = _PaymentStep.selectMethod),
+      );
+    } else {
+      return _SuccessBody(
+        fmt: _fmt,
+        amount: _grandTotal,
+        method: _selectedMethod,
+      );
+    }
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Header
-// ─────────────────────────────────────────────────────────────────────────────
 class _Header extends StatelessWidget {
   final _PaymentStep step;
   const _Header({required this.step});
@@ -266,70 +297,22 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDone = step == _PaymentStep.done;
-    final icon = isDone ? Icons.check_circle_rounded : Icons.payment_rounded;
-    final title = isDone ? 'Payment Successful' : 'Patient Payment';
-    final sub = step == _PaymentStep.invoice
-        ? 'Review the fee breakdown before proceeding'
-        : step == _PaymentStep.waiting
-            ? 'Waiting for payment — browser has opened'
-            : 'Payment confirmed — saving patient record…';
-
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: isDone ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
-        border: Border(
-          bottom: BorderSide(
-            color: isDone ? Colors.transparent : const Color(0xFFC0DD97),
-            width: 0.5,
-          ),
-        ),
+        color: isDone ? const Color(0xFF3B6D11) : const Color(0xFFF8FBF4),
+        border: Border(bottom: BorderSide(color: isDone ? Colors.transparent : const Color(0xFFEAF3DE))),
       ),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: isDone
-                  ? Colors.white.withValues(alpha: 0.25)
-                  : const Color(0xFFEAF3DE),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isDone ? Colors.white30 : const Color(0xFFC0DD97),
-                width: 1.5,
-              ),
-            ),
-            child: Icon(
-              icon,
-              color: isDone ? Colors.white : const Color(0xFF3B6D11),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: isDone ? Colors.white : const Color(0xFF27500A),
-                  ),
-                ),
-                Text(
-                  sub,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDone
-                        ? Colors.white70
-                        : const Color(0xFF639922),
-                  ),
-                ),
-              ],
-            ),
+          Icon(isDone ? Icons.check_circle_rounded : Icons.payments_rounded, color: isDone ? Colors.white : const Color(0xFF3B6D11), size: 28),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(isDone ? 'Payment Confirmed' : 'Payment Collection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: isDone ? Colors.white : const Color(0xFF27500A))),
+              Text(isDone ? 'The transaction has been recorded' : 'Select a payment method to proceed', style: TextStyle(fontSize: 12, color: isDone ? Colors.white70 : const Color(0xFF639922))),
+            ],
           ),
         ],
       ),
@@ -337,548 +320,137 @@ class _Header extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Invoice step
-// ─────────────────────────────────────────────────────────────────────────────
-class _InvoiceBody extends StatelessWidget {
+class _SelectMethodBody extends StatelessWidget {
   final String patientName;
-  final int bedsCount;
-  final int attendantsCount;
-  final double bedTotal;
-  final double attendantTotal;
   final double grandTotal;
   final String Function(double) fmt;
+  final PaymentMethod selectedMethod;
+  final String? error;
+  final ValueChanged<PaymentMethod> onMethodChanged;
+  final VoidCallback onProceed;
+  final VoidCallback onCancel;
+
+  const _SelectMethodBody({required this.patientName, required this.grandTotal, required this.fmt, required this.selectedMethod, this.error, required this.onMethodChanged, required this.onProceed, required this.onCancel});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _InfoTile(label: 'Patient', value: patientName, icon: Icons.person_outline),
+          const SizedBox(height: 12),
+          _InfoTile(label: 'Total Amount', value: fmt(grandTotal), icon: Icons.currency_rupee, isBold: true),
+          const SizedBox(height: 24),
+          const Text('SELECT PAYMENT METHOD', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF639922), letterSpacing: 1)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _MethodCard(method: PaymentMethod.cash, selected: selectedMethod == PaymentMethod.cash, label: 'Cash', icon: Icons.money_rounded, onTap: () => onMethodChanged(PaymentMethod.cash)),
+              const SizedBox(width: 12),
+              _MethodCard(method: PaymentMethod.check, selected: selectedMethod == PaymentMethod.check, label: 'Check', icon: Icons.account_balance_wallet_rounded, onTap: () => onMethodChanged(PaymentMethod.check)),
+              const SizedBox(width: 12),
+              _MethodCard(method: PaymentMethod.online, selected: selectedMethod == PaymentMethod.online, label: 'Online / QR', icon: Icons.qr_code_rounded, onTap: () => onMethodChanged(PaymentMethod.online)),
+            ],
+          ),
+          if (error != null) ...[const SizedBox(height: 16), Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12))],
+          const SizedBox(height: 32),
+          Row(
+            children: [
+              TextButton(onPressed: onCancel, child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+              const Spacer(),
+              ElevatedButton(onPressed: onProceed, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Continue →', style: TextStyle(fontWeight: FontWeight.w600))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProcessBody extends StatelessWidget {
+  final PaymentMethod method;
+  final String patientName;
+  final double grandTotal;
+  final String Function(double) fmt;
+  final RazorpayPaymentLink? paymentLink;
+  final int pollCount;
   final String? error;
   final bool isLoading;
-  final VoidCallback onPay;
-  final VoidCallback onSkip;
-  final VoidCallback onCancel;
+  final TextEditingController receiptController;
+  final TextEditingController checkNoController;
+  final TextEditingController bankNameController;
+  final TextEditingController notesController;
+  final VoidCallback onConfirm;
+  final VoidCallback onBack;
 
-  const _InvoiceBody({
-    super.key,
-    required this.patientName,
-    required this.bedsCount,
-    required this.attendantsCount,
-    required this.bedTotal,
-    required this.attendantTotal,
-    required this.grandTotal,
-    required this.fmt,
-    required this.error,
-    required this.isLoading,
-    required this.onPay,
-    required this.onSkip,
-    required this.onCancel,
-  });
+  const _ProcessBody({required this.method, required this.patientName, required this.grandTotal, required this.fmt, this.paymentLink, required this.pollCount, this.error, required this.isLoading, required this.receiptController, required this.checkNoController, required this.bankNameController, required this.notesController, required this.onConfirm, required this.onBack});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Patient badge
-          Container(
-            width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF3DE),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFC0DD97)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.person_outline_rounded,
-                    size: 16, color: Color(0xFF3B6D11)),
-                const SizedBox(width: 8),
-                Text(
-                  patientName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      color: Color(0xFF27500A)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Breakdown
-          _SectionLabel('Fee breakdown'),
-          const SizedBox(height: 10),
-          _LineItem(
-            icon: Icons.bed_outlined,
-            label:
-                'Beds ($bedsCount × ₹${_kBedRatePerDay.toInt()}/day × $_kDefaultDays days)',
-            amount: fmt(bedTotal),
-          ),
-          const SizedBox(height: 8),
-          _LineItem(
-            icon: Icons.person_outline_rounded,
-            label:
-                'Attendants ($attendantsCount × ₹${_kAttendantRatePerDay.toInt()}/day × $_kDefaultDays days)',
-            amount: fmt(attendantTotal),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Divider(color: Color(0xFFC0DD97), thickness: 0.8),
-          ),
-
-          // Total row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Total Amount',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: Color(0xFF27500A))),
+          if (method == PaymentMethod.online) ...[
+            if (isLoading) const Center(child: CircularProgressIndicator())
+            else ...[
+              const Text('Scan QR Code to Pay', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 16),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3B6D11),
-                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFEAF3DE)),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Text(
-                  fmt(grandTotal),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15),
+                child: Image.asset(
+                  'assets/images/payment_qr.png',
+                  width: 200,
+                  height: 200,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 200,
+                      height: 200,
+                      color: Colors.grey[100],
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+                          SizedBox(height: 8),
+                          Text(
+                            'payment_qr.png not found\nin assets/images/',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 10, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
+              const SizedBox(height: 12),
+              const Text('OR use the link below', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              if (paymentLink != null) TextButton(onPressed: () => RazorpayService.openInBrowser(paymentLink!.url), child: const Text('Open Razorpay Checkout')),
+              Text('Checking payment status... (#$pollCount)', style: const TextStyle(fontSize: 10, color: Color(0xFF639922))),
             ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '* 7-day estimate at standard rates. Actual may vary.',
-            style: TextStyle(fontSize: 10, color: Color(0xFF97C459)),
-          ),
-
-          // Error box
-          if (error != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF3CD),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFFFCC02)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.warning_amber_rounded,
-                      size: 16, color: Color(0xFF856404)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(error!,
-                        style: const TextStyle(
-                            fontSize: 11.5, color: Color(0xFF856404))),
-                  ),
-                ],
-              ),
-            ),
+          ] else if (method == PaymentMethod.cash) ...[
+            _TextField(label: 'Receipt Number', controller: receiptController, icon: Icons.receipt_long_rounded),
+          ] else ...[
+            _TextField(label: 'Check Number', controller: checkNoController, icon: Icons.pin_rounded),
+            const SizedBox(height: 12),
+            _TextField(label: 'Bank Name', controller: bankNameController, icon: Icons.account_balance_rounded),
           ],
-
-          const SizedBox(height: 20),
-
-          // Buttons
-          Row(
-            children: [
-              TextButton(
-                onPressed: isLoading ? null : onCancel,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF639922),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: const BorderSide(color: Color(0xFFC0DD97)),
-                  ),
-                ),
-                child:
-                    const Text('Cancel', style: TextStyle(fontSize: 13)),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                onPressed: isLoading ? null : onSkip,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF888888),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                ),
-                child: const Text('Skip payment',
-                    style: TextStyle(
-                        fontSize: 12,
-                        decoration: TextDecoration.underline)),
-              ),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: isLoading ? null : onPay,
-                icon: isLoading
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation(Colors.white)))
-                    : const Icon(Icons.open_in_browser_rounded, size: 16),
-                label: Text(
-                    isLoading ? 'Creating link…' : 'Pay with Razorpay',
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B6D11),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 11),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Waiting step — with live polling indicator
-// ─────────────────────────────────────────────────────────────────────────────
-class _WaitingBody extends StatelessWidget {
-  final RazorpayPaymentLink paymentLink;
-  final double grandTotal;
-  final String Function(double) fmt;
-  final int pollCount;
-  final VoidCallback onReopen;
-  final VoidCallback onConfirmManually;
-  final VoidCallback onCancel;
-
-  const _WaitingBody({
-    super.key,
-    required this.paymentLink,
-    required this.grandTotal,
-    required this.fmt,
-    required this.pollCount,
-    required this.onReopen,
-    required this.onConfirmManually,
-    required this.onCancel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Animated waiting card
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F9F0),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFC0DD97)),
-            ),
-            child: Column(
-              children: [
-                // Pulsing icon
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF3DE),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: const Color(0xFF3B6D11), width: 2),
-                  ),
-                  child: const Icon(Icons.open_in_new_rounded,
-                      color: Color(0xFF3B6D11), size: 28),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Waiting for payment…',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF27500A)),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Complete the Razorpay checkout in your browser.\nThis screen will update automatically when payment is done.',
-                  textAlign: TextAlign.center,
-                  style:
-                      TextStyle(fontSize: 12, color: Color(0xFF639922)),
-                ),
-                const SizedBox(height: 14),
-
-                // Live polling indicator
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF3B6D11).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          valueColor: const AlwaysStoppedAnimation(
-                              Color(0xFF3B6D11)),
-                        ),
-                      ),
-                      const SizedBox(width: 7),
-                      Text(
-                        'Auto-checking every 5s (check #$pollCount)',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF3B6D11),
-                            fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  onPressed: onReopen,
-                  icon: const Icon(Icons.refresh_rounded, size: 15),
-                  label: const Text('Reopen payment link'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF3B6D11),
-                    textStyle: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          Row(
-            children: [
-              TextButton(
-                onPressed: onCancel,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF639922),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: const BorderSide(color: Color(0xFFC0DD97)),
-                  ),
-                ),
-                child:
-                    const Text('Cancel', style: TextStyle(fontSize: 13)),
-              ),
-              const Spacer(),
-              // Manual confirm fallback
-              TextButton(
-                onPressed: onConfirmManually,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF888888),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                ),
-                child: const Text(
-                  'I paid manually →',
-                  style: TextStyle(
-                      fontSize: 12,
-                      decoration: TextDecoration.underline),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Receipt step — shown after payment is auto-detected or manually confirmed
-// ─────────────────────────────────────────────────────────────────────────────
-class _ReceiptBody extends StatelessWidget {
-  final String patientName;
-  final double grandTotal;
-  final String Function(double) fmt;
-  final RazorpayPaymentStatus? status;
-  final String? roomIdentifier;
-
-  const _ReceiptBody({
-    super.key,
-    required this.patientName,
-    required this.grandTotal,
-    required this.fmt,
-    required this.status,
-    required this.roomIdentifier,
-  });
-
-  String _methodLabel(String? m) {
-    switch (m?.toLowerCase()) {
-      case 'upi':
-        return 'UPI';
-      case 'card':
-        return 'Card';
-      case 'netbanking':
-        return 'Net Banking';
-      case 'wallet':
-        return 'Wallet';
-      case 'emi':
-        return 'EMI';
-      default:
-        return m ?? 'Online';
-    }
-  }
-
-  String _formatDate(DateTime? dt) {
-    if (dt == null) return '—';
-    final now = dt.toLocal();
-    final months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec'
-    ];
-    final h = now.hour.toString().padLeft(2, '0');
-    final min = now.minute.toString().padLeft(2, '0');
-    return '${now.day} ${months[now.month - 1]} ${now.year}  $h:$min';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final paymentId = status?.paymentId;
-    final isAutoDetected = status != null && paymentId != null;
-
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          // Success icon
-          Container(
-            width: 64,
-            height: 64,
-            decoration: const BoxDecoration(
-              color: Color(0xFF3B6D11),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.check_rounded,
-                color: Colors.white, size: 36),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            fmt(grandTotal),
-            style: const TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF27500A),
-              letterSpacing: -1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Payment received successfully',
-            style: TextStyle(fontSize: 13, color: Color(0xFF639922)),
-          ),
+          const SizedBox(height: 12),
+          _TextField(label: 'Notes (Optional)', controller: notesController, icon: Icons.notes_rounded, maxLines: 2),
           const SizedBox(height: 24),
-
-          // Receipt card
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F9F0),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFC0DD97)),
-            ),
-            child: Column(
-              children: [
-                // Receipt header
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEAF3DE),
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(11)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.receipt_long_rounded,
-                          size: 15, color: Color(0xFF3B6D11)),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'PAYMENT RECEIPT',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF3B6D11),
-                          letterSpacing: 0.7,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (isAutoDetected)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3B6D11),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'AUTO-VERIFIED',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Receipt rows
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _ReceiptRow('Patient', patientName),
-                      _ReceiptRow('Room', roomIdentifier ?? '—'),
-                      _ReceiptRow('Method',
-                          _methodLabel(status?.method)),
-                      _ReceiptRow('Date',
-                          _formatDate(status?.paidAt ?? DateTime.now())),
-                      _ReceiptRow('Amount', fmt(grandTotal), bold: true),
-                      if (paymentId != null) ...[
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Divider(
-                              color: Color(0xFFC0DD97), thickness: 0.8),
-                        ),
-                        _PaymentIdRow(paymentId),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-          const Text(
-            'Patient record is being saved. This dialog will close automatically.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11, color: Color(0xFF97C459)),
+          Row(
+            children: [
+              TextButton(onPressed: onBack, child: const Text('← Back')),
+              const Spacer(),
+              ElevatedButton(onPressed: onConfirm, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: Text(method == PaymentMethod.online ? 'Confirm Manually' : 'Save Payment')),
+            ],
           ),
         ],
       ),
@@ -886,135 +458,108 @@ class _ReceiptBody extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Receipt row widgets
-// ─────────────────────────────────────────────────────────────────────────────
-class _ReceiptRow extends StatelessWidget {
+class _SuccessBody extends StatelessWidget {
+  final String Function(double) fmt;
+  final double amount;
+  final PaymentMethod method;
+
+  const _SuccessBody({required this.fmt, required this.amount, required this.method});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF3B6D11), size: 80),
+          const SizedBox(height: 24),
+          Text(fmt(amount), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Color(0xFF27500A))),
+          const Text('Payment Recorded Successfully', style: TextStyle(color: Color(0xFF639922), fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoTile extends StatelessWidget {
   final String label;
   final String value;
-  final bool bold;
-  const _ReceiptRow(this.label, this.value, {this.bold = false});
+  final IconData icon;
+  final bool isBold;
+
+  const _InfoTile({required this.label, required this.value, required this.icon, this.isBold = false});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFFF8FBF4), borderRadius: BorderRadius.circular(12)),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 90,
-            child: Text(
-              label,
-              style: const TextStyle(
-                  fontSize: 12, color: Color(0xFF888888)),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight:
-                    bold ? FontWeight.w700 : FontWeight.w500,
-                color: const Color(0xFF27500A),
-              ),
-            ),
-          ),
+          Icon(icon, size: 18, color: const Color(0xFF3B6D11)),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF639922))),
+          const Spacer(),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: isBold ? FontWeight.w700 : FontWeight.w600, color: const Color(0xFF27500A))),
         ],
       ),
     );
   }
 }
 
-class _PaymentIdRow extends StatelessWidget {
-  final String paymentId;
-  const _PaymentIdRow(this.paymentId);
+class _MethodCard extends StatelessWidget {
+  final PaymentMethod method;
+  final bool selected;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _MethodCard({required this.method, required this.selected, required this.label, required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const SizedBox(
-          width: 90,
-          child: Text('Payment ID',
-              style:
-                  TextStyle(fontSize: 12, color: Color(0xFF888888))),
-        ),
-        Expanded(
-          child: Text(
-            paymentId,
-            style: const TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF3B6D11),
-              fontFamily: 'monospace',
-            ),
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          decoration: BoxDecoration(color: selected ? const Color(0xFF3B6D11) : Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: selected ? const Color(0xFF3B6D11) : const Color(0xFFEAF3DE), width: 2)),
+          child: Column(
+            children: [
+              Icon(icon, color: selected ? Colors.white : const Color(0xFF3B6D11), size: 28),
+              const SizedBox(height: 8),
+              Text(label, style: TextStyle(color: selected ? Colors.white : const Color(0xFF27500A), fontSize: 13, fontWeight: FontWeight.w600)),
+            ],
           ),
         ),
-        GestureDetector(
-          onTap: () {
-            Clipboard.setData(ClipboardData(text: paymentId));
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Payment ID copied'),
-                backgroundColor: Color(0xFF3B6D11),
-                duration: Duration(seconds: 2),
-              ),
-            );
-          },
-          child: const Icon(Icons.copy_rounded,
-              size: 14, color: Color(0xFF639922)),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Small reusable widgets
-// ─────────────────────────────────────────────────────────────────────────────
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text.toUpperCase(),
-      style: const TextStyle(
-        fontSize: 10.5,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF639922),
-        letterSpacing: 0.6,
       ),
     );
   }
 }
 
-class _LineItem extends StatelessWidget {
-  final IconData icon;
+class _TextField extends StatelessWidget {
   final String label;
-  final String amount;
-  const _LineItem(
-      {required this.icon, required this.label, required this.amount});
+  final TextEditingController controller;
+  final IconData icon;
+  final int maxLines;
+
+  const _TextField({required this.label, required this.controller, required this.icon, this.maxLines = 1});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 15, color: const Color(0xFF639922)),
-        const SizedBox(width: 8),
-        Expanded(
-            child: Text(label,
-                style: const TextStyle(
-                    fontSize: 12.5, color: Color(0xFF27500A)))),
-        Text(amount,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF27500A))),
-      ],
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF3B6D11)),
+        filled: true,
+        fillColor: const Color(0xFFF8FBF4),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF3B6D11))),
+      ),
     );
   }
 }

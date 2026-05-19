@@ -228,7 +228,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     }
 
     // Show payment dialog before saving.
-    final confirmed = await showPatientPaymentDialog(
+    final payment = await showPatientPaymentDialog(
       context: context,
       patientName: _patientNameController.text.trim(),
       contactNumber: _mobileController.text.trim(),
@@ -236,13 +236,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
       roomIdentifier: _selectedRoom?.roomIdentifier,
     );
-    if (!confirmed) return; // User cancelled
+    if (payment == null) return; // User cancelled
 
-    await _doSavePatient();
+    await _doSavePatient(payment);
   }
 
   /// Step 2 — Actual database save (validation already done by _savePatient).
-  Future<void> _doSavePatient() async {
+  Future<void> _doSavePatient(PaymentModel initialPayment) async {
     setState(() => _isLoading = true);
 
     try {
@@ -364,6 +364,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             ? _utiNumberController.text.trim()
             : null,
         attendants: structuredAttendants.isNotEmpty ? structuredAttendants : null,
+        payments: [initialPayment],
       );
 
       // Get attendant count (default to 1 if not specified)

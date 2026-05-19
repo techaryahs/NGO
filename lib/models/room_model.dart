@@ -281,4 +281,13 @@ class RoomModel {
   String toString() {
     return 'RoomModel(id: $id, room: $roomNumber, identifier: $roomIdentifier, type: $roomType, status: $status)';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is RoomModel && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }
