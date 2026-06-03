@@ -1,3 +1,5 @@
+import '../utils/bed_helper.dart';
+
 /// AttendantModel — RTDB-compatible data model for patient attendants.
 class AttendantModel {
   final String name;
@@ -47,11 +49,21 @@ class PaymentModel {
   final String? transactionId; // For online payments
   final String? notes;
 
+  // Partial Payment support fields
+  final double totalAmount;
+  final double paidAmount;
+  final double pendingAmount;
+  final String paymentStatus;
+
   PaymentModel({
     required this.id,
-    required this.amount,
+    required this.amount, // Keeping for backward compat, representing the transaction amount
     required this.method,
     required this.date,
+    this.totalAmount = 0.0,
+    this.paidAmount = 0.0,
+    this.pendingAmount = 0.0,
+    this.paymentStatus = 'Paid',
     this.receiptNumber,
     this.checkNumber,
     this.bankName,
@@ -63,6 +75,10 @@ class PaymentModel {
     return {
       'id': id,
       'amount': amount,
+      'totalAmount': totalAmount,
+      'paidAmount': paidAmount,
+      'pendingAmount': pendingAmount,
+      'paymentStatus': paymentStatus,
       'method': method,
       'date': date.millisecondsSinceEpoch,
       'receiptNumber': receiptNumber,
@@ -77,6 +93,10 @@ class PaymentModel {
     return PaymentModel(
       id: id,
       amount: (data['amount'] ?? 0).toDouble(),
+      totalAmount: (data['totalAmount'] ?? data['amount'] ?? 0).toDouble(),
+      paidAmount: (data['paidAmount'] ?? data['amount'] ?? 0).toDouble(),
+      pendingAmount: (data['pendingAmount'] ?? 0).toDouble(),
+      paymentStatus: data['paymentStatus']?.toString() ?? 'Paid',
       method: data['method']?.toString() ?? 'cash',
       date: DateTime.fromMillisecondsSinceEpoch(data['date'] ?? 0),
       receiptNumber: data['receiptNumber']?.toString(),
@@ -117,6 +137,7 @@ class PatientModel {
   final String? bloodType;
   final DateTime admissionDate;
   final String status; // 'active', 'discharged', 'transferred'
+  final DateTime? dischargeDate;
   final String? roomId;
   final String? roomNumber;
   final int? floor;
@@ -135,9 +156,29 @@ class PatientModel {
   final String? receiptNumber;
   final String? modeOfPayment;
   final String? utiNumber;
+  final bool? paymentPending;
+  final String? paymentStatus;
+  final double? totalPaidAmount;
+  final double? currentDueAmount;
+  final DateTime? paymentDueDate;
+
+  // ── Billing / Attendance Metrics ──────────────────────────────────────────
+  final bool isAdvancePeriod;
+  final double advanceBilledAmount;
+  final double attendanceCharges;
+  final int totalPresentDays;
+  final int totalAbsentDays;
 
   // ── Structured Attendants ─────────────────────────────────────────────────
   final List<AttendantModel>? attendants;
+
+  // ── Stay & Extensions ─────────────────────────────────────────────────────
+  final int maxStayDays;
+  final bool extensionApproved;
+  final int extensionDays;
+  final String? extensionReason;
+  final String? approvedBy;
+  final DateTime? approvedDate;
 
   // ── Payment History ───────────────────────────────────────────────────────
   final List<PaymentModel>? payments;
@@ -173,8 +214,25 @@ class PatientModel {
     this.receiptNumber,
     this.modeOfPayment,
     this.utiNumber,
+    this.paymentPending,
+    this.paymentStatus,
+    this.totalPaidAmount,
+    this.currentDueAmount,
+    this.paymentDueDate,
+    this.isAdvancePeriod = true,
+    this.advanceBilledAmount = 0.0,
+    this.attendanceCharges = 0.0,
+    this.totalPresentDays = 0,
+    this.totalAbsentDays = 0,
     this.attendants,
     this.payments,
+    this.dischargeDate,
+    this.maxStayDays = 60,
+    this.extensionApproved = false,
+    this.extensionDays = 0,
+    this.extensionReason,
+    this.approvedBy,
+    this.approvedDate,
   });
 
   // ---------------------------------------------------------------------------
@@ -214,8 +272,25 @@ class PatientModel {
       'receiptNumber': receiptNumber,
       'modeOfPayment': modeOfPayment,
       'utiNumber': utiNumber,
+      'paymentPending': paymentPending,
+      'paymentStatus': paymentStatus,
+      'totalPaidAmount': totalPaidAmount,
+      'currentDueAmount': currentDueAmount,
+      'paymentDueDate': paymentDueDate?.millisecondsSinceEpoch,
+      'isAdvancePeriod': isAdvancePeriod,
+      'advanceBilledAmount': advanceBilledAmount,
+      'attendanceCharges': attendanceCharges,
+      'totalPresentDays': totalPresentDays,
+      'totalAbsentDays': totalAbsentDays,
       'attendants': attendants?.map((a) => a.toMap()).toList(),
       'payments': payments?.map((p) => p.toMap()).toList(),
+      'dischargeDate': dischargeDate?.millisecondsSinceEpoch,
+      'maxStayDays': maxStayDays,
+      'extensionApproved': extensionApproved,
+      'extensionDays': extensionDays,
+      'extensionReason': extensionReason,
+      'approvedBy': approvedBy,
+      'approvedDate': approvedDate?.millisecondsSinceEpoch,
     };
   }
 
@@ -249,8 +324,12 @@ class PatientModel {
       roomId: data['roomId']?.toString(),
       roomNumber: data['roomNumber']?.toString(),
       floor: data['floor'] != null ? _parseInt(data['floor']) : null,
-      bedIds: data['bedIds'] != null ? List<String>.from(data['bedIds']) : null,
-      bedLabels: data['bedLabels'] != null ? List<String>.from(data['bedLabels']) : null,
+      bedIds: data['bedIds'] != null 
+          ? List<String>.from(data['bedIds'])
+          : null,
+      bedLabels: data['bedLabels'] != null 
+          ? List<String>.from(data['bedLabels'])
+          : null,
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
@@ -264,6 +343,18 @@ class PatientModel {
       receiptNumber: data['receiptNumber']?.toString(),
       modeOfPayment: data['modeOfPayment']?.toString(),
       utiNumber: data['utiNumber']?.toString(),
+      paymentPending: data['paymentPending'] as bool? ?? false,
+      paymentStatus: data['paymentStatus']?.toString(),
+      totalPaidAmount: (data['totalPaidAmount'] ?? 0).toDouble(),
+      currentDueAmount: (data['currentDueAmount'] ?? 0).toDouble(),
+      paymentDueDate: data['paymentDueDate'] != null
+          ? _parseDateTime(data['paymentDueDate'])
+          : null,
+      isAdvancePeriod: data['isAdvancePeriod'] as bool? ?? true,
+      advanceBilledAmount: (data['advanceBilledAmount'] ?? 0).toDouble(),
+      attendanceCharges: (data['attendanceCharges'] ?? 0).toDouble(),
+      totalPresentDays: _parseInt(data['totalPresentDays']),
+      totalAbsentDays: _parseInt(data['totalAbsentDays']),
       attendants: data['attendants'] != null
           ? _parseList(data['attendants'], (item) => AttendantModel.fromMap(Map<String, dynamic>.from(item as Map)))
           : null,
@@ -275,6 +366,17 @@ class PatientModel {
                 Map<String, dynamic>.from(p),
               );
             })
+          : null,
+      dischargeDate: data['dischargeDate'] != null
+          ? _parseDateTime(data['dischargeDate'])
+          : null,
+      maxStayDays: data['maxStayDays'] != null ? _parseInt(data['maxStayDays']) : 60,
+      extensionApproved: data['extensionApproved'] as bool? ?? false,
+      extensionDays: _parseInt(data['extensionDays']),
+      extensionReason: data['extensionReason']?.toString(),
+      approvedBy: data['approvedBy']?.toString(),
+      approvedDate: data['approvedDate'] != null
+          ? _parseDateTime(data['approvedDate'])
           : null,
     );
   }
@@ -364,8 +466,25 @@ class PatientModel {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    bool? paymentPending,
+    String? paymentStatus,
+    double? totalPaidAmount,
+    double? currentDueAmount,
+    DateTime? paymentDueDate,
+    bool? isAdvancePeriod,
+    double? advanceBilledAmount,
+    double? attendanceCharges,
+    int? totalPresentDays,
+    int? totalAbsentDays,
     List<AttendantModel>? attendants,
     List<PaymentModel>? payments,
+    DateTime? dischargeDate,
+    int? maxStayDays,
+    bool? extensionApproved,
+    int? extensionDays,
+    String? extensionReason,
+    String? approvedBy,
+    DateTime? approvedDate,
   }) {
     return PatientModel(
       id: id ?? this.id,
@@ -398,8 +517,25 @@ class PatientModel {
       receiptNumber: receiptNumber ?? this.receiptNumber,
       modeOfPayment: modeOfPayment ?? this.modeOfPayment,
       utiNumber: utiNumber ?? this.utiNumber,
+      paymentPending: paymentPending ?? this.paymentPending,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      totalPaidAmount: totalPaidAmount ?? this.totalPaidAmount,
+      currentDueAmount: currentDueAmount ?? this.currentDueAmount,
+      paymentDueDate: paymentDueDate ?? this.paymentDueDate,
+      isAdvancePeriod: isAdvancePeriod ?? this.isAdvancePeriod,
+      advanceBilledAmount: advanceBilledAmount ?? this.advanceBilledAmount,
+      attendanceCharges: attendanceCharges ?? this.attendanceCharges,
+      totalPresentDays: totalPresentDays ?? this.totalPresentDays,
+      totalAbsentDays: totalAbsentDays ?? this.totalAbsentDays,
       attendants: attendants ?? this.attendants,
       payments: payments ?? this.payments,
+      dischargeDate: dischargeDate ?? this.dischargeDate,
+      maxStayDays: maxStayDays ?? this.maxStayDays,
+      extensionApproved: extensionApproved ?? this.extensionApproved,
+      extensionDays: extensionDays ?? this.extensionDays,
+      extensionReason: extensionReason ?? this.extensionReason,
+      approvedBy: approvedBy ?? this.approvedBy,
+      approvedDate: approvedDate ?? this.approvedDate,
     );
   }
 

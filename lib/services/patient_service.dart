@@ -78,6 +78,9 @@ class PatientService {
   /// Note: REST API queries are limited, so we fetch all and filter client-side.
   Stream<List<PatientModel>> getPatientsByStatus(String status) {
     return getPatientsStream().map((patients) {
+      if (status == 'active') {
+        return patients.where((p) => p.status == 'active' || p.status == 'Paid').toList();
+      }
       return patients.where((p) => p.status == status).toList();
     });
   }
@@ -101,7 +104,7 @@ class PatientService {
   Stream<List<PatientModel>> getPatientsByRoom(String roomId) {
     return getPatientsStream().map((patients) {
       return patients
-          .where((p) => p.roomId == roomId && p.status == 'active')
+          .where((p) => p.roomId == roomId && (p.status == 'active' || p.status == 'Paid'))
           .toList();
     });
   }
@@ -110,7 +113,7 @@ class PatientService {
   Stream<List<PatientModel>> getPatientsByFloor(int floor) {
     return getPatientsStream().map((patients) {
       return patients
-          .where((p) => p.floor == floor && p.status == 'active')
+          .where((p) => p.floor == floor && (p.status == 'active' || p.status == 'Paid'))
           .toList();
     });
   }
@@ -170,6 +173,11 @@ class PatientService {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    bool isAdvancePeriod = true,
+    double advanceBilledAmount = 0.0,
+    double attendanceCharges = 0.0,
+    int totalPresentDays = 0,
+    int totalAbsentDays = 0,
     List<AttendantModel>? attendants,
     List<PaymentModel>? payments,
   }) async {
@@ -194,7 +202,9 @@ class PatientService {
         allergies: allergies,
         bloodType: bloodType,
         admissionDate: admissionDate,
-        status: 'active',
+        status: (payments != null && payments.isNotEmpty) ? 'Paid' : 'active',
+        paymentPending: (payments == null || payments.isEmpty),
+        paymentStatus: (payments != null && payments.isNotEmpty) ? 'Paid' : 'Unpaid',
         roomId: roomId,
         roomNumber: roomNumber,
         floor: floor,
@@ -211,6 +221,11 @@ class PatientService {
         receiptNumber: receiptNumber,
         modeOfPayment: modeOfPayment,
         utiNumber: utiNumber,
+        isAdvancePeriod: isAdvancePeriod,
+        advanceBilledAmount: advanceBilledAmount,
+        attendanceCharges: attendanceCharges,
+        totalPresentDays: totalPresentDays,
+        totalAbsentDays: totalAbsentDays,
         attendants: attendants,
         payments: payments,
       );
@@ -356,6 +371,7 @@ class PatientService {
       // Update patient status
       await updatePatient(patientId, {
         'status': 'discharged',
+        'dischargeDate': DateTime.now().millisecondsSinceEpoch,
         'roomId': null,
         'roomNumber': null,
         'floor': null,
@@ -417,9 +433,9 @@ class PatientService {
             final patientData = Map<String, dynamic>.from(value);
             final status = patientData['status'] ?? 'active';
 
-            if (status == 'active') active++;
+            if (status == 'active' || status == 'Paid') active++;
             if (status == 'discharged') discharged++;
-            if (patientData['roomId'] != null && status == 'active') {
+            if (patientData['roomId'] != null && (status == 'active' || status == 'Paid')) {
               withRoom++;
             }
           }
@@ -457,9 +473,9 @@ class PatientService {
             final patientData = Map<String, dynamic>.from(value);
             final status = patientData['status'] ?? 'active';
 
-            if (status == 'active') active++;
+            if (status == 'active' || status == 'Paid') active++;
             if (status == 'discharged') discharged++;
-            if (patientData['roomId'] != null && status == 'active') {
+            if (patientData['roomId'] != null && (status == 'active' || status == 'Paid')) {
               withRoom++;
             }
           }

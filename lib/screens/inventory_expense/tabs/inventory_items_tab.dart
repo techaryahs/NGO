@@ -100,38 +100,41 @@ class _InventoryItemsTabState extends State<InventoryItemsTab> {
                     ? const Center(child: Text("No inventory items found", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: const [
-                              DataColumn(label: Text("Item Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Unit", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Min Stock Level", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Current Stock", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                            ],
-                            rows: filteredItems.map((item) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(item.name, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                  DataCell(Text(item.category)),
-                                  DataCell(Text(item.unit)),
-                                  DataCell(Text("${item.minStockLevel} ${item.unit}")),
-                                  DataCell(Text(
-                                    "${item.currentStock} ${item.unit}",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: item.isLowStock ? const Color(0xFFC62828) : const Color(0xFF27500A),
-                                    ),
-                                  )),
-                                  DataCell(_buildStatusBadge(item)),
-                                  DataCell(_buildActionButtons(item)),
-                                ],
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: const [
+                                DataColumn(label: Text("Item Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Unit", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Min Stock Level", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Current Stock", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                              ],
+                              rows: filteredItems.map((item) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(item.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                    DataCell(Text(item.category)),
+                                    DataCell(Text(item.unit)),
+                                    DataCell(Text("${item.minStockLevel} ${item.unit}")),
+                                    DataCell(Text(
+                                      "${item.currentStock} ${item.unit}",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: item.isLowStock ? const Color(0xFFC62828) : const Color(0xFF27500A),
+                                      ),
+                                    )),
+                                    DataCell(_buildStatusBadge(item)),
+                                    DataCell(_buildActionButtons(item)),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),

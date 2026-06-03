@@ -104,34 +104,37 @@ class _PurchasesTabState extends State<PurchasesTab> {
                     ? const Center(child: Text("No stock purchases recorded", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: const [
-                              DataColumn(label: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Invoice No", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Vendor", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Item", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Qty", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Total Amount", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Payment Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                            ],
-                            rows: filteredPurchases.map((purchase) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(_formatDate(purchase.purchaseDate))),
-                                  DataCell(Text(purchase.invoiceNumber.isNotEmpty ? purchase.invoiceNumber : "N/A")),
-                                  DataCell(Text(purchase.vendorName)),
-                                  DataCell(Text(purchase.itemName)),
-                                  DataCell(Text("${purchase.quantity}")),
-                                  DataCell(Text("₹${purchase.totalAmount.toStringAsFixed(2)}")),
-                                  DataCell(_buildStatusBadge(purchase.paymentDetails.paymentStatus)),
-                                  DataCell(_buildActionButtons(purchase)),
-                                ],
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: const [
+                                DataColumn(label: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Invoice No", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Vendor", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Item", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Qty", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Total Amount", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Payment Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                              ],
+                              rows: filteredPurchases.map((purchase) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(_formatDate(purchase.purchaseDate))),
+                                    DataCell(Text(purchase.invoiceNumber.isNotEmpty ? purchase.invoiceNumber : "N/A")),
+                                    DataCell(Text(purchase.vendorName)),
+                                    DataCell(Text(purchase.itemName)),
+                                    DataCell(Text("${purchase.quantity}")),
+                                    DataCell(Text("₹${purchase.totalAmount.toStringAsFixed(2)}")),
+                                    DataCell(_buildStatusBadge(purchase.paymentDetails.paymentStatus)),
+                                    DataCell(_buildActionButtons(purchase)),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),

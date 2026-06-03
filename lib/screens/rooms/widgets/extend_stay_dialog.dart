@@ -116,250 +116,229 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFC0DD97), width: 1),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF3DE),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.add_circle_outline_rounded,
-                        color: Color(0xFF3B6D11),
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Extend Stay",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF27500A),
-                          ),
-                        ),
-                        Text(
-                          widget.stay.patientName,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF639922),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                  color: const Color(0xFF639922),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Current Stay Info
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F9F0),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-              ),
-              child: Column(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF3DE),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.add_circle_outline_rounded,
+                          color: Color(0xFF3B6D11),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            "Current Duration",
+                            "Extend Stay",
                             style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF97C459),
-                            ),
-                          ),
-                          Text(
-                            "${widget.stay.totalDays} days",
-                            style: const TextStyle(
-                              fontSize: 16,
+                              fontSize: 20,
                               fontWeight: FontWeight.w700,
                               color: Color(0xFF27500A),
                             ),
                           ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text(
-                            "Current Expiry",
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF97C459),
-                            ),
-                          ),
                           Text(
-                            "${widget.stay.effectiveExpiryDate.day}/${widget.stay.effectiveExpiryDate.month}/${widget.stay.effectiveExpiryDate.year}",
+                            widget.stay.patientName,
                             style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF27500A),
+                              fontSize: 13,
+                              color: Color(0xFF639922),
                             ),
                           ),
                         ],
                       ),
                     ],
                   ),
-                  if (widget.stay.extensions.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const Divider(color: Color(0xFFC0DD97)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(Icons.history_rounded, size: 14, color: Color(0xFF639922)),
-                        const SizedBox(width: 6),
-                        Text(
-                          "Extended ${widget.stay.extensions.length} time(s) • +${widget.stay.totalExtendedDays} days",
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF639922),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    color: const Color(0xFF639922),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // Additional Days
-            const Text(
-              "ADDITIONAL DAYS",
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF27500A),
-                letterSpacing: 0.6,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                IconButton(
-                  onPressed: () {
-                    if (additionalDays > 1) {
-                      setState(() {
-                        additionalDays--;
-                        _calculateCost();
-                      });
-                    }
-                  },
-                  icon: const Icon(Icons.remove_circle_outline_rounded),
-                  color: const Color(0xFF639922),
+              // Current Stay Info
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F9F0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
                 ),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F9F0),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-                    ),
-                    child: Column(
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          "+$additionalDays",
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF3B6D11),
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Current Duration",
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF97C459)),
+                            ),
+                            Text(
+                              "${widget.stay.totalDays} days",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF27500A),
+                              ),
+                            ),
+                          ],
                         ),
-                        const Text(
-                          "days",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF639922),
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              "Current Expiry",
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF97C459),
+                              ),
+                            ),
+                            Text(
+                              "${widget.stay.effectiveExpiryDate.day}/${widget.stay.effectiveExpiryDate.month}/${widget.stay.effectiveExpiryDate.year}",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF27500A),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () {
-                    setState(() {
-                      additionalDays++;
-                      _calculateCost();
-                    });
-                  },
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                  color: const Color(0xFF639922),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // New Expiry Date
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF3DE),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "New Expiry Date",
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF639922),
-                        ),
-                      ),
-                      Text(
-                        "${newExpiryDate.day}/${newExpiryDate.month}/${newExpiryDate.year}",
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF3B6D11),
-                        ),
+                    if (widget.stay.extensions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Divider(color: Color(0xFFC0DD97)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.history_rounded, size: 14, color: Color(0xFF639922)),
+                          const SizedBox(width: 6),
+                          Text(
+                            "Extended ${widget.stay.extensions.length} time(s) • +${widget.stay.totalExtendedDays} days",
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF639922),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Additional Days
+              const Text(
+                "ADDITIONAL DAYS",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      if (additionalDays > 1) {
+                        setState(() {
+                          additionalDays--;
+                          _calculateCost();
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                    color: const Color(0xFF639922),
                   ),
-                  if (pricing != null)
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F9F0),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            "+$additionalDays",
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF3B6D11),
+                            ),
+                          ),
+                          const Text(
+                            "days",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF639922),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        additionalDays++;
+                        _calculateCost();
+                      });
+                    },
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    color: const Color(0xFF639922),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // New Expiry Date
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF3DE),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
                     Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          "Additional Cost",
+                          "New Expiry Date",
                           style: TextStyle(
                             fontSize: 11,
                             color: Color(0xFF639922),
                           ),
                         ),
                         Text(
-                          "₹${additionalCost.toStringAsFixed(2)}",
+                          "${newExpiryDate.day}/${newExpiryDate.month}/${newExpiryDate.year}",
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
@@ -368,82 +347,104 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                         ),
                       ],
                     ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Reason
-            const Text(
-              "REASON (OPTIONAL)",
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF27500A),
-                letterSpacing: 0.6,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: reasonController,
-              maxLines: 2,
-              decoration: InputDecoration(
-                hintText: "Enter reason for extension...",
-                hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
-                filled: true,
-                fillColor: const Color(0xFFF4F9F0),
-                contentPadding: const EdgeInsets.all(12),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Action buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: isLoading ? null : () => Navigator.pop(context),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF639922),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  ),
-                  child: const Text("Cancel"),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: isLoading ? null : _extendStay,
-                  icon: isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    if (pricing != null)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text(
+                            "Additional Cost",
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF639922),
+                            ),
                           ),
-                        )
-                      : const Icon(Icons.check_rounded, size: 18),
-                  label: Text(isLoading ? "Extending..." : "Extend Stay"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3B6D11),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                          Text(
+                            "₹${additionalCost.toStringAsFixed(2)}",
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF3B6D11),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Reason
+              const Text(
+                "REASON (OPTIONAL)",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  hintText: "Enter reason for extension...",
+                  hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                  filled: true,
+                  fillColor: const Color(0xFFF4F9F0),
+                  contentPadding: const EdgeInsets.all(12),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: isLoading ? null : () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF639922),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                    child: const Text("Cancel"),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: isLoading ? null : _extendStay,
+                    icon: isLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.check_rounded, size: 18),
+                    label: Text(isLoading ? "Extending..." : "Extend Stay"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF3B6D11),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

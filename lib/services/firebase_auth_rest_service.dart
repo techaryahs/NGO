@@ -15,6 +15,7 @@ class FirebaseAuthRestService {
   static const String _signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
   static const String _refreshTokenUrl = 'https://securetoken.googleapis.com/v1/token';
   static const String _getUserDataUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
+  static const String _updateAccountUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update';
 
   // Storage keys
   static const String _keyIdToken = 'firebase_id_token';
@@ -163,6 +164,65 @@ class FirebaseAuthRestService {
           success: true,
           user: currentUser,
         );
+      } else {
+        final error = json.decode(response.body);
+        return AuthResult(
+          success: false,
+          message: _parseErrorMessage(error['error']['message']),
+        );
+      }
+    } catch (e) {
+      return AuthResult(
+        success: false,
+        message: 'An error occurred. Please try again.',
+      );
+    }
+  }
+
+  // ===========================================================================
+  // PASSWORD MANAGEMENT
+  // ===========================================================================
+
+  Future<AuthResult> reauthenticate({
+    required String password,
+  }) async {
+    if (_email == null) {
+      return AuthResult(success: false, message: 'No user signed in.');
+    }
+    return signIn(email: _email!, password: password);
+  }
+
+  Future<AuthResult> changePassword({
+    required String newPassword,
+  }) async {
+    try {
+      final token = await getIdToken();
+      if (token == null) {
+        return AuthResult(success: false, message: 'User is not authenticated.');
+      }
+
+      final url = '$_updateAccountUrl?key=$apiKey';
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'idToken': token,
+          'password': newPassword,
+          'returnSecureToken': true,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        await _saveAuthData(
+          idToken: data['idToken'],
+          refreshToken: data['refreshToken'],
+          userId: data['localId'],
+          email: data['email'],
+          expiresIn: int.parse(data['expiresIn']),
+        );
+        return AuthResult(success: true, user: currentUser);
       } else {
         final error = json.decode(response.body);
         return AuthResult(

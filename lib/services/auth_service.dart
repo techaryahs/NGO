@@ -69,6 +69,40 @@ class AuthService {
     }
   }
 
+  // Reauthenticate user
+  Future<Map<String, dynamic>> reauthenticate({
+    required String password,
+  }) async {
+    try {
+      final result = await _auth.reauthenticate(password: password);
+
+      if (!result.success) {
+        return {'success': false, 'message': result.message};
+      }
+
+      return {'success': true, 'user': result.user};
+    } catch (e) {
+      return {'success': false, 'message': 'An error occurred. Please try again.'};
+    }
+  }
+
+  // Change Password
+  Future<Map<String, dynamic>> changePassword({
+    required String newPassword,
+  }) async {
+    try {
+      final result = await _auth.changePassword(newPassword: newPassword);
+
+      if (!result.success) {
+        return {'success': false, 'message': result.message};
+      }
+
+      return {'success': true, 'user': result.user};
+    } catch (e) {
+      return {'success': false, 'message': 'An error occurred. Please try again.'};
+    }
+  }
+
   // Get user role from Realtime Database
   Future<String?> getUserRole(String uid) async {
     try {

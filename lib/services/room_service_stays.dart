@@ -179,6 +179,25 @@ extension RoomServiceStays on RoomService {
       });
 
       await updateRoomStatus(stay.roomId);
+
+      // Sync extension with PatientModel
+      // Sync extension with PatientModel
+      try {
+        final patientData = await rtdb.get('patients/${stay.patientId}');
+
+        if (patientData != null && patientData is Map) {
+          final currentExtensionDays =
+          (patientData['extensionDays'] ?? 0) as int;
+
+          await rtdb.patch('patients/${stay.patientId}', {
+            'extensionDays': currentExtensionDays + additionalDays,
+            'extensionApproved': true,
+            'updatedAt': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+      } catch (e) {
+        print('Failed to sync patient extension: $e');
+      }
     } catch (e) {
       throw Exception('Failed to extend stay: $e');
     }

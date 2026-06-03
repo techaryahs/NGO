@@ -114,8 +114,11 @@ extension RoomServiceRooms on RoomService {
         if (bedLabels != null && bedLabels.isNotEmpty) {
           for (final label in bedLabels) beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
         } else {
-          final bedCount = totalBeds ?? parseIntSafe(pricing['generalRoomDefaultBeds'], 4);
-          for (int i = 1; i <= bedCount; i++) beds.add(BedModel.create(roomId: 'temp', bedLabel: i.toString()));
+          final bedCount = totalBeds ?? parseIntSafe(pricing['generalRoomDefaultBeds'], 6);
+          final clampedCount = bedCount.clamp(1, 6);
+          for (int i = 1; i <= clampedCount; i++) {
+            beds.add(BedModel.create(roomId: 'temp', bedLabel: 'bed$i'));
+          }
         }
       } else {
         final bedCount = totalBeds ?? 2;

@@ -191,74 +191,78 @@ class _BookingsTabState extends State<BookingsTab> {
                       child: totalRows == 0
                           ? const Center(child: Text("No sponsorship bookings recorded", style: TextStyle(color: Color(0xFF639922))))
                           : SingleChildScrollView(
-                              child: DataTable(
-                                headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                                sortColumnIndex: _sortColumnIndex,
-                                sortAscending: _sortAscending,
-                                dataRowMinHeight: 52,
-                                dataRowMaxHeight: 52,
-                                columns: [
-                                  DataColumn(
-                                    label: const Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Sponsor Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Occasion", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Honoree Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Amount (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Payment Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  DataColumn(
-                                    label: const Text("Booking Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                    onSort: _onSort,
-                                  ),
-                                  const DataColumn(
-                                    label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
-                                  ),
-                                ],
-                                rows: pageRows.map((s) {
-                                  return DataRow(
-                                    cells: [
-                                      DataCell(Text(_formatDate(s.sponsorshipDate))),
-                                      DataCell(Text("${s.sponsorPrefix} ${s.sponsorName}")),
-                                      DataCell(Text(s.occasion)),
-                                      DataCell(Text(s.honoreeName?.isNotEmpty ?? false ? s.honoreeName! : "—")),
-                                      DataCell(Text("₹${s.amount.toStringAsFixed(1)}")),
-                                      DataCell(_buildPaymentStatusBadge(s.paymentStatus)),
-                                      DataCell(_buildBookingStatusBadge(s.bookingStatus)),
-                                      DataCell(
-                                        Row(
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(Icons.edit_outlined, color: Color(0xFF3B6D11), size: 20),
-                                              onPressed: () => _openBookingDialog(s),
-                                              tooltip: "Edit Booking",
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
-                                              onPressed: () => _confirmDelete(s),
-                                              tooltip: "Delete Record",
-                                            ),
-                                          ],
+                              scrollDirection: Axis.vertical,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: DataTable(
+                                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                                  sortColumnIndex: _sortColumnIndex,
+                                  sortAscending: _sortAscending,
+                                  dataRowMinHeight: 52,
+                                  dataRowMaxHeight: 52,
+                                  columns: [
+                                    DataColumn(
+                                      label: const Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Sponsor Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Occasion", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Honoree Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Amount (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Payment Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    DataColumn(
+                                      label: const Text("Booking Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                      onSort: _onSort,
+                                    ),
+                                    const DataColumn(
+                                      label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))),
+                                    ),
+                                  ],
+                                  rows: pageRows.map((s) {
+                                    return DataRow(
+                                      cells: [
+                                        DataCell(Text(_formatDate(s.sponsorshipDate))),
+                                        DataCell(Text("${s.sponsorPrefix} ${s.sponsorName}")),
+                                        DataCell(Text(s.occasion)),
+                                        DataCell(Text(s.honoreeName?.isNotEmpty ?? false ? s.honoreeName! : "—")),
+                                        DataCell(Text("₹${s.amount.toStringAsFixed(1)}")),
+                                        DataCell(_buildPaymentStatusBadge(s.paymentStatus)),
+                                        DataCell(_buildBookingStatusBadge(s.bookingStatus)),
+                                        DataCell(
+                                          Row(
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.edit_outlined, color: Color(0xFF3B6D11), size: 20),
+                                                onPressed: () => _openBookingDialog(s),
+                                                tooltip: "Edit Booking",
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                                onPressed: () => _confirmDelete(s),
+                                                tooltip: "Delete Record",
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList(),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
                               ),
                             ),
                     ),
@@ -322,11 +326,14 @@ class _BookingsTabState extends State<BookingsTab> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 15,
+        runSpacing: 15,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           // Search Input
-          Expanded(
-            flex: 3,
+          SizedBox(
+            width: 300,
             child: TextField(
               decoration: const InputDecoration(
                 hintText: "Search by Sponsor, Honoree, or Mobile...",
@@ -341,11 +348,10 @@ class _BookingsTabState extends State<BookingsTab> {
               },
             ),
           ),
-          const SizedBox(width: 15),
 
           // Date Picker filter
-          Expanded(
-            flex: 2,
+          SizedBox(
+            width: 200,
             child: InkWell(
               onTap: () async {
                 final selected = await showDatePicker(
@@ -385,11 +391,10 @@ class _BookingsTabState extends State<BookingsTab> {
               ),
             ),
           ),
-          const SizedBox(width: 15),
 
           // Occasion Selector
-          Expanded(
-            flex: 2,
+          SizedBox(
+            width: 200,
             child: DropdownButtonFormField<String>(
               value: _filterOccasion,
               decoration: const InputDecoration(
@@ -407,11 +412,10 @@ class _BookingsTabState extends State<BookingsTab> {
               },
             ),
           ),
-          const SizedBox(width: 15),
 
           // Status Selector
-          Expanded(
-            flex: 2,
+          SizedBox(
+            width: 200,
             child: DropdownButtonFormField<String>(
               value: _filterStatus,
               decoration: const InputDecoration(
@@ -429,7 +433,6 @@ class _BookingsTabState extends State<BookingsTab> {
               },
             ),
           ),
-          const SizedBox(width: 15),
 
           // Add Booking Button
           ElevatedButton.icon(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import 'package:intl/intl.dart';
+import '../patients/widgets/payment_dialog.dart';
 
 class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
@@ -10,85 +11,22 @@ class PaymentsScreen extends StatefulWidget {
   State<PaymentsScreen> createState() => _PaymentsScreenState();
 }
 
-class _PaymentsScreenState extends State<PaymentsScreen> {
-  final _rtdb = ServiceLocator().rtdbService;
-  bool _isLoading = true;
-  List<Map<String, dynamic>> _payments = [];
+class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   String _searchQuery = "";
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: ServiceLocator().paymentService.getAllPaymentsStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        
-        final payments = snapshot.data ?? [];
-        return Container(
-          color: const Color(0xFFF0F7EA),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Payments Dashboard",
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF27500A),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => _showQRDialog(context),
-                    icon: const Icon(Icons.qr_code_2_rounded, size: 20),
-                    label: const Text("Show QR Code"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B6D11),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              _buildSummarySection(payments),
-              const SizedBox(height: 24),
-              _buildFilters(),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _buildPaymentsList(payments),
-              ),
-            ],
-          ),
-        );
-      }
-    );
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    // Trigger auto-calculation of attendance billing on dashboard load
+    ServiceLocator().paymentService.recalculateAllActivePatientsBilling();
   }
 
-  Widget _buildSummarySection(List<Map<String, dynamic>> payments) {
-    final total = payments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-    final cash = payments.where((p) => p['method'].toString().toLowerCase().contains('cash')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-    final online = payments.where((p) => p['method'].toString().toLowerCase().contains('online')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-    final check = payments.where((p) => p['method'].toString().toLowerCase().contains('check')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-
-    return Row(
-      children: [
-        _SummaryCard(title: "Total Collection", value: total, color: const Color(0xFF3B6D11), icon: Icons.account_balance_wallet_rounded),
-        const SizedBox(width: 16),
-        _SummaryCard(title: "Cash", value: cash, color: Colors.orange, icon: Icons.money_rounded),
-        const SizedBox(width: 16),
-        _SummaryCard(title: "Online", value: online, color: Colors.blue, icon: Icons.qr_code_rounded),
-        const SizedBox(width: 16),
-        _SummaryCard(title: "Check", value: check, color: Colors.purple, icon: Icons.account_balance_rounded),
-      ],
-    );
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _showQRDialog(BuildContext context) {
@@ -152,7 +90,194 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
-  Widget _buildFilters() {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFF0F7EA),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            color: Colors.white,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Payments Dashboard",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF27500A),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _showQRDialog(context),
+                      icon: const Icon(Icons.qr_code_2_rounded, size: 20),
+                      label: const Text("Show QR Code"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B6D11),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TabBar(
+                  controller: _tabController,
+                  labelColor: const Color(0xFF3B6D11),
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: const Color(0xFF3B6D11),
+                  indicatorWeight: 3,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  tabs: const [
+                    Tab(text: "Patient Billing"),
+                    Tab(text: "Transaction Ledger"),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPatientBillingTab(),
+                _buildLedgerTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Patient Billing Tab ───────────────────────────────────────────────────
+
+  Widget _buildPatientBillingTab() {
+    return StreamBuilder<List<PatientModel>>(
+      stream: ServiceLocator().patientService.getPatientsStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final allPatients = snapshot.data ?? [];
+        final activePatients = allPatients.where((p) => p.status == 'active' || p.status == 'Paid').toList();
+
+        final filtered = activePatients.where((p) {
+          if (_searchQuery.isEmpty) return true;
+          return p.fullName.toLowerCase().contains(_searchQuery.toLowerCase());
+        }).toList();
+
+        final totalDue = activePatients.fold<double>(
+          0.0,
+              (sum, p) => sum + (p.currentDueAmount ?? 0.0),
+        );
+        final totalCollected = activePatients.fold(0.0, (sum, p) => sum + (p.totalPaidAmount ?? 0));
+
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _SummaryCard(title: "Total Outstanding Due", value: totalDue, color: const Color(0xFFD32F2F), icon: Icons.warning_rounded),
+                  const SizedBox(width: 16),
+                  _SummaryCard(title: "Total Collected (Active)", value: totalCollected, color: const Color(0xFF3B6D11), icon: Icons.account_balance_wallet_rounded),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildFilters("Search active patients..."),
+              const SizedBox(height: 16),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const Center(child: Text("No patients found.", style: TextStyle(color: Colors.grey)))
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          return _PatientBillingTile(patient: filtered[index]);
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Ledger Tab ────────────────────────────────────────────────────────────
+
+  Widget _buildLedgerTab() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: ServiceLocator().paymentService.getAllPaymentsStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final payments = snapshot.data ?? [];
+        final filtered = payments.where((p) {
+          if (_searchQuery.isEmpty) return true;
+          final name = p['patientName']?.toString().toLowerCase() ?? "";
+          final method = p['method']?.toString().toLowerCase() ?? "";
+          final receipt = p['receiptNumber']?.toString().toLowerCase() ?? "";
+          final query = _searchQuery.toLowerCase();
+          return name.contains(query) || method.contains(query) || receipt.contains(query);
+        }).toList();
+
+        final total = payments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final cash = payments.where((p) => p['method'].toString().toLowerCase().contains('cash')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final online = payments.where((p) => p['method'].toString().toLowerCase().contains('online')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final check = payments.where((p) => p['method'].toString().toLowerCase().contains('check')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _SummaryCard(title: "Lifetime Collection", value: total, color: const Color(0xFF3B6D11), icon: Icons.account_balance_wallet_rounded),
+                  const SizedBox(width: 16),
+                  _SummaryCard(title: "Cash", value: cash, color: Colors.orange, icon: Icons.money_rounded),
+                  const SizedBox(width: 16),
+                  _SummaryCard(title: "Online", value: online, color: Colors.blue, icon: Icons.qr_code_rounded),
+                  const SizedBox(width: 16),
+                  _SummaryCard(title: "Check", value: check, color: Colors.purple, icon: Icons.account_balance_rounded),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildFilters("Search ledger by name, receipt, or method..."),
+              const SizedBox(height: 16),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const Center(child: Text("No transactions found.", style: TextStyle(color: Colors.grey)))
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          return _PaymentTile(payment: filtered[index]);
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilters(String hint) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -162,46 +287,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       ),
       child: TextField(
         onChanged: (v) => setState(() => _searchQuery = v),
-        decoration: const InputDecoration(
-          hintText: "Search by patient name, receipt or method...",
+        decoration: InputDecoration(
+          hintText: hint,
           border: InputBorder.none,
-          icon: Icon(Icons.search, color: Color(0xFF3B6D11)),
+          icon: const Icon(Icons.search, color: Color(0xFF3B6D11)),
         ),
       ),
-    );
-  }
-
-  Widget _buildPaymentsList(List<Map<String, dynamic>> allPayments) {
-    final filtered = allPayments.where((p) {
-      if (_searchQuery.isEmpty) return true;
-      final name = p['patientName']?.toString().toLowerCase() ?? "";
-      final method = p['method']?.toString().toLowerCase() ?? "";
-      final receipt = p['receiptNumber']?.toString().toLowerCase() ?? "";
-      final query = _searchQuery.toLowerCase();
-      return name.contains(query) || method.contains(query) || receipt.contains(query);
-    }).toList();
-
-    if (filtered.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.account_balance_wallet_outlined, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
-            Text(_searchQuery.isEmpty ? "No payments recorded yet" : "No payments match your search", 
-                style: const TextStyle(color: Colors.grey, fontSize: 16)),
-          ],
-        ),
-      );
-    }
-
-    return ListView.separated(
-      itemCount: filtered.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final payment = filtered[index];
-        return _PaymentTile(payment: payment);
-      },
     );
   }
 }
@@ -239,6 +330,174 @@ class _SummaryCard extends StatelessWidget {
     );
   }
 }
+
+// ── Patient Billing Tile ────────────────────────────────────────────────────
+
+class _PatientBillingTile extends StatelessWidget {
+  final PatientModel patient;
+
+  const _PatientBillingTile({required this.patient});
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
+    final totalBill = patient.advanceBilledAmount + patient.attendanceCharges;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFC0DD97).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          // Avatar / Icon
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: patient.isAdvancePeriod ? const Color(0xFFE3F2FD) : const Color(0xFFF3E5F5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              patient.isAdvancePeriod ? Icons.hourglass_top_rounded : Icons.calendar_month_rounded,
+              color: patient.isAdvancePeriod ? Colors.blue : Colors.purple,
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        patient.fullName,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF27500A)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: patient.isAdvancePeriod ? Colors.blue.withValues(alpha: 0.1) : Colors.purple.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        patient.isAdvancePeriod ? 'Advance Mode' : 'Attendance Mode',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: patient.isAdvancePeriod ? Colors.blue : Colors.purple,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text("Room: ${patient.roomNumber ?? 'Unassigned'}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    const Text("•", style: TextStyle(color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Text("Present: ${patient.totalPresentDays} days", style: const TextStyle(color: Color(0xFF639922), fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text("Bill: ${fmt.format(totalBill)}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    const Text("•", style: TextStyle(color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Text("Paid: ${fmt.format(patient.totalPaidAmount ?? 0)}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  ],
+                )
+              ],
+            ),
+          ),
+          // Actions / Due Amount
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                "Due: ${fmt.format(patient.currentDueAmount)}",
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: (patient.currentDueAmount ?? 0.0) > 0 ? const Color(0xFFD32F2F) : const Color(0xFF3B6D11),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if ((patient.currentDueAmount ?? 0.0) > 0)
+                ElevatedButton(
+                  onPressed: () async {
+                    final result = await showPatientPaymentDialog(
+                      context: context,
+                      patientName: patient.fullName,
+                      contactNumber: patient.contactNumber,
+                      bedsCount: patient.bedIds?.length ?? 1,
+                      attendantsCount: patient.attendants?.length ?? 0,
+                      roomIdentifier: patient.roomNumber,
+                      alreadyPaid: patient.totalPaidAmount ?? 0.0,
+                      showPayLater: false,
+                      totalBillOverride: patient.advanceBilledAmount + patient.attendanceCharges,
+                    );
+                    
+                    if (result != null && result.payment != null) {
+                      await ServiceLocator().patientService.recordPayment(patient.id, result.payment!);
+                      await ServiceLocator().patientService.updatePatient(patient.id, {
+                        'paymentPending': result.payment!.paymentStatus == "Pending",
+                        'paymentStatus': result.payment!.paymentStatus,
+                        'status': result.payment!.paymentStatus == "Paid" ? 'Paid' : 'active',
+                        'totalPaidAmount': result.payment!.paidAmount,
+                        'currentDueAmount': result.payment!.pendingAmount,
+                      });
+                      
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Payment successfully recorded!'),
+                            backgroundColor: Color(0xFF3B6D11),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3B6D11),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    minimumSize: const Size(80, 32),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
+                  child: const Text("Pay Now", style: TextStyle(fontSize: 12)),
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Color(0xFF3B6D11), size: 16),
+                      SizedBox(width: 4),
+                      Text("Cleared", style: TextStyle(color: Color(0xFF3B6D11), fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Ledger Tile ─────────────────────────────────────────────────────────────
 
 class _PaymentTile extends StatelessWidget {
   final Map<String, dynamic> payment;
@@ -278,7 +537,13 @@ class _PaymentTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(payment['patientName'] ?? "Unknown Patient", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF27500A))),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(payment['patientName'] ?? "Unknown Patient", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF27500A)), overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 4),
                 Row(
                   children: [

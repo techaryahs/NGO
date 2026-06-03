@@ -107,10 +107,14 @@ class _CalendarTabState extends State<CalendarTab> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 15,
+        runSpacing: 10,
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.calendar_month_rounded, color: Color(0xFF3B6D11)),
               const SizedBox(width: 10),
@@ -126,13 +130,15 @@ class _CalendarTabState extends State<CalendarTab> {
           ),
           
           // Action Buttons: Previous/Next Month & Quick Guide
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
             children: [
               const Text(
                 "💡 Double-click any empty date to quickly book!",
                 style: TextStyle(fontSize: 12, color: Color(0xFF639922), fontStyle: FontStyle.italic),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 10),
               IconButton(
                 icon: const Icon(Icons.chevron_left_rounded, color: Color(0xFF3B6D11)),
                 onPressed: _previousMonth,

@@ -103,34 +103,37 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                     ? const Center(child: Text("No operational expenses recorded", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: const [
-                              DataColumn(label: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Subcategory", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Description", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Amount", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Method", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                            ],
-                            rows: filteredExpenses.map((expense) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(_formatDate(expense.expenseDate))),
-                                  DataCell(Text(expense.category)),
-                                  DataCell(Text(expense.subcategory != null && expense.subcategory!.isNotEmpty ? expense.subcategory! : "—")),
-                                  DataCell(Text(expense.description, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                  DataCell(Text("₹${expense.totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold))),
-                                  DataCell(Text(expense.paymentDetails.paymentMethod)),
-                                  DataCell(_buildStatusBadge(expense.paymentDetails.paymentStatus)),
-                                  DataCell(_buildActionButtons(expense)),
-                                ],
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: const [
+                                DataColumn(label: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Subcategory", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Description", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Amount", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Method", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                              ],
+                              rows: filteredExpenses.map((expense) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(_formatDate(expense.expenseDate))),
+                                    DataCell(Text(expense.category)),
+                                    DataCell(Text(expense.subcategory != null && expense.subcategory!.isNotEmpty ? expense.subcategory! : "—")),
+                                    DataCell(Text(expense.description, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                    DataCell(Text("₹${expense.totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold))),
+                                    DataCell(Text(expense.paymentDetails.paymentMethod)),
+                                    DataCell(_buildStatusBadge(expense.paymentDetails.paymentStatus)),
+                                    DataCell(_buildActionButtons(expense)),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
+import 'package:flutter/services.dart';
 
 /// Helper utility for exporting NGO expense data to CSV, Excel, and HTML/PDF
 class ExportUtility {
@@ -150,7 +152,13 @@ class ExportUtility {
       final htmlBuffer = StringBuffer();
       final now = DateTime.now();
       final timestamp = '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}';
+final logoBytes = await rootBundle.load(
+'assets/images/logo.jpeg',
+);
 
+final logoBase64 = base64Encode(
+logoBytes.buffer.asUint8List(),
+);
       htmlBuffer.write('''
 <!DOCTYPE html>
 <html>
@@ -244,10 +252,29 @@ class ExportUtility {
 </head>
 <body>
   <div class="header-container">
+
+  <div style="display:flex; align-items:center; gap:16px;">
+
+    <img 
+      src="data:image/jpeg;base64,$logoBase64"
+      width="70"
+      height="70"
+      style="border-radius:12px;"
+    />
+
     <div class="title-block">
       <h1>$reportTitle</h1>
       <p>$subtitle</p>
     </div>
+
+  </div>
+
+  <div class="meta-block">
+    <p><strong>NGO System</strong> Operations Portal</p>
+    <p>Generated: $timestamp</p>
+  </div>
+
+</div>
     <div class="meta-block">
       <p><strong>NGO System</strong> Operations Portal</p>
       <p>Generated: $timestamp</p>

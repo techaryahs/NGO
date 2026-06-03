@@ -159,26 +159,29 @@ class _ReportsTabState extends State<ReportsTab> {
                     ? const Center(child: Text("No records compiled for the selected parameters", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: _headers.map((h) => DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))))).toList(),
-                            rows: _generatedRows.map((row) {
-                              return DataRow(
-                                cells: row.map((cell) {
-                                  final valStr = cell?.toString() ?? '';
-                                  if (valStr == 'Paid' || valStr == 'Confirmed' || valStr == 'Completed') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
-                                  } else if (valStr == 'Pending' || valStr == 'Cancelled') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
-                                  } else if (valStr == 'Partial' || valStr == 'Booked') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
-                                  }
-                                  return DataCell(Text(valStr));
-                                }).toList(),
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: _headers.map((h) => DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))))).toList(),
+                              rows: _generatedRows.map((row) {
+                                return DataRow(
+                                  cells: row.map((cell) {
+                                    final valStr = cell?.toString() ?? '';
+                                    if (valStr == 'Paid' || valStr == 'Confirmed' || valStr == 'Completed') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
+                                    } else if (valStr == 'Pending' || valStr == 'Cancelled') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
+                                    } else if (valStr == 'Partial' || valStr == 'Booked') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
+                                    }
+                                    return DataCell(Text(valStr));
+                                  }).toList(),
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),
@@ -206,141 +209,138 @@ class _ReportsTabState extends State<ReportsTab> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
       ),
-      child: Column(
+      child: Wrap(
+        spacing: 15,
+        runSpacing: 15,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Row(
-            children: [
-              // Report Type selection
-              Expanded(
-                flex: 3,
-                child: DropdownButtonFormField<String>(
-                  value: _selectedReportType,
-                  decoration: const InputDecoration(labelText: "Select Report Type *"),
-                  items: _reportTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedReportType = val;
-                        _compileReport();
-                      });
-                    }
-                  },
+          // Report Type selection
+          SizedBox(
+            width: 300,
+            child: DropdownButtonFormField<String>(
+              value: _selectedReportType,
+              decoration: const InputDecoration(labelText: "Select Report Type *"),
+              items: _reportTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _selectedReportType = val;
+                    _compileReport();
+                  });
+                }
+              },
+            ),
+          ),
+
+          // Conditional configurations: Daily selector
+          if (_selectedReportType == "Daily Sponsorship Report") ...[
+            SizedBox(
+              width: 300,
+              child: InkWell(
+                onTap: () async {
+                  final selected = await showDatePicker(
+                    context: context,
+                    initialDate: _selectedDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2030),
+                  );
+                  if (selected != null) {
+                    setState(() {
+                      _selectedDate = selected;
+                      _compileReport();
+                    });
+                  }
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: "Choose Target Date"),
+                  child: Text(_formatDate(_selectedDate)),
                 ),
               ),
-              const SizedBox(width: 20),
+            ),
+          ],
 
-              // Conditional configurations: Daily selector
-              if (_selectedReportType == "Daily Sponsorship Report") ...[
-                Expanded(
-                  flex: 3,
-                  child: InkWell(
-                    onTap: () async {
-                      final selected = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2030),
-                      );
-                      if (selected != null) {
-                        setState(() {
-                          _selectedDate = selected;
-                          _compileReport();
-                        });
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: "Choose Target Date"),
-                      child: Text(_formatDate(_selectedDate)),
-                    ),
-                  ),
-                ),
-              ],
+          // Conditional configurations: Monthly Selector
+          if (_selectedReportType == "Monthly Sponsorship Report") ...[
+            SizedBox(
+              width: 200,
+              child: DropdownButtonFormField<int>(
+                value: _selectedDate.month,
+                decoration: const InputDecoration(labelText: "Choose Month"),
+                items: List.generate(12, (index) {
+                  return DropdownMenuItem(value: index + 1, child: Text(_months[index]));
+                }),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedDate = DateTime(_selectedDate.year, val, 1);
+                      _compileReport();
+                    });
+                  }
+                },
+              ),
+            ),
+            SizedBox(
+              width: 200,
+              child: DropdownButtonFormField<int>(
+                value: _selectedDate.year,
+                decoration: const InputDecoration(labelText: "Choose Year"),
+                items: List.generate(10, (index) {
+                  final yr = DateTime.now().year - 5 + index;
+                  return DropdownMenuItem(value: yr, child: Text("$yr"));
+                }),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedDate = DateTime(val, _selectedDate.month, 1);
+                      _compileReport();
+                    });
+                  }
+                },
+              ),
+            ),
+          ],
 
-              // Conditional configurations: Monthly Selector
-              if (_selectedReportType == "Monthly Sponsorship Report") ...[
-                Expanded(
-                  flex: 2,
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedDate.month,
-                    decoration: const InputDecoration(labelText: "Choose Month"),
-                    items: List.generate(12, (index) {
-                      return DropdownMenuItem(value: index + 1, child: Text(_months[index]));
-                    }),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedDate = DateTime(_selectedDate.year, val, 1);
-                          _compileReport();
-                        });
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 15),
-                Expanded(
-                  flex: 2,
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedDate.year,
-                    decoration: const InputDecoration(labelText: "Choose Year"),
-                    items: List.generate(10, (index) {
-                      final yr = DateTime.now().year - 5 + index;
-                      return DropdownMenuItem(value: yr, child: Text("$yr"));
-                    }),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedDate = DateTime(val, _selectedDate.month, 1);
-                          _compileReport();
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
+          // Conditional configurations: Yearly selector
+          if (_selectedReportType == "Yearly Sponsorship Report") ...[
+            SizedBox(
+              width: 300,
+              child: DropdownButtonFormField<int>(
+                value: _selectedYear,
+                decoration: const InputDecoration(labelText: "Select Calendar Year"),
+                items: List.generate(10, (index) {
+                  final yr = DateTime.now().year - 5 + index;
+                  return DropdownMenuItem(value: yr, child: Text("$yr"));
+                }),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedYear = val;
+                      _compileReport();
+                    });
+                  }
+                },
+              ),
+            ),
+          ],
 
-              // Conditional configurations: Yearly selector
-              if (_selectedReportType == "Yearly Sponsorship Report") ...[
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedYear,
-                    decoration: const InputDecoration(labelText: "Select Calendar Year"),
-                    items: List.generate(10, (index) {
-                      final yr = DateTime.now().year - 5 + index;
-                      return DropdownMenuItem(value: yr, child: Text("$yr"));
-                    }),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedYear = val;
-                          _compileReport();
-                        });
-                      }
-                    },
-                  ),
+          // Conditional configurations: Sponsor-wise search
+          if (_selectedReportType == "Sponsor-wise Report") ...[
+            SizedBox(
+              width: 300,
+              child: TextField(
+                decoration: const InputDecoration(
+                  labelText: "Sponsor Name query",
+                  hintText: "Enter part of sponsor name...",
                 ),
-              ],
-
-              // Conditional configurations: Sponsor-wise search
-              if (_selectedReportType == "Sponsor-wise Report") ...[
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      labelText: "Sponsor Name query",
-                      hintText: "Enter part of sponsor name...",
-                    ),
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedSponsorQuery = val;
-                        _compileReport();
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedSponsorQuery = val;
+                    _compileReport();
+                  });
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -354,8 +354,11 @@ class _ReportsTabState extends State<ReportsTab> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 15,
+        runSpacing: 15,
         children: [
           // Aggregate Sum
           Text(
@@ -368,20 +371,20 @@ class _ReportsTabState extends State<ReportsTab> {
           ),
           
           // Action Buttons: Excel, CSV, PDF
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               TextButton.icon(
                 onPressed: () => _exportToExcel(context),
                 icon: const Icon(Icons.table_view_rounded, size: 16, color: Color(0xFF3B6D11)),
                 label: const Text("Excel", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
               ),
-              const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: () => _exportToCSV(context),
                 icon: const Icon(Icons.description_rounded, size: 16, color: Color(0xFF3B6D11)),
                 label: const Text("CSV", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
               ),
-              const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: () => _exportToPDF(context),
                 icon: const Icon(Icons.print_rounded, size: 16),

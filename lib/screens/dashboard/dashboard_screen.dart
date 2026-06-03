@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../services/service_locator.dart';
 import '../../models/stay_model.dart';
 import '../../services/room_service.dart';
+import '../../utils/bed_helper.dart';
+import '../../models/notification_model.dart';
+import '../../utils/responsive_layout.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -42,13 +45,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 24),
                   _buildPrimaryStatsRow(),
                   const SizedBox(height: 24),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 2, child: _buildRecentAdmissions()),
-                      const SizedBox(width: 16),
-                      Expanded(flex: 1, child: _buildRoomOccupancyOverview()),
-                    ],
+                  _buildAlertsSection(),
+                  const SizedBox(height: 24),
+                  ResponsiveLayout(
+                    mobile: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildRecentAdmissions(),
+                        const SizedBox(height: 16),
+                        _buildRoomOccupancyOverview(),
+                      ],
+                    ),
+                    tablet: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildRecentAdmissions(),
+                        const SizedBox(height: 16),
+                        _buildRoomOccupancyOverview(),
+                      ],
+                    ),
+                    desktop: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 2, child: _buildRecentAdmissions()),
+                        const SizedBox(width: 16),
+                        Expanded(flex: 1, child: _buildRoomOccupancyOverview()),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -79,7 +102,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
 
         final data = snapshot.data!;
-        return Row(
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
           children: [
             _StatCard(
               label: "Active Patients",
@@ -87,21 +112,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               icon: Icons.person_rounded,
               color: const Color(0xFF3B6D11),
             ),
-            const SizedBox(width: 16),
              _StatCard(
               label: "Total In-House",
               value: data['totalInHouse'].toString(),
               icon: Icons.groups_rounded,
               color: const Color(0xFF0F6E56),
             ),
-            const SizedBox(width: 16),
              _StatCard(
               label: "Available Beds",
               value: data['vacantBeds'].toString(),
               icon: Icons.bed_rounded,
               color: const Color(0xFF1976D2),
             ),
-            const SizedBox(width: 16),
              _StatCard(
               label: "Total Registered",
               value: data['totalPatients'].toString(),
@@ -109,6 +131,110 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: const Color(0xFFF57C00),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAlertsSection() {
+    return StreamBuilder<List<NotificationModel>>(
+      stream: ServiceLocator().notificationService.getNotificationsStream(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        
+        final notifications = snapshot.data!;
+        if (notifications.isEmpty) return const SizedBox.shrink();
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFD32F2F).withOpacity(0.3), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD32F2F).withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                  SizedBox(width: 10),
+                  Text(
+                    "Action Needed",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFD32F2F),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: notifications.length > 3 ? 3 : notifications.length,
+                itemBuilder: (context, index) {
+                  final notification = notifications[index];
+                  final isPayment = notification.type == NotificationType.paymentPending;
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          isPayment ? Icons.payment_rounded : Icons.calendar_today_rounded,
+                          color: isPayment ? const Color(0xFFD32F2F) : const Color(0xFFF57C00),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                notification.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF27500A),
+                                ),
+                              ),
+                              Text(
+                                notification.message,
+                                style: const TextStyle(fontSize: 13, color: Color(0xFF639922)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              if (notifications.length > 3)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    "+ ${notifications.length - 3} more alerts in notifications panel",
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFFF57C00),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                )
+            ],
+          ),
         );
       },
     );
@@ -154,7 +280,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 );
               }
 
-              final stays = snapshot.data ?? [];
+              final allStays = snapshot.data ?? [];
+
+// Remove duplicate patients
+              final uniqueMap = <String, StayModel>{};
+
+              for (final stay in allStays) {
+                uniqueMap[stay.patientId] = stay;
+              }
+
+              final stays = uniqueMap.values.toList();
               if (stays.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(40.0),
@@ -226,7 +361,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            "${stay.roomNumber} ${stay.roomType == 'general' ? '(Bed ${stay.bedNumber})' : '(Private)'}",
+                            stay.roomType == 'general'
+                                ? "${stay.roomNumber} (${BedHelper.getBedDisplayName(stay.bedNumber.toString().trim())})"
+                                : "${stay.roomNumber} (Private)",
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -326,7 +463,11 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: 220,
+        minHeight: 120,
+      ),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -342,6 +483,7 @@ class _StatCard extends StatelessWidget {
           ],
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(12),
@@ -355,6 +497,7 @@ class _StatCard extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     value,
@@ -366,6 +509,8 @@ class _StatCard extends StatelessWidget {
                   ),
                   Text(
                     label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,

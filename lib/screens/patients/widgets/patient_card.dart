@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../../models/patient_model.dart';
+import '../../../utils/bed_helper.dart';
 
 class PatientCard extends StatelessWidget {
   final PatientModel patient;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDischarge;
+  final VoidCallback? onPayNow;
+  final VoidCallback? onRejoin;
 
   const PatientCard({
     super.key,
@@ -13,11 +16,13 @@ class PatientCard extends StatelessWidget {
     this.onTap,
     this.onEdit,
     this.onDischarge,
+    this.onPayNow,
+    this.onRejoin,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isActive = patient.status == 'active';
+    final isActive = patient.status == 'active' || patient.status.toLowerCase() == 'paid';
     
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -94,36 +99,57 @@ class PatientCard extends StatelessWidget {
                             ),
                           ),
                           _StatusBadge(status: patient.status),
+                          if (patient.paymentPending == true) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFEBEE),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'Pending Payment',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFC62828),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
                         children: [
                           _InfoChip(
                             icon: Icons.cake_outlined,
                             label: '${patient.age} years',
                           ),
-                          const SizedBox(width: 8),
                           _InfoChip(
                             icon: Icons.phone_outlined,
                             label: patient.contactNumber,
                           ),
-                          if (patient.roomNumber != null) ...[
-                            const SizedBox(width: 8),
+                          if (patient.roomNumber != null)
                             _InfoChip(
                               icon: Icons.meeting_room_outlined,
                               label: 'Room ${patient.roomNumber}',
                               color: const Color(0xFF3B6D11),
                             ),
-                          ],
-                          if (patient.bedLabels != null && patient.bedLabels!.isNotEmpty) ...[
-                            const SizedBox(width: 8),
+                          if (patient.bedLabels != null && patient.bedLabels!.isNotEmpty)
                             _InfoChip(
                               icon: Icons.bed_outlined,
-                              label: patient.bedLabels!.join(", "),
+                              label: patient.bedLabels!
+                                  .map((bed) =>
+                                  BedHelper.getBedDisplayName(
+                                    bed.toString().trim(),
+                                  ))
+                                  .toSet()
+                                  .join(", "),
                               color: const Color(0xFF3B6D11),
                             ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 6),
@@ -139,50 +165,53 @@ class PatientCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                
+
                 // Actions
-                if (isActive) ...[
-                  const SizedBox(width: 12),
-                  PopupMenuButton<String>(
-                    icon: const Icon(
-                      Icons.more_vert_rounded,
-                      color: Color(0xFF639922),
-                      size: 20,
+                PopupMenuButton<String>(
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: Color(0xFF639922),
+                    size: 20,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  onSelected: (value) {
+                    if (value == 'edit' && onEdit != null) {
+                      onEdit!();
+                    } else if (value == 'pay' && onPayNow != null) {
+                      onPayNow!();
+                    } else if (value == 'discharge' && onDischarge != null) {
+                      onDischarge!();
+                    } else if (value == 'rejoin' && onRejoin != null) {
+                      onRejoin!();
+                    }
+                  },
+                  itemBuilder: (context) => [
+
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('Edit'),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+
+                    const PopupMenuItem(
+                      value: 'pay',
+                      child: Text('Pay'),
                     ),
-                    onSelected: (value) {
-                      if (value == 'edit' && onEdit != null) {
-                        onEdit!();
-                      } else if (value == 'discharge' && onDischarge != null) {
-                        onDischarge!();
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined, size: 18, color: Color(0xFF3B6D11)),
-                            SizedBox(width: 8),
-                            Text('Edit Details'),
-                          ],
-                        ),
-                      ),
+
+                    if (isActive)
                       const PopupMenuItem(
                         value: 'discharge',
-                        child: Row(
-                          children: [
-                            Icon(Icons.logout_rounded, size: 18, color: Color(0xFFD32F2F)),
-                            SizedBox(width: 8),
-                            Text('Discharge'),
-                          ],
-                        ),
+                        child: Text('Discharge'),
                       ),
-                    ],
-                  ),
-                ],
+
+                    if (!isActive)
+                      const PopupMenuItem(
+                        value: 'rejoin',
+                        child: Text('Rejoin'),
+                      ),
+                  ],
+                )
               ],
             ),
           ),
@@ -210,11 +239,16 @@ class _StatusBadge extends StatelessWidget {
     Color textColor;
     String label;
 
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'active':
         bgColor = const Color(0xFFEAF3DE);
         textColor = const Color(0xFF3B6D11);
         label = 'Active';
+        break;
+      case 'paid':
+        bgColor = const Color(0xFFEAF3DE);
+        textColor = const Color(0xFF3B6D11);
+        label = 'Paid';
         break;
       case 'discharged':
         bgColor = const Color(0xFFE8E8E8);
@@ -224,7 +258,7 @@ class _StatusBadge extends StatelessWidget {
       default:
         bgColor = const Color(0xFFFFF3E0);
         textColor = const Color(0xFFE65100);
-        label = 'Transferred';
+        label = status[0].toUpperCase() + status.substring(1);
     }
 
     return Container(

@@ -3,7 +3,8 @@ import '../../models/patient_model.dart';
 import '../../services/service_locator.dart';
 import 'widgets/patient_card.dart';
 import 'widgets/add_patient_dialog.dart';
-import 'widgets/patient_details_dialog.dart';
+import 'widgets/payment_dialog.dart';
+import 'patient_profile_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'dart:io';
@@ -40,15 +41,45 @@ class _PatientsScreenState extends State<PatientsScreen> {
   }
 
   void _showPatientDetails(PatientModel patient) {
-    showDialog(
-      context: context,
-      builder: (context) => PatientDetailsDialog(
-        patient: patient,
-        onUpdated: () {
-          // Refresh is handled by StreamBuilder
-        },
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PatientProfileScreen(patient: patient),
       ),
     );
+  }
+
+  Future<void> _handlePayNow(PatientModel patient) async {
+    final result = await showPatientPaymentDialog(
+      context: context,
+      patientName: patient.fullName,
+      contactNumber: patient.contactNumber,
+      bedsCount: patient.bedIds?.length ?? 1,
+      attendantsCount: patient.attendants?.length ?? 0,
+      roomIdentifier: patient.roomNumber,
+      alreadyPaid: patient.totalPaidAmount ?? 0.0,
+      showPayLater: false,
+      totalBillOverride: patient.advanceBilledAmount + patient.attendanceCharges,
+    );
+
+    if (result != null && result.payment != null) {
+      await ServiceLocator().patientService.recordPayment(patient.id, result.payment!);
+      await ServiceLocator().patientService.updatePatient(patient.id, {
+        'paymentPending': result.payment!.paymentStatus == "Pending",
+        'paymentStatus': result.payment!.paymentStatus,
+        'status': result.payment!.paymentStatus == "Paid" ? 'Paid' : 'active',
+        'totalPaidAmount': result.payment!.paidAmount,
+        'currentDueAmount': result.payment!.pendingAmount,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment successfully processed!'),
+            backgroundColor: Color(0xFF3B6D11),
+          ),
+        );
+      }
+    }
   }
 
   Stream<List<PatientModel>> _getPatientsStream() {
@@ -67,6 +98,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
   List<PatientModel> _filterPatients(List<PatientModel> patients) {
     if (_selectedFilter == 'all') return patients;
+    if (_selectedFilter == 'active') {
+      return patients.where((p) => p.status == 'active' || p.status.toLowerCase() == 'paid').toList();
+    }
     return patients.where((p) => p.status == _selectedFilter).toList();
   }
 
@@ -207,9 +241,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
             stream: ServiceLocator().patientService.getPatientsStream(),
             builder: (context, snapshot) {
               final allPatients = snapshot.data ?? [];
-              final activeCount = allPatients.where((p) => p.status == 'active').length;
+              final activeCount = allPatients.where((p) => p.status == 'active' || p.status.toLowerCase() == 'paid').length;
               final dischargedCount = allPatients.where((p) => p.status == 'discharged').length;
-              final withRoomCount = allPatients.where((p) => p.roomId != null && p.status == 'active').length;
+              final withRoomCount = allPatients.where((p) => p.roomId != null && (p.status == 'active' || p.status.toLowerCase() == 'paid')).length;
 
               return Container(
                 padding: const EdgeInsets.all(20),
@@ -272,7 +306,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Row(
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
                       children: [
                         _StatCard(
                           label: "Total Patients",
@@ -280,21 +316,18 @@ class _PatientsScreenState extends State<PatientsScreen> {
                           icon: Icons.people_outline_rounded,
                           color: const Color(0xFF3B6D11),
                         ),
-                        const SizedBox(width: 12),
                         _StatCard(
                           label: "Active",
                           value: activeCount.toString(),
                           icon: Icons.person_rounded,
                           color: const Color(0xFF639922),
                         ),
-                        const SizedBox(width: 12),
                         _StatCard(
                           label: "With Room",
                           value: withRoomCount.toString(),
                           icon: Icons.meeting_room_outlined,
                           color: const Color(0xFF0F6E56),
                         ),
-                        const SizedBox(width: 12),
                         _StatCard(
                           label: "Discharged",
                           value: dischargedCount.toString(),
@@ -312,11 +345,14 @@ class _PatientsScreenState extends State<PatientsScreen> {
           // Search and Filter Bar
           Container(
             padding: const EdgeInsets.all(20),
-            child: Row(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 // Search Bar
-                Expanded(
-                  flex: 2,
+                SizedBox(
+                  width: 300,
                   child: TextField(
                     controller: _searchController,
                     onChanged: (value) {
@@ -364,25 +400,28 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
                 
                 // Filter Chips
-                _FilterChip(
-                  label: 'All',
-                  isSelected: _selectedFilter == 'all',
-                  onTap: () => setState(() => _selectedFilter = 'all'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Active',
-                  isSelected: _selectedFilter == 'active',
-                  onTap: () => setState(() => _selectedFilter = 'active'),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Discharged',
-                  isSelected: _selectedFilter == 'discharged',
-                  onTap: () => setState(() => _selectedFilter = 'discharged'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _FilterChip(
+                      label: 'All',
+                      isSelected: _selectedFilter == 'all',
+                      onTap: () => setState(() => _selectedFilter = 'all'),
+                    ),
+                    _FilterChip(
+                      label: 'Active',
+                      isSelected: _selectedFilter == 'active',
+                      onTap: () => setState(() => _selectedFilter = 'active'),
+                    ),
+                    _FilterChip(
+                      label: 'Discharged',
+                      isSelected: _selectedFilter == 'discharged',
+                      onTap: () => setState(() => _selectedFilter = 'discharged'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -467,7 +506,76 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       patient: patient,
                       onTap: () => _showPatientDetails(patient),
                       onEdit: () => _showPatientDetails(patient),
-                      onDischarge: () => _showPatientDetails(patient),
+                      onDischarge: () async {
+                        // Change patient status to discharged and clear assignments
+                        await ServiceLocator().patientService.dischargePatient(patient.id);
+                        
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Patient discharged successfully'),
+                              backgroundColor: Color(0xFF3B6D11),
+                            ),
+                          );
+                          // Move patient automatically from Active tab -> Discharged tab
+                          setState(() {
+                            _selectedFilter = 'discharged';
+                          });
+                        }
+                      },
+                      onPayNow: () => _handlePayNow(patient),
+                      onRejoin: () async {
+                        if (patient.dischargeDate == null) return;
+                        
+                        final remainingDays = patient.dischargeDate!
+                            .add(const Duration(days: 15))
+                            .difference(DateTime.now())
+                            .inDays;
+
+                        if (remainingDays > 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '$remainingDays days left before patient can rejoin',
+                              ),
+                              backgroundColor: const Color(0xFFD32F2F),
+                            ),
+                          );
+                          return;
+                        }
+
+                        // Change status: discharged -> active
+                        // Remove: dischargeDate
+                        // Update admissionDate and registrationDate to now to represent a new active cycle/stay
+                        await ServiceLocator().patientService.updatePatient(patient.id, {
+                          'status': 'active',
+                          'dischargeDate': null,
+                          'admissionDate': DateTime.now().millisecondsSinceEpoch,
+                          'registrationDate': DateTime.now().millisecondsSinceEpoch,
+                          'isAdvancePeriod': true,
+                          'advanceBilledAmount': 700.0, // Default to general ward advance, can be updated when assigned to a private room
+                          'attendanceCharges': 0.0,
+                          'totalPresentDays': 0,
+                          'totalAbsentDays': 0,
+                          'maxStayDays': 60,
+                          'extensionDays': 0,
+                          'extensionApproved': false,
+                          'extensionReason': null,
+                        });
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Patient rejoined successfully'),
+                              backgroundColor: Color(0xFF3B6D11),
+                            ),
+                          );
+                          // Move patient automatically from Discharged tab -> Active tab
+                          setState(() {
+                            _selectedFilter = 'active';
+                          });
+                        }
+                      },
                     );
                   },
                 );
@@ -496,7 +604,8 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 160, maxWidth: 220),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../utils/bed_helper.dart';
 
 import '../../../models/bed_model.dart';
 import '../../../models/room_model.dart';
@@ -402,19 +403,50 @@ class PatientBedSelection extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: beds.map((bed) {
-                  final isSelected = selectedBeds.any((b) => b.id == bed.id);
+                children: (isPrivateRoom
+                    ? beds
+                    : beds.fold<List<BedModel>>([], (result, bed) {
+                  final displayName =
+                  BedHelper.getBedDisplayName(bed.bedLabel);
+
+                  final alreadyExists = result.any(
+                        (existing) =>
+                    BedHelper.getBedDisplayName(existing.bedLabel) ==
+                        displayName,
+                  );
+
+                  if (!alreadyExists) {
+                    result.add(bed);
+                  }
+
+                  return result;
+                })).map((bed) {
+                  final isSelected = selectedBeds.isNotEmpty &&
+                      selectedBeds.first.id == bed.id;
                   return FilterChip(
-                    label: Text('Bed ${bed.bedLabel}'),
+                    label: Text(
+                      BedHelper.getBedDisplayName(
+                        bed.bedLabel.toString().trim(),
+                      ),
+                    ),
                     selected: isSelected,
-                    onSelected: isPrivateRoom ? null : (selected) {
-                      final newSelection = List<BedModel>.from(selectedBeds);
-                      if (selected) {
-                        newSelection.add(bed);
-                      } else {
-                        newSelection.removeWhere((b) => b.id == bed.id);
+                    onSelected: (selected) {
+                      if (isPrivateRoom) {
+                        // Private room = only one room booking
+                        if (selected) {
+                          onChanged?.call([bed]);
+                        } else {
+                          onChanged?.call([]);
+                        }
+                        return;
                       }
-                      onChanged?.call(newSelection);
+
+                      // General/Public room = only ONE grouped bed allowed
+                      if (selected) {
+                        onChanged?.call([bed]);
+                      } else {
+                        onChanged?.call([]);
+                      }
                     },
                     backgroundColor: const Color(0xFFF4F9F0),
                     selectedColor: const Color(0xFF3B6D11),

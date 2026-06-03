@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../utils/bed_helper.dart';
 import '../../../models/patient_model.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
@@ -301,7 +302,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               (!bed.isAvailable &&
                   !_currentStayIds.contains(bed.currentStayId))) {
             throw Exception(
-              'Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.',
+              '${BedHelper.getBedDisplayName(selectedBed.bedLabel)} is no longer available. Please reselect beds.',
             );
           }
         }
@@ -328,7 +329,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             bedId: bed.id,
             bedLabel: bed.bedLabel,
             notes: _selectedBeds.length > 1
-                ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                ? 'Multiple beds: ${_selectedBeds.map((b) => BedHelper.getBedDisplayName(b.bedLabel)).join(", ")}'
                 : 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
             createdBy: currentUser?.uid ?? 'system',
           );
@@ -857,8 +858,8 @@ class _PaymentSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     if (roomIdentifier == null) return const SizedBox.shrink();
 
-    final bedTotal = bedsCount * _bedRatePerDay * _defaultDays;
-    final attendantTotal = attendantsCount * _attendantRatePerDay * _defaultDays;
+    final bedTotal = isPrivateRoom ? (700.0 * _defaultDays) : (bedsCount * 600.0 * _defaultDays);
+    final attendantTotal = isPrivateRoom ? (attendantsCount * 200.0 * _defaultDays) : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
     return Container(
@@ -921,21 +922,23 @@ class _PaymentSummary extends StatelessWidget {
               children: [
                 _SummaryRow(
                   icon: Icons.bed_outlined,
-                  label: 'Beds',
-                  count: bedsCount,
-                  rate: _bedRatePerDay,
+                  label: isPrivateRoom ? 'Private Room' : 'Grouped Beds ($bedsCount)',
+                  count: isPrivateRoom ? 1 : bedsCount,
+                  rate: isPrivateRoom ? 700.0 : 600.0,
                   total: bedTotal,
                   days: _defaultDays,
                 ),
-                const SizedBox(height: 8),
-                _SummaryRow(
-                  icon: Icons.person_outline_rounded,
-                  label: 'Attendants',
-                  count: attendantsCount,
-                  rate: _attendantRatePerDay,
-                  total: attendantTotal,
-                  days: _defaultDays,
-                ),
+                if (isPrivateRoom) ...[
+                  const SizedBox(height: 8),
+                  _SummaryRow(
+                    icon: Icons.person_outline_rounded,
+                    label: 'Attendants',
+                    count: attendantsCount,
+                    rate: 200.0,
+                    total: attendantTotal,
+                    days: _defaultDays,
+                  ),
+                ],
               ],
             ),
           ),

@@ -488,9 +488,9 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                       ),
                       const SizedBox(height: 20),
                     ] else if (widget.room.isGeneral) ...[
-                      // Legacy bed number selection
+                      // Grouped bed selection (bed1-bed6)
                       const Text(
-                        "SELECT BED NUMBER",
+                        "SELECT BED",
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -502,23 +502,49 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: List.generate(widget.room.totalBeds, (index) {
-                          final bedNum = index + 1;
-                          return CreateStayCountChip(
-                            count: bedNum,
-                            isSelected:
-                                selectedBed?.bedLabel == bedNum.toString(),
-                            onTap: () {
+                        children: const ['bed1', 'bed2', 'bed3', 'bed4', 'bed5', 'bed6']
+                            .map((bedId) {
+                          const labels = {
+                            'bed1': 'Bed 1/2',
+                            'bed2': 'Bed 3/4',
+                            'bed3': 'Bed 5/6',
+                            'bed4': 'Bed 7/8',
+                            'bed5': 'Bed 9/10',
+                            'bed6': 'Bed 11/12',
+                          };
+                          final label = labels[bedId] ?? bedId;
+                          final isSelected = selectedBed?.bedLabel == bedId;
+                          return FilterChip(
+                            label: Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected ? Colors.white : const Color(0xFF27500A),
+                              ),
+                            ),
+                            selected: isSelected,
+                            onSelected: (selected) {
                               setState(() {
-                                selectedBed = BedModel(
-                                  id: '${widget.room.id}_$bedNum',
-                                  bedLabel: bedNum.toString(),
-                                  status: 'available',
-                                );
+                                selectedBed = selected
+                                    ? BedModel(
+                                        id: '${widget.room.id}_$bedId',
+                                        bedLabel: bedId,
+                                        status: 'available',
+                                      )
+                                    : null;
                               });
                             },
+                            backgroundColor: const Color(0xFFF4F9F0),
+                            selectedColor: const Color(0xFF3B6D11),
+                            checkmarkColor: Colors.white,
+                            side: BorderSide(
+                              color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+                              width: 1,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           );
-                        }),
+                        }).toList(),
                       ),
                       const SizedBox(height: 20),
                     ],

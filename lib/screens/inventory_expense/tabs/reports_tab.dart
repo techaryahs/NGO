@@ -263,28 +263,31 @@ class _ReportsTabState extends State<ReportsTab> {
                     ? const Center(child: Text("No records match the active criteria", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: _headers.map((h) {
-                              return DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))));
-                            }).toList(),
-                            rows: _generatedRows.map((row) {
-                              return DataRow(
-                                cells: row.map((cell) {
-                                  final valStr = cell?.toString() ?? '';
-                                  if (valStr == 'Paid' || valStr == 'Cleared') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
-                                  } else if (valStr == 'Pending' || valStr == 'Low Stock Level' || valStr == 'Bounced') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
-                                  } else if (valStr == 'Partial') {
-                                    return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
-                                  }
-                                  return DataCell(Text(valStr));
-                                }).toList(),
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: _headers.map((h) {
+                                return DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))));
+                              }).toList(),
+                              rows: _generatedRows.map((row) {
+                                return DataRow(
+                                  cells: row.map((cell) {
+                                    final valStr = cell?.toString() ?? '';
+                                    if (valStr == 'Paid' || valStr == 'Cleared') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
+                                    } else if (valStr == 'Pending' || valStr == 'Low Stock Level' || valStr == 'Bounced') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
+                                    } else if (valStr == 'Partial') {
+                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
+                                    }
+                                    return DataCell(Text(valStr));
+                                  }).toList(),
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),

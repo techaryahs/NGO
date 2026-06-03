@@ -84,36 +84,39 @@ class _SalariesTabState extends State<SalariesTab> {
                     ? const Center(child: Text("No payroll entries recorded", style: TextStyle(color: Color(0xFF639922))))
                     : ListView(
                         children: [
-                          DataTable(
-                            headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
-                            dataRowMinHeight: 48,
-                            dataRowMaxHeight: 48,
-                            columns: const [
-                              DataColumn(label: Text("Employee Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Role", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Salary Month", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Gross (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Deductions (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Net Disbursed (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Method", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                              DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                            ],
-                            rows: filteredSalaries.map((salary) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(salary.employeeName, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                  DataCell(Text(salary.role)),
-                                  DataCell(Text(salary.salaryMonth)),
-                                  DataCell(Text("₹${salary.grossSalary.toStringAsFixed(0)}")),
-                                  DataCell(Text("₹${salary.deductions.toStringAsFixed(0)}")),
-                                  DataCell(Text("₹${salary.netSalary.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold))),
-                                  DataCell(Text(salary.paymentDetails.paymentMethod)),
-                                  DataCell(_buildStatusBadge(salary.paymentDetails.paymentStatus)),
-                                  DataCell(_buildActionButtons(salary)),
-                                ],
-                              );
-                            }).toList(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              dataRowMinHeight: 48,
+                              dataRowMaxHeight: 48,
+                              columns: const [
+                                DataColumn(label: Text("Employee Name", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Role", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Salary Month", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Gross (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Deductions (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Net Disbursed (₹)", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Method", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                              ],
+                              rows: filteredSalaries.map((salary) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(salary.employeeName, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                    DataCell(Text(salary.role)),
+                                    DataCell(Text(salary.salaryMonth)),
+                                    DataCell(Text("₹${salary.grossSalary.toStringAsFixed(0)}")),
+                                    DataCell(Text("₹${salary.deductions.toStringAsFixed(0)}")),
+                                    DataCell(Text("₹${salary.netSalary.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold))),
+                                    DataCell(Text(salary.paymentDetails.paymentMethod)),
+                                    DataCell(_buildStatusBadge(salary.paymentDetails.paymentStatus)),
+                                    DataCell(_buildActionButtons(salary)),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ],
                       ),

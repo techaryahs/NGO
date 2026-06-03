@@ -16,6 +16,9 @@ class RoomsPage extends StatefulWidget {
 class _RoomsPageState extends State<RoomsPage> {
   String selectedRoomType = 'all'; // 'all', 'private', 'general'
   int selectedFloor = 0; // 0 = all floors, 1 = Floor 1, 2 = Floor 2
+  String selectedStatus = 'all'; // 'all', 'available', 'occupied', 'partially_occupied', 'maintenance'
+  String searchQuery = '';
+  final TextEditingController searchController = TextEditingController();
 
   void _showAddRoomDialog() {
     showDialog(
@@ -26,10 +29,29 @@ class _RoomsPageState extends State<RoomsPage> {
     );
   }
 
+  void _resetFilters() {
+    setState(() {
+      selectedRoomType = 'all';
+      selectedFloor = 0;
+      selectedStatus = 'all';
+      searchQuery = '';
+      searchController.clear();
+    });
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final roomService = ServiceLocator().roomService;
-    
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 700;
+    final bool isWideDesktop = screenWidth >= 1150;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F7EA),
       body: StreamBuilder<List<RoomModel>>(
@@ -91,8 +113,29 @@ class _RoomsPageState extends State<RoomsPage> {
             );
           }
 
-          var rooms = roomsSnapshot.data ?? [];
-          
+          final allRooms = roomsSnapshot.data ?? [];
+          var rooms = List<RoomModel>.from(allRooms);
+
+          // Calculate overall stats on the global database
+          final totalRoomsCount = allRooms.length;
+          final privateRoomsCount = allRooms.where((r) => r.isPrivate).length;
+          final generalRoomsCount = allRooms.where((r) => r.isGeneral).length;
+          final totalBeds = allRooms.fold(0, (sum, r) => sum + r.actualTotalBeds);
+          final occupiedBeds = allRooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final availableBeds = totalBeds - occupiedBeds;
+
+          // Calculate per-floor stats
+          final floor1Rooms = allRooms.where((r) => r.floor == 1).toList();
+          final floor2Rooms = allRooms.where((r) => r.floor == 2).toList();
+
+          final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor1TotalRooms = floor1Rooms.length;
+
+          final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor2TotalRooms = floor2Rooms.length;
+
           // Apply filters
           if (selectedRoomType != 'all') {
             rooms = rooms.where((r) => r.roomType == selectedRoomType).toList();
@@ -100,278 +143,358 @@ class _RoomsPageState extends State<RoomsPage> {
           if (selectedFloor != 0) {
             rooms = rooms.where((r) => r.floor == selectedFloor).toList();
           }
+          if (selectedStatus != 'all') {
+            rooms = rooms.where((r) => r.derivedOccupancyStatus == selectedStatus).toList();
+          }
+          if (searchQuery.isNotEmpty) {
+            final query = searchQuery.toLowerCase();
+            rooms = rooms.where((r) =>
+              r.roomIdentifier.toLowerCase().contains(query) ||
+              r.roomNumber.toLowerCase().contains(query) ||
+              (r.notes != null && r.notes!.toLowerCase().contains(query))
+            ).toList();
+          }
 
-          // Calculate overall stats using derived occupancy for accuracy
-          final totalRooms = rooms.length;
-          final privateRooms = rooms.where((r) => r.isPrivate).length;
-          final generalRooms = rooms.where((r) => r.isGeneral).length;
-          final totalBeds = rooms.fold(0, (sum, r) => sum + r.actualTotalBeds);
-          final occupiedBeds = rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-          final availableBeds = totalBeds - occupiedBeds;
+          // Calculate grid parameters
+          int crossAxisCount = 1;
+          if (screenWidth >= 1400) {
+            crossAxisCount = isWideDesktop ? 3 : 4; // adjustment when sidebar takes space
+          } else if (screenWidth >= 1050) {
+            crossAxisCount = isWideDesktop ? 2 : 3;
+          } else if (screenWidth >= 700) {
+            crossAxisCount = 2;
+          }
 
-          // Calculate per-floor stats using derived occupancy
-          final allRooms = roomsSnapshot.data ?? [];
-          final floor1Rooms = allRooms.where((r) => r.floor == 1).toList();
-          final floor2Rooms = allRooms.where((r) => r.floor == 2).toList();
+          // Compute aspect ratio dynamically based on screen width to enforce a 265px card height
+          double spacing = 16.0;
+          double sidebarWidth = isWideDesktop ? 330.0 : 0.0;
+          double gridWidth = screenWidth - (isWideDesktop ? sidebarWidth : 0.0) - 40.0; // 40px padding
+          double cellWidth = (gridWidth - (crossAxisCount - 1) * spacing) / crossAxisCount;
+          double childAspectRatio = (cellWidth / 265.0).clamp(0.6, 2.5);
 
-          final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-          final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
-
-          final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-          final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
-
-          return Column(
-            children: [
-              // Header with stats
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFAFDF7),
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+          return CustomScrollView(
+            physics: const ClampingScrollPhysics(),
+            slivers: [
+              // HEADER ROW (Non-scrollable top margin, but inside custom scroll view)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Room Management",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF27500A),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (context) => PricingSettingsDialog(),
+                              );
+                            },
+                            icon: const Icon(Icons.attach_money_rounded, size: 18),
+                            label: const Text("Pricing"),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF3B6D11),
+                              side: const BorderSide(color: Color(0xFF3B6D11), width: 1.5),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: _showAddRoomDialog,
+                            icon: const Icon(Icons.add_rounded, size: 18),
+                            label: const Text("Add Room"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B6D11),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Room Management",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF27500A),
-                          ),
-                        ),
-                        Row(
+              ),
+
+              // KPI HORIZONTAL CARDS SECTION
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: screenWidth >= 900
+                      ? Row(
                           children: [
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => PricingSettingsDialog(),
-                                );
-                              },
-                              icon: const Icon(Icons.attach_money_rounded, size: 18),
-                              label: const Text("Pricing"),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF3B6D11),
-                                side: const BorderSide(color: Color(0xFF3B6D11), width: 1.5),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                            Expanded(
+                              child: _StatCard(
+                                label: "Private Rooms",
+                                value: privateRoomsCount.toString(),
+                                icon: Icons.hotel_rounded,
+                                color: const Color(0xFF639922),
                               ),
                             ),
                             const SizedBox(width: 12),
-                            ElevatedButton.icon(
-                              onPressed: _showAddRoomDialog,
-                              icon: const Icon(Icons.add_rounded, size: 18),
-                              label: const Text("Add Room"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF3B6D11),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                            Expanded(
+                              child: _StatCard(
+                                label: "General Wards",
+                                value: generalRoomsCount.toString(),
+                                icon: Icons.bed_rounded,
+                                color: const Color(0xFF97C459),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _StatCard(
+                                label: "Total Rooms",
+                                value: totalRoomsCount.toString(),
+                                icon: Icons.meeting_room_outlined,
+                                color: const Color(0xFF3B6D11),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _StatCard(
+                                label: "Available Beds",
+                                value: availableBeds.toString(),
+                                icon: Icons.check_circle_outline_rounded,
+                                color: const Color(0xFF0F6E56),
+                              ),
+                            ),
+                          ],
+                        )
+                      : GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: isMobile ? 1 : 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: isMobile ? 3.4 : 2.5,
+                          children: [
+                            _StatCard(
+                              label: "Private Rooms",
+                              value: privateRoomsCount.toString(),
+                              icon: Icons.hotel_rounded,
+                              color: const Color(0xFF639922),
+                            ),
+                            _StatCard(
+                              label: "General Wards",
+                              value: generalRoomsCount.toString(),
+                              icon: Icons.bed_rounded,
+                              color: const Color(0xFF97C459),
+                            ),
+                            _StatCard(
+                              label: "Total Rooms",
+                              value: totalRoomsCount.toString(),
+                              icon: Icons.meeting_room_outlined,
+                              color: const Color(0xFF3B6D11),
+                            ),
+                            _StatCard(
+                              label: "Available Beds",
+                              value: availableBeds.toString(),
+                              icon: Icons.check_circle_outline_rounded,
+                              color: const Color(0xFF0F6E56),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+
+              // FLOOR OVERVIEW SECTION (Side-by-side cards)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _FloorStatCard(
+                          floor: 1,
+                          label: "First Floor",
+                          patients: floor1Patients,
+                          vacantBeds: floor1VacantBeds,
+                          totalRooms: floor1TotalRooms,
+                          isSelected: selectedFloor == 1,
+                          onTap: () => setState(() => selectedFloor = selectedFloor == 1 ? 0 : 1),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _FloorStatCard(
+                          floor: 2,
+                          label: "Second Floor",
+                          patients: floor2Patients,
+                          vacantBeds: floor2VacantBeds,
+                          totalRooms: floor2TotalRooms,
+                          isSelected: selectedFloor == 2,
+                          onTap: () => setState(() => selectedFloor = selectedFloor == 2 ? 0 : 2),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // STICKY FILTER TOOLBAR
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _StickyFilterBarDelegate(
+                  height: isMobile ? 124.0 : 64.0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFAFDF7),
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                        top: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                      ),
+                    ),
+                    child: isMobile
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildSearchField(),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      _buildRoomTypeFilter(),
+                                      const SizedBox(width: 8),
+                                      _buildFloorFilter(),
+                                      const SizedBox(width: 8),
+                                      _buildStatusFilter(),
+                                      const SizedBox(width: 8),
+                                      _buildResetButton(),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Overall stats row
-                    Row(
-                      children: [
-                        _StatCard(
-                          label: "Private",
-                          value: privateRooms.toString(),
-                          icon: Icons.hotel_rounded,
-                          color: const Color(0xFF639922),
-                        ),
-                        const SizedBox(width: 12),
-                        _StatCard(
-                          label: "General",
-                          value: generalRooms.toString(),
-                          icon: Icons.bed_rounded,
-                          color: const Color(0xFF97C459),
-                        ),
-                        const SizedBox(width: 12),
-                        _StatCard(
-                          label: "Total Rooms",
-                          value: totalRooms.toString(),
-                          icon: Icons.meeting_room_outlined,
-                          color: const Color(0xFF3B6D11),
-                        ),
-                        const SizedBox(width: 12),
-                        _StatCard(
-                          label: "Available Beds",
-                          value: availableBeds.toString(),
-                          icon: Icons.check_circle_outline_rounded,
-                          color: const Color(0xFF0F6E56),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Per-floor stats row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FloorStatCard(
-                            floor: 1,
-                            label: "First Floor",
-                            patients: floor1Patients,
-                            vacantBeds: floor1VacantBeds,
-                            isSelected: selectedFloor == 1,
-                            onTap: () => setState(() => selectedFloor = selectedFloor == 1 ? 0 : 1),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: _buildSearchField(),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: _buildRoomTypeFilter(),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: _buildFloorFilter(),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: _buildStatusFilter(),
+                              ),
+                              const SizedBox(width: 12),
+                              _buildResetButton(),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _FloorStatCard(
-                            floor: 2,
-                            label: "Second Floor",
-                            patients: floor2Patients,
-                            vacantBeds: floor2VacantBeds,
-                            isSelected: selectedFloor == 2,
-                            onTap: () => setState(() => selectedFloor = selectedFloor == 2 ? 0 : 2),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
 
-              // Filters
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              // MAIN AREA: GRID AND SIDEBAR
+              SliverFillRemaining(
+                hasScrollBody: true,
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      "Room Type:",
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF27500A),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _FilterTab(
-                      label: "All",
-                      isSelected: selectedRoomType == 'all',
-                      onTap: () => setState(() => selectedRoomType = 'all'),
-                    ),
-                    const SizedBox(width: 8),
-                    _FilterTab(
-                      label: "Private",
-                      isSelected: selectedRoomType == 'private',
-                      onTap: () => setState(() => selectedRoomType = 'private'),
-                    ),
-                    const SizedBox(width: 8),
-                    _FilterTab(
-                      label: "General",
-                      isSelected: selectedRoomType == 'general',
-                      onTap: () => setState(() => selectedRoomType = 'general'),
-                    ),
-                    const SizedBox(width: 24),
-                    // Floor filter chips
-                    const Text(
-                      "Floor:",
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF27500A),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _FilterTab(
-                      label: "All",
-                      isSelected: selectedFloor == 0,
-                      onTap: () => setState(() => selectedFloor = 0),
-                    ),
-                    const SizedBox(width: 8),
-                    _FilterTab(
-                      label: "Floor 1",
-                      isSelected: selectedFloor == 1,
-                      onTap: () => setState(() => selectedFloor = 1),
-                    ),
-                    const SizedBox(width: 8),
-                    _FilterTab(
-                      label: "Floor 2",
-                      isSelected: selectedFloor == 2,
-                      onTap: () => setState(() => selectedFloor = 2),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Main content with Census Summary and Rooms Grid
-              Expanded(
-                child: rooms.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.meeting_room_outlined,
-                              size: 64,
-                              color: const Color(0xFF639922).withOpacity(0.3),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              "No rooms found",
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: const Color(0xFF639922).withOpacity(0.6),
+                    // Grid section (scrolls independently)
+                    Expanded(
+                      flex: 3,
+                      child: rooms.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.meeting_room_outlined,
+                                    size: 64,
+                                    color: const Color(0xFF639922).withOpacity(0.3),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    "No rooms match the criteria",
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: const Color(0xFF639922).withOpacity(0.6),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: _resetFilters,
+                                    icon: const Icon(Icons.refresh_rounded),
+                                    label: const Text("Reset Filters"),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFF3B6D11),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: _showAddRoomDialog,
-                              icon: const Icon(Icons.add_rounded),
-                              label: const Text("Add First Room"),
-                              style: TextButton.styleFrom(
-                                foregroundColor: const Color(0xFF3B6D11),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Rooms Grid
-                          Expanded(
-                            flex: 3,
-                            child: GridView.builder(
+                            )
+                          : GridView.builder(
+                              key: ValueKey('${selectedRoomType}_${selectedFloor}_${selectedStatus}_$searchQuery'),
                               padding: const EdgeInsets.all(20),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
                                 crossAxisSpacing: 16,
                                 mainAxisSpacing: 16,
-                                childAspectRatio: 1.3,
+                                childAspectRatio: childAspectRatio,
                               ),
                               itemCount: rooms.length,
                               itemBuilder: (context, index) {
                                 return RoomCard(room: rooms[index]);
                               },
                             ),
+                    ),
+
+                    // Right sidebar section (for Wide Desktop screens, scrolls independently)
+                    if (isWideDesktop)
+                      Container(
+                        width: 320,
+                        padding: const EdgeInsets.only(right: 20, top: 20, bottom: 20),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              _RoomStatisticsSidebar(
+                                totalRooms: totalRoomsCount,
+                                privateRooms: privateRoomsCount,
+                                generalRooms: generalRoomsCount,
+                                totalBeds: totalBeds,
+                                occupiedBeds: occupiedBeds,
+                                availableBeds: availableBeds,
+                                floor1Patients: floor1Patients,
+                                floor2Patients: floor2Patients,
+                              ),
+                              const SizedBox(height: 16),
+                              const CensusSummaryWidget(),
+                            ],
                           ),
-                          
-                          // Census Summary Sidebar
-                          Container(
-                            width: 320,
-                            padding: const EdgeInsets.all(20),
-                            child: const CensusSummaryWidget(),
-                          ),
-                        ],
+                        ),
                       ),
+                  ],
+                ),
               ),
             ],
           );
@@ -379,9 +502,131 @@ class _RoomsPageState extends State<RoomsPage> {
       ),
     );
   }
+
+  Widget _buildSearchField() {
+    return TextField(
+      controller: searchController,
+      onChanged: (val) => setState(() => searchQuery = val),
+      decoration: InputDecoration(
+        hintText: "Search rooms...",
+        hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 13),
+        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF639922), size: 18),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF3B6D11), width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoomTypeFilter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: selectedRoomType,
+          isExpanded: true,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text("All Types")),
+            DropdownMenuItem(value: 'private', child: Text("Private Rooms")),
+            DropdownMenuItem(value: 'general', child: Text("General Wards")),
+          ],
+          onChanged: (val) {
+            if (val != null) setState(() => selectedRoomType = val);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloorFilter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: selectedFloor,
+          isExpanded: true,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          items: const [
+            DropdownMenuItem(value: 0, child: Text("All Floors")),
+            DropdownMenuItem(value: 1, child: Text("First Floor")),
+            DropdownMenuItem(value: 2, child: Text("Second Floor")),
+          ],
+          onChanged: (val) {
+            if (val != null) setState(() => selectedFloor = val);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: selectedStatus,
+          isExpanded: true,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text("All Statuses")),
+            DropdownMenuItem(value: 'available', child: Text("Available")),
+            DropdownMenuItem(value: 'occupied', child: Text("Full")),
+            DropdownMenuItem(value: 'partially_occupied', child: Text("Partially Occupied")),
+            DropdownMenuItem(value: 'pending_discharge', child: Text("Pending Discharge")),
+            DropdownMenuItem(value: 'maintenance', child: Text("Maintenance")),
+          ],
+          onChanged: (val) {
+            if (val != null) setState(() => selectedStatus = val);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResetButton() {
+    return OutlinedButton.icon(
+      onPressed: _resetFilters,
+      icon: const Icon(Icons.refresh_rounded, size: 14),
+      label: const Text("Reset"),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.red.shade700,
+        side: BorderSide(color: Colors.red.shade200, width: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        backgroundColor: Colors.red.shade50.withOpacity(0.4),
+      ),
+    );
+  }
 }
 
-// Stat card widget
+// TOP KPI CARD
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -397,60 +642,74 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color, size: 20),
+    return Container(
+      height: 110,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.01),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    height: 1.1,
                   ),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF639922),
-                    ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF639922),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// Floor Stat Card - Shows per-floor occupancy
+// FLOOR CARD
 class _FloorStatCard extends StatelessWidget {
   final int floor;
   final String label;
   final int patients;
   final int vacantBeds;
+  final int totalRooms;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -459,6 +718,7 @@ class _FloorStatCard extends StatelessWidget {
     required this.label,
     required this.patients,
     required this.vacantBeds,
+    required this.totalRooms,
     required this.isSelected,
     required this.onTap,
   });
@@ -469,14 +729,22 @@ class _FloorStatCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        height: 110,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11).withOpacity(0.1) : const Color(0xFFF4F9F0),
+          color: isSelected ? const Color(0xFF3B6D11).withOpacity(0.06) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
             width: isSelected ? 2 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.01),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
         child: Row(
           children: [
@@ -486,26 +754,29 @@ class _FloorStatCard extends StatelessWidget {
                 color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFF639922),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.layers_rounded,
                 color: Colors.white,
                 size: 20,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
                       color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFF27500A),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       _FloorStatItem(
@@ -513,11 +784,17 @@ class _FloorStatCard extends StatelessWidget {
                         value: patients,
                         color: const Color(0xFF3B6D11),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       _FloorStatItem(
                         label: "Vacant",
                         value: vacantBeds,
                         color: const Color(0xFF0F6E56),
+                      ),
+                      const SizedBox(width: 14),
+                      _FloorStatItem(
+                        label: "Rooms",
+                        value: totalRooms,
+                        color: const Color(0xFF639922),
                       ),
                     ],
                   ),
@@ -553,6 +830,7 @@ class _FloorStatItem extends StatelessWidget {
             fontSize: 16,
             fontWeight: FontWeight.w700,
             color: color,
+            height: 1.1,
           ),
         ),
         Text(
@@ -567,43 +845,160 @@ class _FloorStatItem extends StatelessWidget {
   }
 }
 
-// Filter tab widget
-class _FilterTab extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+// SLIVER PERSISTENT HEADER DELEGATE FOR STICKY FILTER BAR
+class _StickyFilterBarDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final double height;
 
-  const _FilterTab({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
+  _StickyFilterBarDelegate({required this.child, required this.height});
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFFF0F7EA),
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _StickyFilterBarDelegate oldDelegate) {
+    return oldDelegate.child != child || oldDelegate.height != height;
+  }
+}
+
+// STATS SIDEBAR PANEL
+class _RoomStatisticsSidebar extends StatelessWidget {
+  final int totalRooms;
+  final int privateRooms;
+  final int generalRooms;
+  final int totalBeds;
+  final int occupiedBeds;
+  final int availableBeds;
+  final int floor1Patients;
+  final int floor2Patients;
+
+  const _RoomStatisticsSidebar({
+    required this.totalRooms,
+    required this.privateRooms,
+    required this.generalRooms,
+    required this.totalBeds,
+    required this.occupiedBeds,
+    required this.availableBeds,
+    required this.floor1Patients,
+    required this.floor2Patients,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-            width: 1.5,
+    final double occupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0.0;
+    final double vacancyRate = totalBeds > 0 ? (availableBeds / totalBeds) * 100 : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF3DE),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.insert_chart_outlined_rounded,
+                  color: Color(0xFF3B6D11),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                "Room Statistics",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildStatRow("Occupancy Rate", "${occupancyRate.toStringAsFixed(1)}%", Colors.red.shade700),
+          const SizedBox(height: 10),
+          _buildStatRow("Vacancy Rate", "${vacancyRate.toStringAsFixed(1)}%", const Color(0xFF3B6D11)),
+          const SizedBox(height: 10),
+          _buildStatRow("Private / General Rooms", "$privateRooms / $generalRooms", const Color(0xFF0F6E56)),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+          const SizedBox(height: 12),
+          const Text(
+            "Patients per Floor",
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF27500A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("First Floor", style: TextStyle(fontSize: 12, color: Color(0xFF639922))),
+              Text("$floor1Patients Patients", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF27500A))),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("Second Floor", style: TextStyle(fontSize: 12, color: Color(0xFF639922))),
+              Text("$floor2Patients Patients", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF27500A))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, String value, Color valueColor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF639922),
           ),
         ),
-        child: Text(
-          label,
+        Text(
+          value,
           style: TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF27500A),
+            fontWeight: FontWeight.w700,
+            color: valueColor,
           ),
         ),
-      ),
+      ],
     );
   }
 }

@@ -77,7 +77,7 @@ class PatientDetailsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isActive = patient.status == 'active';
+    final isActive = patient.status == 'active' || patient.status.toLowerCase() == 'paid';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -463,11 +463,16 @@ class _StatusBadge extends StatelessWidget {
     Color textColor;
     String label;
 
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'active':
         bgColor = const Color(0xFFEAF3DE);
         textColor = const Color(0xFF3B6D11);
         label = 'Active';
+        break;
+      case 'paid':
+        bgColor = const Color(0xFFEAF3DE);
+        textColor = const Color(0xFF3B6D11);
+        label = 'Paid';
         break;
       case 'discharged':
         bgColor = const Color(0xFFE8E8E8);
@@ -477,7 +482,7 @@ class _StatusBadge extends StatelessWidget {
       default:
         bgColor = const Color(0xFFFFF3E0);
         textColor = const Color(0xFFE65100);
-        label = 'Transferred';
+        label = status[0].toUpperCase() + status.substring(1);
     }
 
     return Container(

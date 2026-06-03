@@ -1,10 +1,11 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../../services/service_locator.dart';
 import '../../../models/inventory_item_model.dart';
 import '../../../models/purchase_model.dart';
 import '../../../models/expense_entry_model.dart';
 import '../../../models/salary_model.dart';
+import '../../../utils/responsive_layout.dart';
 
 /// Dashboard sub-tab showcasing NGO financial statistics and stock status
 class DashboardTab extends StatefulWidget {
@@ -138,56 +139,44 @@ class _DashboardTabState extends State<DashboardTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Row 1: KPI Stat Cards
-          Row(
+          Wrap(
+            spacing: 15,
+            runSpacing: 15,
             children: [
-              Expanded(
-                child: _StatCard(
-                  title: "Expenses (This Month)",
-                  value: "₹${totalExpenseMonth.toStringAsFixed(0)}",
-                  icon: Icons.receipt_long_rounded,
-                  color: const Color(0xFF3B6D11),
-                  subtitle: "Purchases & Operations",
-                ),
+              _StatCard(
+                title: "Expenses (This Month)",
+                value: "₹${totalExpenseMonth.toStringAsFixed(0)}",
+                icon: Icons.receipt_long_rounded,
+                color: const Color(0xFF3B6D11),
+                subtitle: "Purchases & Operations",
               ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: _StatCard(
-                  title: "Expenses (This Year)",
-                  value: "₹${totalExpenseYear.toStringAsFixed(0)}",
-                  icon: Icons.analytics_rounded,
-                  color: const Color(0xFF639922),
-                  subtitle: "Annual aggregated spending",
-                ),
+              _StatCard(
+                title: "Expenses (This Year)",
+                value: "₹${totalExpenseYear.toStringAsFixed(0)}",
+                icon: Icons.analytics_rounded,
+                color: const Color(0xFF639922),
+                subtitle: "Annual aggregated spending",
               ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: _StatCard(
-                  title: "Salaries Disbursed",
-                  value: "₹${totalSalariesMonth.toStringAsFixed(0)}",
-                  icon: Icons.badge_rounded,
-                  color: const Color(0xFF27500A),
-                  subtitle: "Current month payroll",
-                ),
+              _StatCard(
+                title: "Salaries Disbursed",
+                value: "₹${totalSalariesMonth.toStringAsFixed(0)}",
+                icon: Icons.badge_rounded,
+                color: const Color(0xFF27500A),
+                subtitle: "Current month payroll",
               ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: _StatCard(
-                  title: "Pending Payments",
-                  value: "$totalPendingPayments",
-                  icon: Icons.pending_actions_rounded,
-                  color: totalPendingPayments > 0 ? const Color(0xFFC62828) : const Color(0xFF3B6D11),
-                  subtitle: "Awaiting final settlement",
-                ),
+              _StatCard(
+                title: "Pending Payments",
+                value: "$totalPendingPayments",
+                icon: Icons.pending_actions_rounded,
+                color: totalPendingPayments > 0 ? const Color(0xFFC62828) : const Color(0xFF3B6D11),
+                subtitle: "Awaiting final settlement",
               ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: _StatCard(
-                  title: "Low Stock Items",
-                  value: "$lowStockCount",
-                  icon: Icons.warning_amber_rounded,
-                  color: lowStockCount > 0 ? const Color(0xFFF57F17) : const Color(0xFF3B6D11),
-                  subtitle: "Reorder levels reached",
-                ),
+              _StatCard(
+                title: "Low Stock Items",
+                value: "$lowStockCount",
+                icon: Icons.warning_amber_rounded,
+                color: lowStockCount > 0 ? const Color(0xFFF57F17) : const Color(0xFF3B6D11),
+                subtitle: "Reorder levels reached",
               ),
             ],
           ),
@@ -195,259 +184,289 @@ class _DashboardTabState extends State<DashboardTab> {
           const SizedBox(height: 25),
           
           // Row 2: Charts and breakdowns
-          Row(
+          ResponsiveLayout(
+            mobile: Column(
+              children: [
+                _buildMonthlyTrendChart(last6MonthsData),
+                const SizedBox(height: 20),
+                _buildCategoryChart(topCategories),
+                const SizedBox(height: 20),
+                _buildPaymentMethodChart(paymentMethods),
+              ],
+            ),
+            tablet: Column(
+              children: [
+                _buildMonthlyTrendChart(last6MonthsData),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _buildCategoryChart(topCategories)),
+                    const SizedBox(width: 20),
+                    Expanded(child: _buildPaymentMethodChart(paymentMethods)),
+                  ],
+                ),
+              ],
+            ),
+            desktop: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 4, child: _buildMonthlyTrendChart(last6MonthsData)),
+                const SizedBox(width: 20),
+                Expanded(flex: 3, child: _buildCategoryChart(topCategories)),
+                const SizedBox(width: 20),
+                Expanded(flex: 3, child: _buildPaymentMethodChart(paymentMethods)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthlyTrendChart(Map<String, double> last6MonthsData) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAFDF7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Chart 1: Monthly Expense Trend
-              Expanded(
-                flex: 4,
-                child: Container(
-                  height: 310,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFDF7),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Monthly Spend Trend (Last 6 Months)",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF27500A),
-                        ),
-                      ),
-                      const Text(
-                        "Aggregated purchases and operational bills",
-                        style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
-                      ),
-                      const Spacer(),
-                      SizedBox(
-                        height: 180,
-                        child: _CustomBarChart(data: last6MonthsData),
-                      ),
-                    ],
-                  ),
+              const Text(
+                "Monthly Spend Trend (Last 6 Months)",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
                 ),
               ),
-              
-              const SizedBox(width: 20),
-              
-              // Chart 2: Category Breakdown
-              Expanded(
-                flex: 3,
-                child: Container(
-                  height: 310,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFDF7),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Expense Distribution",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF27500A),
-                        ),
-                      ),
-                      const Text(
-                        "Proportion of top expense categories",
-                        style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          // Custom Painted Donut Chart
-                          SizedBox(
-                            width: 110,
-                            height: 110,
-                            child: CustomPaint(
-                              painter: _DonutChartPainter(
-                                values: topCategories.map((c) => c.value).toList(),
-                                colors: const [
-                                  Color(0xFF3B6D11),
-                                  Color(0xFF639922),
-                                  Color(0xFF8BBF48),
-                                  Color(0xFFC0DD97),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 25),
-                          // Custom Legends
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: List.generate(topCategories.length, (index) {
-                                final colors = const [
-                                  Color(0xFF3B6D11),
-                                  Color(0xFF639922),
-                                  Color(0xFF8BBF48),
-                                  Color(0xFFC0DD97),
-                                ];
-                                final cat = topCategories[index];
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color: colors[index % colors.length],
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          cat.key,
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w500,
-                                            color: Color(0xFF27500A),
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Text(
-                                        "₹${cat.value.toStringAsFixed(0)}",
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: Color(0xFF639922),
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                    ],
-                  ),
+              const Text(
+                "Aggregated purchases and operational bills",
+                style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+              ),
+              const SizedBox(height: 16),
+              AspectRatio(
+                aspectRatio: ResponsiveLayout.isDesktop(context) ? 2.5 : 1.5,
+                child: _CustomBarChart(data: last6MonthsData),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCategoryChart(List<MapEntry<String, double>> topCategories) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAFDF7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Expense Distribution",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
                 ),
               ),
-              
-              const SizedBox(width: 20),
-              
-              // Chart 3: Payment Method Distribution
-              Expanded(
-                flex: 3,
-                child: Container(
-                  height: 310,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFDF7),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Payment Channels",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF27500A),
+              const Text(
+                "Proportion of top expense categories",
+                style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+              ),
+              const SizedBox(height: 16),
+              AspectRatio(
+                aspectRatio: 1.5,
+                child: Row(
+                  children: [
+                    // Custom Painted Donut Chart
+                    Expanded(
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: CustomPaint(
+                          painter: _DonutChartPainter(
+                            values: topCategories.map((c) => c.value).toList(),
+                            colors: const [
+                              Color(0xFF3B6D11),
+                              Color(0xFF639922),
+                              Color(0xFF8BBF48),
+                              Color(0xFFC0DD97),
+                            ],
+                          ),
                         ),
                       ),
-                      const Text(
-                        "Spend volume breakdown by transaction method",
-                        style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
-                      ),
-                      const SizedBox(height: 25),
-                      // Payment Methods progress bars
-                      Expanded(
-                        child: ListView(
-                          physics: const NeverScrollableScrollPhysics(),
-                          children: paymentMethods.entries.map((entry) {
-                            final total = paymentMethods.values.fold<double>(0, (s, v) => s + v);
-                            final pct = total > 0 ? (entry.value / total) : 0.0;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 15),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        entry.key,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF27500A),
-                                        ),
-                                      ),
-                                      Text(
-                                        "₹${entry.value.toStringAsFixed(0)} (${(pct * 100).toStringAsFixed(1)}%)",
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF639922),
-                                        ),
-                                      ),
-                                    ],
+                    ),
+                    const SizedBox(width: 16),
+                    // Custom Legends
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(topCategories.length, (index) {
+                          final colors = const [
+                            Color(0xFF3B6D11),
+                            Color(0xFF639922),
+                            Color(0xFF8BBF48),
+                            Color(0xFFC0DD97),
+                          ];
+                          final cat = topCategories[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: colors[index % colors.length],
+                                    shape: BoxShape.circle,
                                   ),
-                                  const SizedBox(height: 5),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: LinearProgressIndicator(
-                                      value: pct,
-                                      backgroundColor: const Color(0xFFEAF3DE),
-                                      color: const Color(0xFF3B6D11),
-                                      minHeight: 8,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    cat.key,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF27500A),
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                                ),
+                                Text(
+                                  "₹${cat.value.toStringAsFixed(0)}",
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF639922),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPaymentMethodChart(Map<String, double> paymentMethods) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAFDF7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Payment Channels",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+              const Text(
+                "Spend volume breakdown by transaction method",
+                style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+              ),
+              const SizedBox(height: 25),
+              // Payment Methods progress bars
+              ...paymentMethods.entries.map((entry) {
+                final total = paymentMethods.values.fold<double>(0, (s, v) => s + v);
+                final pct = total > 0 ? (entry.value / total) : 0.0;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            entry.key,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF27500A),
+                            ),
+                          ),
+                          Text(
+                            "₹${entry.value.toStringAsFixed(0)} (${(pct * 100).toStringAsFixed(1)}%)",
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF639922),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: pct,
+                          backgroundColor: const Color(0xFFEAF3DE),
+                          color: const Color(0xFF3B6D11),
+                          minHeight: 8,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -476,69 +495,74 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 105,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFDF7),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.015),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF639922),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey.shade600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 220),
+      child: Container(
+        height: 105,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAFDF7),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.015),
+              blurRadius: 5,
+              offset: const Offset(0, 2),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
-              shape: BoxShape.circle,
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF639922),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-        ],
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/rooms/widgets/create_stay_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/extend_stay_dialog.dart';
+import 'package:ngo/utils/bed_helper.dart';
 
 class RoomDetailsDialog extends StatelessWidget {
   final RoomModel room;
@@ -80,149 +81,158 @@ class RoomDetailsDialog extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Room Info
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F9F0),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _InfoItem(
-                      label: "Status",
-                      value: room.derivedOccupancyStatus.toUpperCase().replaceAll('_', ' '),
-                      icon: Icons.info_outline_rounded,
-                    ),
-                  ),
-                  if (room.isPrivate)
-                    Expanded(
-                      child: _InfoItem(
-                        label: "Attendants",
-                        value: "${room.currentAttendants}/${room.maxAttendants}",
-                        icon: Icons.people_outline_rounded,
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: _InfoItem(
-                        label: "Beds",
-                        value: "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
-                        icon: Icons.bed_outlined,
-                      ),
-                    ),
-                  Expanded(
-                    child: _InfoItem(
-                      label: "Floor",
-                      value: "${room.floor}",
-                      icon: Icons.layers_outlined,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Hierarchical Bed Display for all rooms with beds
-            if (room.beds.isNotEmpty) ...[
-              const Text(
-                "Bed Status",
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF27500A),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _BedStatusGrid(beds: room.beds, roomType: room.roomType),
-              const SizedBox(height: 20),
-            ],
-
-            // Active Stays Section
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Active Stays",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                if (room.isDerivedAvailable || room.isPartiallyOccupied)
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      showDialog(
-                        context: context,
-                        builder: (context) => CreateStayDialog(room: room),
-                      );
-                    },
-                    icon: const Icon(Icons.add_rounded, size: 16),
-                    label: const Text("Create Stay"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B6D11),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Stays List
             Expanded(
-              child: StreamBuilder<List<StayModel>>(
-                stream: roomService.getStaysByRoomStream(room.id),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Error: ${snapshot.error}'));
-                  }
-
-                  final stays = snapshot.data ?? [];
-
-                  if (stays.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Room Info
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F9F0),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                      ),
+                      child: Row(
                         children: [
-                          Icon(
-                            Icons.event_busy_rounded,
-                            size: 48,
-                            color: const Color(0xFF639922).withOpacity(0.3),
+                          Expanded(
+                            child: _InfoItem(
+                              label: "Status",
+                              value: room.derivedOccupancyStatus.toUpperCase().replaceAll('_', ' '),
+                              icon: Icons.info_outline_rounded,
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            "No active stays in this room",
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: const Color(0xFF639922).withOpacity(0.6),
+                          if (room.isPrivate)
+                            Expanded(
+                              child: _InfoItem(
+                                label: "Attendants",
+                                value: "${room.currentAttendants}/${room.maxAttendants}",
+                                icon: Icons.people_outline_rounded,
+                              ),
+                            )
+                          else
+                            Expanded(
+                              child: _InfoItem(
+                                label: "Beds",
+                                value: "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
+                                icon: Icons.bed_outlined,
+                              ),
+                            ),
+                          Expanded(
+                            child: _InfoItem(
+                              label: "Floor",
+                              value: "${room.floor}",
+                              icon: Icons.layers_outlined,
                             ),
                           ),
                         ],
                       ),
-                    );
-                  }
+                    ),
+                    const SizedBox(height: 20),
 
-                  return ListView.builder(
-                    itemCount: stays.length,
-                    itemBuilder: (context, index) {
-                      final stay = stays[index];
-                      return _StayCard(stay: stay, roomType: room.roomType);
-                    },
-                  );
-                },
+                    // Hierarchical Bed Display for all rooms with beds
+                    if (room.beds.isNotEmpty) ...[
+                      const Text(
+                        "Bed Status",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF27500A),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _BedStatusGrid(beds: room.beds, roomType: room.roomType),
+                      const SizedBox(height: 20),
+                    ],
+
+                    // Active Stays Section
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Active Stays",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF27500A),
+                          ),
+                        ),
+                        if (room.isDerivedAvailable || room.isPartiallyOccupied)
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              showDialog(
+                                context: context,
+                                builder: (context) => CreateStayDialog(room: room),
+                              );
+                            },
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            label: const Text("Create Stay"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B6D11),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stays List
+                    StreamBuilder<List<StayModel>>(
+                      stream: roomService.getStaysByRoomStream(room.id),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+
+                        if (snapshot.hasError) {
+                          return Center(child: Text('Error: ${snapshot.error}'));
+                        }
+
+                        final stays = snapshot.data ?? [];
+
+                        if (stays.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.event_busy_rounded,
+                                  size: 48,
+                                  color: const Color(0xFF639922).withOpacity(0.3),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  "No active stays in this room",
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: const Color(0xFF639922).withOpacity(0.6),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: stays.length,
+                          itemBuilder: (context, index) {
+                            final stay = stays[index];
+                            return _StayCard(stay: stay, roomType: room.roomType);
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -294,7 +304,7 @@ class _BedStatusCard extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(10),
@@ -303,15 +313,17 @@ class _BedStatusCard extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: textColor),
-          const SizedBox(width: 8),
+          Icon(icon, size: 15, color: textColor),
+          const SizedBox(width: 5),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Bed ${BedModel.formatBedLabel(bed.bedLabel, roomType)}",
+                BedHelper.getBedDisplayName(
+                  bed.bedLabel.toString(),
+                ),
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: textColor,
                 ),
@@ -478,7 +490,12 @@ class _StayCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            "Bed ${BedModel.formatBedLabel((stay.bedNumber ?? stay.bedId?.split('_').last ?? 'N/A').toString(), roomType)}",
+                            BedHelper.getBedDisplayName(
+                              (stay.bedNumber ??
+                                  stay.bedId?.split('_').last ??
+                                  'N/A')
+                                  .toString(),
+                            ),
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF639922),

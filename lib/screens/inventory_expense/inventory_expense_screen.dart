@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'tabs/dashboard_tab.dart';
-import 'tabs/inventory_items_tab.dart';
-import 'tabs/purchases_tab.dart';
 import 'tabs/expense_entries_tab.dart';
 import 'tabs/salaries_tab.dart';
-import 'tabs/vendors_tab.dart';
 import 'tabs/reports_tab.dart';
 
 /// Container Screen for the Inventory & Expense Management Module
@@ -19,7 +16,7 @@ class _InventoryExpenseScreenState extends State<InventoryExpenseScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 7,
+      length: 4,
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F7EA),
         body: Column(
@@ -54,11 +51,8 @@ class _InventoryExpenseScreenState extends State<InventoryExpenseScreen> {
                 ),
                 tabs: [
                   Tab(text: "Dashboard"),
-                  Tab(text: "Inventory Items"),
-                  Tab(text: "Purchases"),
-                  Tab(text: "Expense Entries"),
-                  Tab(text: "Salaries"),
-                  Tab(text: "Vendors"),
+                  Tab(text: "Expenses"),
+                  Tab(text: "Salary"),
                   Tab(text: "Reports"),
                 ],
               ),
@@ -69,11 +63,8 @@ class _InventoryExpenseScreenState extends State<InventoryExpenseScreen> {
               child: TabBarView(
                 children: [
                   DashboardTab(),
-                  InventoryItemsTab(),
-                  PurchasesTab(),
                   ExpenseEntriesTab(),
                   SalariesTab(),
-                  VendorsTab(),
                   ReportsTab(),
                 ],
               ),

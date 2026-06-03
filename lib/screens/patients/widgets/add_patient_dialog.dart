@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../utils/bed_helper.dart';
 import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
@@ -218,6 +219,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         return;
       }
     }
+    if (_selectedRoom?.isPrivate == false) {
+      final totalOccupants = 1 + _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length;
+      if (totalOccupants > 3) {
+        _showError('Maximum occupancy reached for this bed group.');
+        return;
+      }
+    }
     if (_selectedRoom == null) {
       _showError('Please select a room');
       return;
@@ -228,21 +236,22 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     }
 
     // Show payment dialog before saving.
-    final payment = await showPatientPaymentDialog(
+    final result = await showPatientPaymentDialog(
       context: context,
       patientName: _patientNameController.text.trim(),
       contactNumber: _mobileController.text.trim(),
       bedsCount: _selectedBeds.length,
       attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
       roomIdentifier: _selectedRoom?.roomIdentifier,
+      showPayLater: true,
     );
-    if (payment == null) return; // User cancelled
+    if (result == null) return; // User cancelled
 
-    await _doSavePatient(payment);
+    await _doSavePatient(result);
   }
 
   /// Step 2 — Actual database save (validation already done by _savePatient).
-  Future<void> _doSavePatient(PaymentModel initialPayment) async {
+  Future<void> _doSavePatient(PaymentDialogResult result) async {
     setState(() => _isLoading = true);
 
     try {
@@ -270,7 +279,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         final bed = room.beds.where((b) => b.id == selectedBed.id).firstOrNull;
         if (bed == null || !bed.isAvailable) {
           throw Exception(
-            'Bed ${selectedBed.bedLabel} is no longer available. Please reselect beds.',
+            '${BedHelper.getBedDisplayName(selectedBed.bedLabel)} is no longer available. Please reselect beds.',
           );
         }
       }
@@ -329,6 +338,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
       notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
 
+      // Calculate Advance Bill
+      final advanceBilledAmount = _selectedRoom!.isPrivate 
+          ? 3500.0 
+          : _selectedBeds.length * (1 + structuredAttendants.length) * 200.0 * 7;
+
       // Create patient
       final patientId = await ServiceLocator().patientService.addPatient(
         fullName: _patientNameController.text.trim(),
@@ -349,7 +363,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         registrationNumber: _registrationNumberController.text.trim().isNotEmpty
             ? _registrationNumberController.text.trim()
             : null,
-        registrationDate: _selectedRegistrationDate,
+        registrationDate: _selectedRegistrationDate ?? DateTime.now(),
         panCardNumber: _panCardController.text.trim().isNotEmpty
             ? _panCardController.text.trim()
             : null,
@@ -363,8 +377,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         utiNumber: _utiNumberController.text.trim().isNotEmpty
             ? _utiNumberController.text.trim()
             : null,
+        isAdvancePeriod: true,
+        advanceBilledAmount: advanceBilledAmount,
+        attendanceCharges: 0.0,
+        totalPresentDays: 0,
+        totalAbsentDays: 0,
         attendants: structuredAttendants.isNotEmpty ? structuredAttendants : null,
-        payments: [initialPayment],
+        payments: result.payment != null ? [result.payment!] : null,
       );
 
       // Get attendant count (default to 1 if not specified)
@@ -1266,10 +1285,26 @@ class _BedSelection extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: beds.map((bed) {
+                children: beds.fold<List<BedModel>>([], (result, bed) {
+    final displayName =
+    BedHelper.getBedDisplayName(bed.bedLabel);
+
+    final alreadyExists = result.any(
+    (existing) =>
+    BedHelper.getBedDisplayName(existing.bedLabel) ==
+    displayName,
+    );
+
+    if (!alreadyExists) {
+    result.add(bed);
+    }
+
+    return result;
+    }).
+                map((bed) {
                   final isSelected = selectedBeds.any((b) => b.id == bed.id);
                   return FilterChip(
-                    label: Text('Bed ${bed.bedLabel}'),
+                    label: Text(BedHelper.getBedDisplayName(bed.bedLabel)),
                     selected: isSelected,
                     onSelected: (selected) {
                       final newSelection = List<BedModel>.from(selectedBeds);
@@ -1348,8 +1383,6 @@ class _PaymentSummary extends StatelessWidget {
   final String? roomIdentifier;
 
   // ── Pricing constants (edit here to update rates) ──
-  static const double _bedRatePerDay = 500.0;         // ₹ per bed per day
-  static const double _attendantRatePerDay = 150.0;   // ₹ per attendant per day
   static const int _defaultDays = 7;                  // default stay duration
 
   const _PaymentSummary({
@@ -1374,8 +1407,9 @@ class _PaymentSummary extends StatelessWidget {
     // Don't show until a room is selected
     if (roomIdentifier == null) return const SizedBox.shrink();
 
-    final bedTotal = bedsCount * _bedRatePerDay * _defaultDays;
-    final attendantTotal = attendantsCount * _attendantRatePerDay * _defaultDays;
+    final occupants = 1 + attendantsCount;
+    final bedTotal = isPrivateRoom ? (700.0 * _defaultDays) : (bedsCount * occupants * 200.0 * _defaultDays);
+    final attendantTotal = isPrivateRoom ? (attendantsCount * 200.0 * _defaultDays) : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
     return Container(
@@ -1443,21 +1477,23 @@ class _PaymentSummary extends StatelessWidget {
               children: [
                 _SummaryRow(
                   icon: Icons.bed_outlined,
-                  label: 'Beds',
-                  count: bedsCount,
-                  rate: _bedRatePerDay,
+                  label: isPrivateRoom ? 'Private Room' : 'Grouped Beds ($bedsCount, $occupants occupants)',
+                  count: isPrivateRoom ? 1 : bedsCount,
+                  rate: isPrivateRoom ? 700.0 : (occupants * 200.0),
                   total: bedTotal,
                   days: _defaultDays,
                 ),
-                const SizedBox(height: 8),
-                _SummaryRow(
-                  icon: Icons.person_outline_rounded,
-                  label: 'Attendants',
-                  count: attendantsCount,
-                  rate: _attendantRatePerDay,
-                  total: attendantTotal,
-                  days: _defaultDays,
-                ),
+                if (isPrivateRoom) ...[
+                  const SizedBox(height: 8),
+                  _SummaryRow(
+                    icon: Icons.person_outline_rounded,
+                    label: 'Attendants',
+                    count: attendantsCount,
+                    rate: 200.0,
+                    total: attendantTotal,
+                    days: _defaultDays,
+                  ),
+                ],
               ],
             ),
           ),

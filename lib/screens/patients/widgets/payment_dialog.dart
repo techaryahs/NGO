@@ -4,10 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../models/patient_model.dart';
 import '../../../services/razorpay_service.dart';
+import '../../../utils/pricing_helper.dart';
 
 // ── Pricing constants ─────────────────────────────────────────────────────────
-const double _kBedRatePerDay = 500.0;
-const double _kAttendantRatePerDay = 150.0;
 const int _kDefaultDays = 7;
 
 // ── Poll interval ─────────────────────────────────────────────────────────────
@@ -16,18 +15,28 @@ const Duration _kPollInterval = Duration(seconds: 5);
 // ── Payment Methods ───────────────────────────────────────────────────────────
 enum PaymentMethod { cash, check, online }
 
+class PaymentDialogResult {
+  final PaymentModel? payment;
+  final bool payLater;
+
+  PaymentDialogResult({this.payment, this.payLater = false});
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Public helper — returns PaymentModel if user confirmed/paid, null if cancelled.
+// Public helper — returns PaymentDialogResult if user confirmed/paid/selected pay later, null if cancelled.
 // ─────────────────────────────────────────────────────────────────────────────
-Future<PaymentModel?> showPatientPaymentDialog({
+Future<PaymentDialogResult?> showPatientPaymentDialog({
   required BuildContext context,
   required String patientName,
   required String contactNumber,
   required int bedsCount,
   required int attendantsCount,
   required String? roomIdentifier,
+  double alreadyPaid = 0.0,
+  bool showPayLater = false,
+  double? totalBillOverride,
 }) {
-  return showDialog<PaymentModel?>(
+  return showDialog<PaymentDialogResult?>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _PatientPaymentDialog(
@@ -36,6 +45,9 @@ Future<PaymentModel?> showPatientPaymentDialog({
       bedsCount: bedsCount,
       attendantsCount: attendantsCount,
       roomIdentifier: roomIdentifier,
+      alreadyPaid: alreadyPaid,
+      showPayLater: showPayLater,
+      totalBillOverride: totalBillOverride,
     ),
   );
 }
@@ -50,6 +62,9 @@ class _PatientPaymentDialog extends StatefulWidget {
   final int bedsCount;
   final int attendantsCount;
   final String? roomIdentifier;
+  final double alreadyPaid;
+  final bool showPayLater;
+  final double? totalBillOverride;
 
   const _PatientPaymentDialog({
     required this.patientName,
@@ -57,6 +72,9 @@ class _PatientPaymentDialog extends StatefulWidget {
     required this.bedsCount,
     required this.attendantsCount,
     required this.roomIdentifier,
+    this.alreadyPaid = 0.0,
+    required this.showPayLater,
+    this.totalBillOverride,
   });
 
   @override
@@ -72,6 +90,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   final _checkNoController = TextEditingController();
   final _bankNameController = TextEditingController();
   final _notesController = TextEditingController();
+  final _amountPayingNowController = TextEditingController();
 
   // Online / Razorpay
   bool _isCreatingLink = false;
@@ -82,11 +101,21 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   static const int _maxPolls = 72;
 
   // ── Amounts ────────────────────────────────────────────────────────────────
-  double get _bedTotal => widget.bedsCount * _kBedRatePerDay * _kDefaultDays;
-  double get _attendantTotal =>
-      widget.attendantsCount * _kAttendantRatePerDay * _kDefaultDays;
-  double get _grandTotal => _bedTotal + _attendantTotal;
-  int get _amountInPaise => (_grandTotal * 100).round();
+  double get _grandTotal => widget.totalBillOverride ?? PricingHelper.calculateAdvanceAmount(_isPrivateRoom, widget.attendantsCount);
+  double get _pendingTotal {
+    double p = _grandTotal - widget.alreadyPaid;
+    return p < 0 ? 0 : p;
+  }
+  
+  double get _currentPayingAmount {
+    if (_amountPayingNowController.text.trim().isEmpty) return _pendingTotal;
+    return double.tryParse(_amountPayingNowController.text.trim()) ?? _pendingTotal;
+  }
+
+  int get _amountInPaise => (_currentPayingAmount * 100).round();
+  bool get _isPrivateRoom =>
+      (widget.roomIdentifier ?? '').toUpperCase().endsWith('A') ||
+          (widget.roomIdentifier ?? '').toUpperCase().endsWith('B');
 
   String _fmt(double v) {
     if (v >= 1000) {
@@ -99,17 +128,29 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
+  }
+
+  @override
   void dispose() {
     _pollTimer?.cancel();
     _receiptController.dispose();
     _checkNoController.dispose();
     _bankNameController.dispose();
     _notesController.dispose();
+    _amountPayingNowController.dispose();
     super.dispose();
   }
 
   // ── Online Logic ──────────────────────────────────────────────────────────
   Future<void> _startOnlinePayment() async {
+    if (_currentPayingAmount > _pendingTotal) {
+      setState(() => _error = 'Payment amount exceeds outstanding balance.');
+      return;
+    }
+    
     setState(() {
       _isCreatingLink = true;
       _error = null;
@@ -173,9 +214,26 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   }
 
   void _onPaymentSuccess({String? transactionId, String? methodName}) {
+    double total = _grandTotal;
+    double payingNow = _currentPayingAmount;
+    double newPaid = widget.alreadyPaid + payingNow;
+    double pending = total - newPaid;
+    if (pending < 0) pending = 0;
+
+    String status = "Pending";
+    if (pending == 0) {
+      status = "Paid";
+    } else if (newPaid > 0) {
+      status = "Partial";
+    }
+
     final payment = PaymentModel(
       id: 'pay_${DateTime.now().millisecondsSinceEpoch}',
-      amount: _grandTotal,
+      amount: payingNow,
+      totalAmount: total,
+      paidAmount: newPaid,
+      pendingAmount: pending,
+      paymentStatus: status,
       method: methodName ?? _selectedMethod.name.toUpperCase(),
       date: DateTime.now(),
       receiptNumber: _receiptController.text.trim().isEmpty ? null : _receiptController.text.trim(),
@@ -188,11 +246,15 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     setState(() => _step = _PaymentStep.done);
 
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.of(context).pop(payment);
+      if (mounted) Navigator.of(context).pop(PaymentDialogResult(payment: payment));
     });
   }
 
   void _confirmManual() {
+    if (_currentPayingAmount > _pendingTotal) {
+      setState(() => _error = 'Payment amount exceeds outstanding balance.');
+      return;
+    }
     if (_selectedMethod == PaymentMethod.online) {
       _onPaymentSuccess(transactionId: 'MANUAL_ONLINE', methodName: 'Online (QR Code)');
     } else if (_selectedMethod == PaymentMethod.cash) {
@@ -234,9 +296,13 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _Header(step: _step),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _buildBody(),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: _buildBody(),
+                  ),
+                ),
               ),
             ],
           ),
@@ -250,10 +316,15 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       return _SelectMethodBody(
         patientName: widget.patientName,
         grandTotal: _grandTotal,
+        alreadyPaid: widget.alreadyPaid,
+        pendingTotal: _pendingTotal,
+        amountPayingNowController: _amountPayingNowController,
         fmt: _fmt,
         selectedMethod: _selectedMethod,
         error: _error,
         onMethodChanged: (m) => setState(() => _selectedMethod = m),
+        showPayLater: widget.showPayLater,
+        onPayLater: () => Navigator.of(context).pop(PaymentDialogResult(payLater: true)),
         onProceed: () {
           if (_selectedMethod == PaymentMethod.online) {
             _startOnlinePayment();
@@ -268,6 +339,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         method: _selectedMethod,
         patientName: widget.patientName,
         grandTotal: _grandTotal,
+        payingAmount: _currentPayingAmount,
         fmt: _fmt,
         paymentLink: _paymentLink,
         pollCount: _pollCount,
@@ -283,7 +355,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     } else {
       return _SuccessBody(
         fmt: _fmt,
-        amount: _grandTotal,
+        amount: _currentPayingAmount,
         method: _selectedMethod,
       );
     }
@@ -323,14 +395,33 @@ class _Header extends StatelessWidget {
 class _SelectMethodBody extends StatelessWidget {
   final String patientName;
   final double grandTotal;
+  final double alreadyPaid;
+  final double pendingTotal;
+  final TextEditingController amountPayingNowController;
   final String Function(double) fmt;
   final PaymentMethod selectedMethod;
   final String? error;
   final ValueChanged<PaymentMethod> onMethodChanged;
   final VoidCallback onProceed;
   final VoidCallback onCancel;
+  final bool showPayLater;
+  final VoidCallback? onPayLater;
 
-  const _SelectMethodBody({required this.patientName, required this.grandTotal, required this.fmt, required this.selectedMethod, this.error, required this.onMethodChanged, required this.onProceed, required this.onCancel});
+  const _SelectMethodBody({
+    required this.patientName,
+    required this.grandTotal,
+    required this.alreadyPaid,
+    required this.pendingTotal,
+    required this.amountPayingNowController,
+    required this.fmt,
+    required this.selectedMethod,
+    this.error,
+    required this.onMethodChanged,
+    required this.onProceed,
+    required this.onCancel,
+    required this.showPayLater,
+    this.onPayLater,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -341,7 +432,33 @@ class _SelectMethodBody extends StatelessWidget {
         children: [
           _InfoTile(label: 'Patient', value: patientName, icon: Icons.person_outline),
           const SizedBox(height: 12),
-          _InfoTile(label: 'Total Amount', value: fmt(grandTotal), icon: Icons.currency_rupee, isBold: true),
+          Row(
+            children: [
+              Expanded(child: _InfoTile(label: 'Total Amount', value: fmt(grandTotal), icon: Icons.currency_rupee, isBold: true)),
+              const SizedBox(width: 8),
+              Expanded(child: _InfoTile(label: 'Already Paid', value: fmt(alreadyPaid), icon: Icons.verified_rounded)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _InfoTile(
+                  label: 'Pending Amount',
+                  value: fmt(pendingTotal),
+                  icon: Icons.pending_actions_rounded,
+                  valueColor: pendingTotal > 0 ? Colors.red : const Color(0xFF27500A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _TextField(
+            label: 'Amount Paying Now',
+            controller: amountPayingNowController,
+            icon: Icons.payments_outlined,
+            keyboardType: TextInputType.number,
+          ),
           const SizedBox(height: 24),
           const Text('SELECT PAYMENT METHOD', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF639922), letterSpacing: 1)),
           const SizedBox(height: 12),
@@ -359,6 +476,19 @@ class _SelectMethodBody extends StatelessWidget {
           Row(
             children: [
               TextButton(onPressed: onCancel, child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+              if (showPayLater && onPayLater != null) ...[
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: onPayLater,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF639922)),
+                    foregroundColor: const Color(0xFF639922),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  ),
+                  child: const Text('Pay Later', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ],
               const Spacer(),
               ElevatedButton(onPressed: onProceed, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Continue →', style: TextStyle(fontWeight: FontWeight.w600))),
             ],
@@ -373,6 +503,7 @@ class _ProcessBody extends StatelessWidget {
   final PaymentMethod method;
   final String patientName;
   final double grandTotal;
+  final double payingAmount;
   final String Function(double) fmt;
   final RazorpayPaymentLink? paymentLink;
   final int pollCount;
@@ -385,7 +516,7 @@ class _ProcessBody extends StatelessWidget {
   final VoidCallback onConfirm;
   final VoidCallback onBack;
 
-  const _ProcessBody({required this.method, required this.patientName, required this.grandTotal, required this.fmt, this.paymentLink, required this.pollCount, this.error, required this.isLoading, required this.receiptController, required this.checkNoController, required this.bankNameController, required this.notesController, required this.onConfirm, required this.onBack});
+  const _ProcessBody({required this.method, required this.patientName, required this.grandTotal, required this.payingAmount, required this.fmt, this.paymentLink, required this.pollCount, this.error, required this.isLoading, required this.receiptController, required this.checkNoController, required this.bankNameController, required this.notesController, required this.onConfirm, required this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -486,8 +617,9 @@ class _InfoTile extends StatelessWidget {
   final String value;
   final IconData icon;
   final bool isBold;
+  final Color? valueColor;
 
-  const _InfoTile({required this.label, required this.value, required this.icon, this.isBold = false});
+  const _InfoTile({required this.label, required this.value, required this.icon, this.isBold = false, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -500,7 +632,7 @@ class _InfoTile extends StatelessWidget {
           const SizedBox(width: 12),
           Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF639922))),
           const Spacer(),
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: isBold ? FontWeight.w700 : FontWeight.w600, color: const Color(0xFF27500A))),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: isBold ? FontWeight.w700 : FontWeight.w600, color: valueColor ?? const Color(0xFF27500A))),
         ],
       ),
     );
@@ -544,14 +676,16 @@ class _TextField extends StatelessWidget {
   final TextEditingController controller;
   final IconData icon;
   final int maxLines;
+  final TextInputType? keyboardType;
 
-  const _TextField({required this.label, required this.controller, required this.icon, this.maxLines = 1});
+  const _TextField({required this.label, required this.controller, required this.icon, this.maxLines = 1, this.keyboardType});
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, size: 20, color: const Color(0xFF3B6D11)),
