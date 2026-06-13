@@ -176,6 +176,12 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
             .map((s) => s.trim())
             .where((s) => s.isNotEmpty)
             .toList();
+      } else if (selectedRoomIdentifier != null) {
+        final configuredLabels =
+            roomConfig?.getDefaultBedLabels(selectedRoomIdentifier!) ?? [];
+        if (configuredLabels.isNotEmpty) {
+          bedLabels = configuredLabels;
+        }
       }
 
       // Parse bed count
@@ -465,7 +471,9 @@ class _AddRoomDialogState extends State<AddRoomDialog> {
                   onUseCustomBedLabelsChanged: (value) {
                     setState(() => useCustomBedLabels = value);
                   },
-                  defaultBeds: roomConfig?.getDefaultBedCount(selectedRoomIdentifier!) ?? 0,
+                  defaultBeds:
+                      roomConfig?.getDefaultBedCount(selectedRoomIdentifier!) ??
+                      0,
                   onDecreaseBedCount: () {
                     final current = int.tryParse(bedCountController.text) ?? 4;
                     if (current > 1) {

@@ -4,14 +4,20 @@ import 'package:ngo/services/service_locator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize service locator with Firebase project ID and API key
+  // ServiceLocator().initialize(
+  //   projectId: 'ngov-org',
+  //   apiKey: 'AIzaSyAQkdCF-Og883BuJcg-UTyM5RUXSaTlDeg', // Windows API key
+  //   databaseUrl: 'https://ngov-org-default-rtdb.firebaseio.com',
+  // );
   ServiceLocator().initialize(
-    projectId: 'ngov-org',
-    apiKey: 'AIzaSyAQkdCF-Og883BuJcg-UTyM5RUXSaTlDeg', // Windows API key
-    databaseUrl: 'https://ngov-org-default-rtdb.firebaseio.com',
+    projectId: 'ngo-management-system-d8c06',
+    apiKey: 'AIzaSyCLamxvGAMLVVICWrbdD_paDVmQCZpZJCg',
+    databaseUrl:
+        'https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
-  
+
   runApp(const MyApp());
 }
 
@@ -34,8 +40,6 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
 
-
-
   final String title;
 
   @override
@@ -53,7 +57,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,

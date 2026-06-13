@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import '../../utils/bed_helper.dart';
+import 'dart:convert';
 
 class FlattenedAttendant {
   final PatientModel patient;
@@ -36,10 +37,10 @@ class _AttendanceState extends State<Attendance>
 
   late Stream<List<PatientModel>> _patientsStream;
   List<PatientModel>? _allPatients;
-  
+
   StreamSubscription? _patientSub;
   StreamSubscription? _attendantSub;
-  
+
   // Pagination
   static const int _pageSize = 15;
   int _currentPatientLimit = _pageSize;
@@ -87,43 +88,47 @@ class _AttendanceState extends State<Attendance>
 
   void _initRealtimeStreams() {
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    
-    _patientSub = ServiceLocator().rtdbService.stream('attendance/daily/$today').listen((data) {
-      if (data != null && data is Map) {
-        final newStatus = <String, bool>{};
-        data.forEach((k, v) {
-          if (v['status'] == 'Present') newStatus[k] = true;
-          if (v['status'] == 'Absent') newStatus[k] = false;
-        });
-        if (mounted) {
-          setState(() {
-            attendanceStatus.clear();
-            attendanceStatus.addAll(newStatus);
-          });
-        }
-      }
-    });
 
-    _attendantSub = ServiceLocator().rtdbService.stream('attendant_attendance/daily/$today').listen((data) {
-      if (data != null && data is Map) {
-        final newStatus = <String, bool>{};
-        data.forEach((patientId, attendantsMap) {
-          if (attendantsMap is Map) {
-            attendantsMap.forEach((attendantSafeKey, v) {
-              final key = '${patientId}_${v['attendantName']}';
-              if (v['status'] == 'Present') newStatus[key] = true;
-              if (v['status'] == 'Absent') newStatus[key] = false;
+    _patientSub = ServiceLocator().rtdbService
+        .stream('attendance/daily/$today')
+        .listen((data) {
+          if (data != null && data is Map) {
+            final newStatus = <String, bool>{};
+            data.forEach((k, v) {
+              if (v['status'] == 'Present') newStatus[k] = true;
+              if (v['status'] == 'Absent') newStatus[k] = false;
             });
+            if (mounted) {
+              setState(() {
+                attendanceStatus.clear();
+                attendanceStatus.addAll(newStatus);
+              });
+            }
           }
         });
-        if (mounted) {
-          setState(() {
-            attendantAttendanceStatus.clear();
-            attendantAttendanceStatus.addAll(newStatus);
-          });
-        }
-      }
-    });
+
+    _attendantSub = ServiceLocator().rtdbService
+        .stream('attendant_attendance/daily/$today')
+        .listen((data) {
+          if (data != null && data is Map) {
+            final newStatus = <String, bool>{};
+            data.forEach((patientId, attendantsMap) {
+              if (attendantsMap is Map) {
+                attendantsMap.forEach((attendantSafeKey, v) {
+                  final key = '${patientId}_${v['attendantName']}';
+                  if (v['status'] == 'Present') newStatus[key] = true;
+                  if (v['status'] == 'Absent') newStatus[key] = false;
+                });
+              }
+            });
+            if (mounted) {
+              setState(() {
+                attendantAttendanceStatus.clear();
+                attendantAttendanceStatus.addAll(newStatus);
+              });
+            }
+          }
+        });
   }
 
   void _refreshFutures() {
@@ -183,13 +188,27 @@ class _AttendanceState extends State<Attendance>
 
   String _monthTitle(DateTime m) => '${_monthShort(m.month)} ${m.year}';
   String _monthShort(int m) => const [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][m - 1];
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][m - 1];
 
-  Future<Map<String, Map<String, String>>> fetchWeeklyAttendance(String type) async {
+  Future<Map<String, Map<String, String>>> fetchWeeklyAttendance(
+    String type,
+  ) async {
     final dates = getLast7Days();
-    final pathPrefix = type == 'patient' ? 'attendance/daily' : 'attendant_attendance/daily';
+    final pathPrefix = type == 'patient'
+        ? 'attendance/daily'
+        : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
     for (final date in dates) {
@@ -223,9 +242,13 @@ class _AttendanceState extends State<Attendance>
   }
 
   Future<Map<String, Map<String, String>>> fetchMonthlyAttendance(
-      DateTime month, String type) async {
+    DateTime month,
+    String type,
+  ) async {
     final dates = getDaysOfMonth(month);
-    final pathPrefix = type == 'patient' ? 'attendance/daily' : 'attendant_attendance/daily';
+    final pathPrefix = type == 'patient'
+        ? 'attendance/daily'
+        : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
     for (final date in dates) {
@@ -258,22 +281,26 @@ class _AttendanceState extends State<Attendance>
   }
 
   Future<void> markAttendance(
-      String patientId, String patientName, bool isPresent) async {
+    String patientId,
+    String patientName,
+    bool isPresent,
+  ) async {
     final dateObj = DateTime.now();
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
-    
+
     final bool? previousStatus = attendanceStatus[patientId];
     setState(() => attendanceStatus[patientId] = isPresent);
-    
+
     try {
-      await ServiceLocator().rtdbService.put('attendance/daily/$today/$patientId', {
-        'patientId': patientId,
-        'patientName': patientName,
-        'status': isPresent ? 'Present' : 'Absent',
-        'date': today,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-      
+      await ServiceLocator().rtdbService
+          .put('attendance/daily/$today/$patientId', {
+            'patientId': patientId,
+            'patientName': patientName,
+            'status': isPresent ? 'Present' : 'Absent',
+            'date': today,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+
       // -- Billing Integration --
       await ServiceLocator().paymentService.updatePatientBillingFromAttendance(
         patientId: patientId,
@@ -281,13 +308,19 @@ class _AttendanceState extends State<Attendance>
         isPresent: isPresent,
         wasPresent: previousStatus,
       );
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          backgroundColor: isPresent ? const Color(0xFF3B6D11) : const Color(0xFFD32F2F),
-          content: Text('$patientName marked as ${isPresent ? "Present" : "Absent"}'),
-          duration: const Duration(seconds: 1),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: isPresent
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFD32F2F),
+            content: Text(
+              '$patientName marked as ${isPresent ? "Present" : "Absent"}',
+            ),
+            duration: const Duration(seconds: 1),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -298,40 +331,51 @@ class _AttendanceState extends State<Attendance>
             attendanceStatus.remove(patientId);
           }
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          backgroundColor: Colors.red,
-          content: Text('Failed to update attendance'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('Failed to update attendance'),
+          ),
+        );
       }
     }
   }
 
   Future<void> markAttendantAttendance(
-      String patientId, String attendantName, bool isPresent) async {
+    String patientId,
+    String attendantName,
+    bool isPresent,
+  ) async {
     final dateObj = DateTime.now();
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
     final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
     final String statusKey = '${patientId}_$attendantName';
-    
+
     final bool? previousStatus = attendantAttendanceStatus[statusKey];
     setState(() => attendantAttendanceStatus[statusKey] = isPresent);
 
     try {
-      await ServiceLocator().rtdbService.put(
-          'attendant_attendance/daily/$today/$patientId/$safeKey', {
-        'patientId': patientId,
-        'attendantName': attendantName,
-        'status': isPresent ? 'Present' : 'Absent',
-        'date': today,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-      
+      await ServiceLocator().rtdbService
+          .put('attendant_attendance/daily/$today/$patientId/$safeKey', {
+            'patientId': patientId,
+            'attendantName': attendantName,
+            'status': isPresent ? 'Present' : 'Absent',
+            'date': today,
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          backgroundColor: isPresent ? const Color(0xFF3B6D11) : const Color(0xFFD32F2F),
-          content: Text('$attendantName marked as ${isPresent ? "Present" : "Absent"}'),
-          duration: const Duration(seconds: 1),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: isPresent
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFD32F2F),
+            content: Text(
+              '$attendantName marked as ${isPresent ? "Present" : "Absent"}',
+            ),
+            duration: const Duration(seconds: 1),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -342,10 +386,12 @@ class _AttendanceState extends State<Attendance>
             attendantAttendanceStatus.remove(statusKey);
           }
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          backgroundColor: Colors.red,
-          content: Text('Failed to update attendance'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('Failed to update attendance'),
+          ),
+        );
       }
     }
   }
@@ -460,7 +506,7 @@ class _AttendanceState extends State<Attendance>
                     color: Colors.black12,
                     blurRadius: 4,
                     offset: Offset(0, 2),
-                  )
+                  ),
                 ]
               : [],
         ),
@@ -485,7 +531,9 @@ class _AttendanceState extends State<Attendance>
         int absent = 0;
 
         if (snapshot.hasData) {
-          final patients = snapshot.data!.where((p) => p.status == 'active' || p.status == 'Paid').toList();
+          final patients = snapshot.data!
+              .where((p) => p.status == 'active' || p.status == 'Paid')
+              .toList();
           _allPatients = patients;
 
           if (_attendanceType == 'patient') {
@@ -548,7 +596,10 @@ class _AttendanceState extends State<Attendance>
                     : null,
                 filled: true,
                 fillColor: const Color(0xFFF4F9F0),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 0,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -589,7 +640,9 @@ class _AttendanceState extends State<Attendance>
           color: isSelected ? const Color(0xFF3B6D11) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+            color: isSelected
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFC0DD97),
           ),
         ),
         child: Text(
@@ -611,8 +664,8 @@ class _AttendanceState extends State<Attendance>
       child: _allPatients == null
           ? _buildShimmerList()
           : (_attendanceType == 'patient'
-              ? _buildPatientList()
-              : _buildAttendantList()),
+                ? _buildPatientList()
+                : _buildAttendantList()),
     );
   }
 
@@ -624,7 +677,10 @@ class _AttendanceState extends State<Attendance>
 
     if (filtered.isEmpty) {
       return const Center(
-        child: Text('No active patients found.', style: TextStyle(color: Colors.grey)),
+        child: Text(
+          'No active patients found.',
+          style: TextStyle(color: Colors.grey),
+        ),
       );
     }
 
@@ -636,17 +692,44 @@ class _AttendanceState extends State<Attendance>
       itemCount: displayList.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == displayList.length) {
-          return const Center(child: Padding(
-            padding: EdgeInsets.all(8.0),
-            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
-          ));
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+            ),
+          );
         }
+        // return _PatientAttendanceCard(
+        //   patient: displayList[index],
+        //   status: attendanceStatus[displayList[index].id],
+        //   onMarkPresent: () => markAttendance(
+        //     displayList[index].id,
+        //     displayList[index].fullName,
+        //     true,
+        //   ),
+        //   onMarkAbsent: () => markAttendance(
+        //     displayList[index].id,
+        //     displayList[index].fullName,
+        //     false,
+        //   ),
+        // );
         return _PatientAttendanceCard(
-          patient: displayList[index],
-          status: attendanceStatus[displayList[index].id],
-          onMarkPresent: () => markAttendance(displayList[index].id, displayList[index].fullName, true),
-          onMarkAbsent: () => markAttendance(displayList[index].id, displayList[index].fullName, false),
-        );
+  patient: displayList[index],
+  status: attendanceStatus[displayList[index].id],
+  onMarkPresent: () => markAttendance(
+    displayList[index].id,
+    displayList[index].fullName,
+    true,
+  ),
+  onMarkAbsent: () => markAttendance(
+    displayList[index].id,
+    displayList[index].fullName,
+    false,
+  ),
+  attendantAttendanceStatus: attendantAttendanceStatus,
+  onMarkAttendantPresent: (patientId, attendantName, isPresent) =>
+      markAttendantAttendance(patientId, attendantName, isPresent),
+);
       },
     );
   }
@@ -664,12 +747,15 @@ class _AttendanceState extends State<Attendance>
     var filtered = allAttendants.where((item) {
       if (_searchQuery.isEmpty) return true;
       return item.attendant.name.toLowerCase().contains(_searchQuery) ||
-             item.patient.fullName.toLowerCase().contains(_searchQuery);
+          item.patient.fullName.toLowerCase().contains(_searchQuery);
     }).toList();
 
     if (filtered.isEmpty) {
       return const Center(
-        child: Text('No active attendants found.', style: TextStyle(color: Colors.grey)),
+        child: Text(
+          'No active attendants found.',
+          style: TextStyle(color: Colors.grey),
+        ),
       );
     }
 
@@ -681,18 +767,28 @@ class _AttendanceState extends State<Attendance>
       itemCount: displayList.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == displayList.length) {
-          return const Center(child: Padding(
-            padding: EdgeInsets.all(8.0),
-            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
-          ));
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+            ),
+          );
         }
         final item = displayList[index];
         final key = '${item.patient.id}_${item.attendant.name}';
         return _AttendantAttendanceCard(
           item: item,
           status: attendantAttendanceStatus[key],
-          onMarkPresent: () => markAttendantAttendance(item.patient.id, item.attendant.name, true),
-          onMarkAbsent: () => markAttendantAttendance(item.patient.id, item.attendant.name, false),
+          onMarkPresent: () => markAttendantAttendance(
+            item.patient.id,
+            item.attendant.name,
+            true,
+          ),
+          onMarkAbsent: () => markAttendantAttendance(
+            item.patient.id,
+            item.attendant.name,
+            false,
+          ),
         );
       },
     );
@@ -733,35 +829,57 @@ class _AttendanceState extends State<Attendance>
           return const Center(child: Text('Error loading data'));
         }
         final data = snapshot.data as Map<String, Map<String, String>>;
-        
+
         return FadeTransition(
           opacity: _fadeCtrl,
           child: Column(
-             crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.chevron_left, color: Color(0xFF3B6D11)),
+                    icon: const Icon(
+                      Icons.chevron_left,
+                      color: Color(0xFF3B6D11),
+                    ),
                     onPressed: () {
                       setState(() {
-                        _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
-                        _monthlyData = fetchMonthlyAttendance(_selectedMonth, _attendanceType);
+                        _selectedMonth = DateTime(
+                          _selectedMonth.year,
+                          _selectedMonth.month - 1,
+                        );
+                        _monthlyData = fetchMonthlyAttendance(
+                          _selectedMonth,
+                          _attendanceType,
+                        );
                         _fadeCtrl.forward(from: 0);
                       });
                     },
                   ),
                   Text(
                     _monthTitle(_selectedMonth),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF2E4A1F)),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Color(0xFF2E4A1F),
+                    ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.chevron_right, color: Color(0xFF3B6D11)),
+                    icon: const Icon(
+                      Icons.chevron_right,
+                      color: Color(0xFF3B6D11),
+                    ),
                     onPressed: () {
                       setState(() {
-                        _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-                        _monthlyData = fetchMonthlyAttendance(_selectedMonth, _attendanceType);
+                        _selectedMonth = DateTime(
+                          _selectedMonth.year,
+                          _selectedMonth.month + 1,
+                        );
+                        _monthlyData = fetchMonthlyAttendance(
+                          _selectedMonth,
+                          _attendanceType,
+                        );
                         _fadeCtrl.forward(from: 0);
                       });
                     },
@@ -771,7 +889,9 @@ class _AttendanceState extends State<Attendance>
               if (data.isEmpty)
                 const Expanded(child: Center(child: Text('No data found')))
               else
-                Expanded(child: _buildDataTable(data, getDaysOfMonth(_selectedMonth))),
+                Expanded(
+                  child: _buildDataTable(data, getDaysOfMonth(_selectedMonth)),
+                ),
             ],
           ),
         );
@@ -779,14 +899,19 @@ class _AttendanceState extends State<Attendance>
     );
   }
 
-  Widget _buildDataTable(Map<String, Map<String, String>> data, List<String> dates) {
+  Widget _buildDataTable(
+    Map<String, Map<String, String>> data,
+    List<String> dates,
+  ) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFD6E8C8)),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -801,24 +926,53 @@ class _AttendanceState extends State<Attendance>
                 verticalInside: BorderSide(color: Colors.grey.shade200),
               ),
               columns: [
-                const DataColumn(label: Text('Name', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E4A1F)))),
+                const DataColumn(
+                  label: Text(
+                    'Name',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2E4A1F),
+                    ),
+                  ),
+                ),
                 ...dates.map((d) {
                   final dt = DateTime.parse(d);
-                  return DataColumn(label: Text('${dt.day} ${_monthShort(dt.month)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E4A1F))));
+                  return DataColumn(
+                    label: Text(
+                      '${dt.day} ${_monthShort(dt.month)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2E4A1F),
+                      ),
+                    ),
+                  );
                 }),
               ],
               rows: data.entries.map((e) {
                 return DataRow(
                   cells: [
-                    DataCell(Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    DataCell(
+                      Text(
+                        e.key,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
                     ...dates.map((date) {
                       final s = e.value[date];
-                      if (s == null) return const DataCell(Text('-', style: TextStyle(color: Colors.grey)));
+                      if (s == null)
+                        return const DataCell(
+                          Text('-', style: TextStyle(color: Colors.grey)),
+                        );
                       return DataCell(
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: s == 'Present' ? Colors.green.withOpacity(0.15) : Colors.red.withOpacity(0.15),
+                            color: s == 'Present'
+                                ? Colors.green.withOpacity(0.15)
+                                : Colors.red.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -888,7 +1042,11 @@ class _SummaryCard extends StatelessWidget {
   final String count;
   final Color color;
 
-  const _SummaryCard({required this.title, required this.count, required this.color});
+  const _SummaryCard({
+    required this.title,
+    required this.count,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -905,12 +1063,20 @@ class _SummaryCard extends StatelessWidget {
           children: [
             Text(
               count,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               title,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color.withOpacity(0.8)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color.withOpacity(0.8),
+              ),
             ),
           ],
         ),
@@ -919,22 +1085,199 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _PatientAttendanceCard extends StatelessWidget {
+// class _PatientAttendanceCard extends StatelessWidget {
+//   final PatientModel patient;
+//   final bool? status;
+//   final VoidCallback onMarkPresent;
+//   final VoidCallback onMarkAbsent;
+
+//   const _PatientAttendanceCard({
+//     required this.patient,
+//     required this.status,
+//     required this.onMarkPresent,
+//     required this.onMarkAbsent,
+//   });
+
+//   @override
+//   Widget build(BuildContext context) {
+//     String initials = patient.fullName.isNotEmpty
+//         ? patient.fullName[0].toUpperCase()
+//         : '?';
+
+//     return Container(
+//       margin: const EdgeInsets.only(bottom: 16),
+//       decoration: BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.circular(20),
+//         border: Border.all(
+//           color: status == true
+//               ? const Color(0xFF3B6D11).withOpacity(0.5)
+//               : status == false
+//               ? const Color(0xFFD32F2F).withOpacity(0.5)
+//               : const Color(0xFFE8F5E9),
+//           width: 1.5,
+//         ),
+//         boxShadow: const [
+//           BoxShadow(
+//             color: Colors.black12,
+//             blurRadius: 10,
+//             offset: Offset(0, 4),
+//           ),
+//         ],
+//       ),
+//       padding: const EdgeInsets.all(16),
+//       child: Column(
+//         children: [
+//           Row(
+//             children: [
+//               CircleAvatar(
+//                 radius: 24,
+//                 backgroundColor: const Color(0xFFE8F5E9),
+//                 child: Text(
+//                   initials,
+//                   style: const TextStyle(
+//                     color: Color(0xFF3B6D11),
+//                     fontSize: 18,
+//                     fontWeight: FontWeight.bold,
+//                   ),
+//                 ),
+//               ),
+//               const SizedBox(width: 16),
+//               Expanded(
+//                 child: Column(
+//                   crossAxisAlignment: CrossAxisAlignment.start,
+//                   children: [
+//                     Text(
+//                       patient.fullName,
+//                       style: const TextStyle(
+//                         fontSize: 18,
+//                         fontWeight: FontWeight.bold,
+//                         color: Color(0xFF2E4A1F),
+//                       ),
+//                       maxLines: 1,
+//                       overflow: TextOverflow.ellipsis,
+//                     ),
+//                     const SizedBox(height: 4),
+//                     Wrap(
+//                       spacing: 8,
+//                       runSpacing: 4,
+//                       children: [
+//                         _InfoChip(
+//                           Icons.phone,
+//                           patient.contactNumber ?? 'No contact',
+//                         ),
+//                         if (patient.roomNumber != null)
+//                           _InfoChip(
+//                             Icons.meeting_room,
+//                             'Room ${patient.roomNumber}',
+//                           ),
+//                         if (patient.bedLabels != null &&
+//                             patient.bedLabels!.isNotEmpty)
+//                           _InfoChip(
+//                             Icons.bed,
+//                             patient.bedLabels!
+//                                 .map(
+//                                   (b) => BedHelper.getBedDisplayName(
+//                                     b,
+//                                     roomIdentifier: patient.roomNumber,
+//                                   ),
+//                                 )
+//                                 .join(', '),
+//                           ),
+//                         _InfoChip(
+//                           Icons.check_circle_outline,
+//                           'Present: ${patient.totalPresentDays}',
+//                         ),
+//                         _InfoChip(
+//                           Icons.cancel_outlined,
+//                           'Absent: ${patient.totalAbsentDays}',
+//                         ),
+//                       ],
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//               if (status != null)
+//                 Container(
+//                   padding: const EdgeInsets.symmetric(
+//                     horizontal: 10,
+//                     vertical: 6,
+//                   ),
+//                   decoration: BoxDecoration(
+//                     color: status!
+//                         ? Colors.green.withOpacity(0.1)
+//                         : Colors.red.withOpacity(0.1),
+//                     borderRadius: BorderRadius.circular(12),
+//                   ),
+//                   child: Text(
+//                     status! ? 'Present' : 'Absent',
+//                     style: TextStyle(
+//                       color: status! ? Colors.green : Colors.red,
+//                       fontWeight: FontWeight.bold,
+//                       fontSize: 12,
+//                     ),
+//                   ),
+//                 ),
+//             ],
+//           ),
+//           const SizedBox(height: 16),
+//           Row(
+//             children: [
+//               Expanded(
+//                 child: _AttendanceButton(
+//                   label: 'Present',
+//                   isSelected: status == true,
+//                   activeColor: const Color(0xFF3B6D11),
+//                   onTap: onMarkPresent,
+//                 ),
+//               ),
+//               const SizedBox(width: 12),
+//               Expanded(
+//                 child: _AttendanceButton(
+//                   label: 'Absent',
+//                   isSelected: status == false,
+//                   activeColor: const Color(0xFFD32F2F),
+//                   onTap: onMarkAbsent,
+//                 ),
+//               ),
+//             ],
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
+class _PatientAttendanceCard extends StatefulWidget {
   final PatientModel patient;
   final bool? status;
   final VoidCallback onMarkPresent;
   final VoidCallback onMarkAbsent;
+  final Map<String, bool> attendantAttendanceStatus;
+  final Function(String patientId, String attendantName, bool isPresent) onMarkAttendantPresent;
 
   const _PatientAttendanceCard({
     required this.patient,
     required this.status,
     required this.onMarkPresent,
     required this.onMarkAbsent,
+    required this.attendantAttendanceStatus,
+    required this.onMarkAttendantPresent,
   });
 
   @override
+  State<_PatientAttendanceCard> createState() => _PatientAttendanceCardState();
+}
+
+class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
+  bool _attendantsExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    String initials = patient.fullName.isNotEmpty ? patient.fullName[0].toUpperCase() : '?';
+    final hasAttendants = widget.patient.attendants != null &&
+        widget.patient.attendants!.isNotEmpty;
+    String initials = widget.patient.fullName.isNotEmpty
+        ? widget.patient.fullName[0].toUpperCase()
+        : '?';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -942,43 +1285,66 @@ class _PatientAttendanceCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: status == true
+          color: widget.status == true
               ? const Color(0xFF3B6D11).withOpacity(0.5)
-              : status == false
-                  ? const Color(0xFFD32F2F).withOpacity(0.5)
-                  : const Color(0xFFE8F5E9),
+              : widget.status == false
+              ? const Color(0xFFD32F2F).withOpacity(0.5)
+              : const Color(0xFFE8F5E9),
           width: 1.5,
         ),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          )
+          BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
         ],
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // ── Patient info row ──
           Row(
             children: [
+              // CircleAvatar(
+              //   radius: 24,
+              //   backgroundColor: const Color(0xFFE8F5E9),
+              //   child: Text(
+              //     initials,
+              //     style: const TextStyle(
+              //       color: Color(0xFF3B6D11),
+              //       fontSize: 18,
+              //       fontWeight: FontWeight.bold,
+              //     ),
+              //   ),
+              // ),
               CircleAvatar(
-                radius: 24,
-                backgroundColor: const Color(0xFFE8F5E9),
-                child: Text(
-                  initials,
-                  style: const TextStyle(
-                      color: Color(0xFF3B6D11), fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
+        radius: 24,
+        backgroundColor: const Color(0xFFE8F5E9),
+        backgroundImage: widget.patient.photoDataUrl != null
+            ? MemoryImage(base64Decode(
+                widget.patient.photoDataUrl!.contains(',')
+                    ? widget.patient.photoDataUrl!.split(',').last
+                    : widget.patient.photoDataUrl!,
+              ))
+            : null,
+        child: widget.patient.photoDataUrl == null
+            ? Text(initials,
+                style: const TextStyle(
+                  color: Color(0xFF3B6D11),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ))
+            : null,
+      ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      patient.fullName,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E4A1F)),
+                      widget.patient.fullName,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2E4A1F),
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -987,28 +1353,39 @@ class _PatientAttendanceCard extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 4,
                       children: [
-                        _InfoChip(Icons.phone, patient.contactNumber ?? 'No contact'),
-                        if (patient.roomNumber != null) _InfoChip(Icons.meeting_room, 'Room ${patient.roomNumber}'),
-                        if (patient.bedLabels != null && patient.bedLabels!.isNotEmpty)
-                          _InfoChip(Icons.bed, patient.bedLabels!.map((b) => BedHelper.getBedDisplayName(b)).join(', ')),
-                        _InfoChip(Icons.check_circle_outline, 'Present: ${patient.totalPresentDays}'),
-                        _InfoChip(Icons.cancel_outlined, 'Absent: ${patient.totalAbsentDays}'),
+                        _InfoChip(Icons.phone, widget.patient.contactNumber ?? 'No contact'),
+                        if (widget.patient.roomNumber != null)
+                          _InfoChip(Icons.meeting_room, 'Room ${widget.patient.roomNumber}'),
+                        if (widget.patient.bedLabels != null && widget.patient.bedLabels!.isNotEmpty)
+                          _InfoChip(
+                            Icons.bed,
+                            widget.patient.bedLabels!
+                                .map((b) => BedHelper.getBedDisplayName(
+                                      b,
+                                      roomIdentifier: widget.patient.roomNumber,
+                                    ))
+                                .join(', '),
+                          ),
+                        _InfoChip(Icons.check_circle_outline, 'Present: ${widget.patient.totalPresentDays}'),
+                        _InfoChip(Icons.cancel_outlined, 'Absent: ${widget.patient.totalAbsentDays}'),
                       ],
                     ),
                   ],
                 ),
               ),
-              if (status != null)
+              if (widget.status != null)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: status! ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                    color: widget.status!
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.red.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    status! ? 'Present' : 'Absent',
+                    widget.status! ? 'Present' : 'Absent',
                     style: TextStyle(
-                      color: status! ? Colors.green : Colors.red,
+                      color: widget.status! ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
@@ -1017,27 +1394,210 @@ class _PatientAttendanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+
+          // ── Patient attendance buttons ──
           Row(
             children: [
               Expanded(
                 child: _AttendanceButton(
                   label: 'Present',
-                  isSelected: status == true,
+                  isSelected: widget.status == true,
                   activeColor: const Color(0xFF3B6D11),
-                  onTap: onMarkPresent,
+                  onTap: widget.onMarkPresent,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _AttendanceButton(
                   label: 'Absent',
-                  isSelected: status == false,
+                  isSelected: widget.status == false,
                   activeColor: const Color(0xFFD32F2F),
-                  onTap: onMarkAbsent,
+                  onTap: widget.onMarkAbsent,
                 ),
               ),
             ],
           ),
+
+          // ── Attendants expandable section ──
+          if (hasAttendants) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => setState(() => _attendantsExpanded = !_attendantsExpanded),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F9F0),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFC0DD97)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people_outline, size: 16, color: Color(0xFF3B6D11)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Attendants (${widget.patient.attendants!.length})',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF3B6D11),
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      _attendantsExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      color: const Color(0xFF3B6D11),
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_attendantsExpanded) ...[
+              const SizedBox(height: 8),
+              ...widget.patient.attendants!.map((attendant) {
+                final key = '${widget.patient.id}_${attendant.name}';
+                final attStatus = widget.attendantAttendanceStatus[key];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F9F0),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: attStatus == true
+                          ? const Color(0xFF3B6D11).withOpacity(0.4)
+                          : attStatus == false
+                          ? const Color(0xFFD32F2F).withOpacity(0.4)
+                          : const Color(0xFFC0DD97),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          // CircleAvatar(
+                          //   radius: 16,
+                          //   backgroundColor: const Color(0xFFE3F2FD),
+                          //   child: Text(
+                          //     attendant.name.isNotEmpty
+                          //         ? attendant.name[0].toUpperCase()
+                          //         : '?',
+                          //     style: const TextStyle(
+                          //       color: Color(0xFF1565C0),
+                          //       fontSize: 13,
+                          //       fontWeight: FontWeight.bold,
+                          //     ),
+                          //   ),
+                          // ),
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: const Color(0xFFE3F2FD),
+                            backgroundImage: attendant.photoDataUrl != null
+                                ? MemoryImage(base64Decode(
+                                    attendant.photoDataUrl!.contains(',')
+                                        ? attendant.photoDataUrl!.split(',').last
+                                        : attendant.photoDataUrl!,
+                                  ))
+                                : null,
+                            child: attendant.photoDataUrl == null
+                                ? Text(
+                                    attendant.name.isNotEmpty
+                                        ? attendant.name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      color: Color(0xFF1565C0),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  attendant.name,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF2E4A1F),
+                                  ),
+                                ),
+                                if (attendant.relation != null)
+                                  Text(
+                                    attendant.relation!,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF639922),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (attStatus != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: attStatus
+                                    ? Colors.green.withOpacity(0.1)
+                                    : Colors.red.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                attStatus ? 'Present' : 'Absent',
+                                style: TextStyle(
+                                  color: attStatus ? Colors.green : Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _AttendanceButton(
+                              label: 'Present',
+                              isSelected: attStatus == true,
+                              activeColor: const Color(0xFF3B6D11),
+                              onTap: () => widget.onMarkAttendantPresent(
+                                widget.patient.id,
+                                attendant.name,
+                                true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _AttendanceButton(
+                              label: 'Absent',
+                              isSelected: attStatus == false,
+                              activeColor: const Color(0xFFD32F2F),
+                              onTap: () => widget.onMarkAttendantPresent(
+                                widget.patient.id,
+                                attendant.name,
+                                false,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
         ],
       ),
     );
@@ -1059,7 +1619,9 @@ class _AttendantAttendanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String initials = item.attendant.name.isNotEmpty ? item.attendant.name[0].toUpperCase() : '?';
+    String initials = item.attendant.name.isNotEmpty
+        ? item.attendant.name[0].toUpperCase()
+        : '?';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1070,8 +1632,8 @@ class _AttendantAttendanceCard extends StatelessWidget {
           color: status == true
               ? const Color(0xFF3B6D11).withOpacity(0.5)
               : status == false
-                  ? const Color(0xFFD32F2F).withOpacity(0.5)
-                  : const Color(0xFFE8F5E9),
+              ? const Color(0xFFD32F2F).withOpacity(0.5)
+              : const Color(0xFFE8F5E9),
           width: 1.5,
         ),
         boxShadow: const [
@@ -1079,7 +1641,7 @@ class _AttendantAttendanceCard extends StatelessWidget {
             color: Colors.black12,
             blurRadius: 10,
             offset: Offset(0, 4),
-          )
+          ),
         ],
       ),
       padding: const EdgeInsets.all(16),
@@ -1093,7 +1655,10 @@ class _AttendantAttendanceCard extends StatelessWidget {
                 child: Text(
                   initials,
                   style: const TextStyle(
-                      color: Color(0xFF1565C0), fontSize: 18, fontWeight: FontWeight.bold),
+                    color: Color(0xFF1565C0),
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),
@@ -1103,26 +1668,60 @@ class _AttendantAttendanceCard extends StatelessWidget {
                   children: [
                     Text(
                       item.attendant.name,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E4A1F)),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2E4A1F),
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Attendant of: ${item.patient.fullName}',
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF639922), fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF639922),
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
+                    // Wrap(
+                    //   spacing: 8,
+                    //   runSpacing: 4,
+                    //   children: [
+                    //     if (item.attendant.relation != null &&
+                    //         item.attendant.relation!.isNotEmpty)
+                    //       _InfoChip(
+                    //         Icons.family_restroom,
+                    //         item.attendant.relation!,
+                    //       ),
+                    //     if (item.patient.contactNumber != null &&
+                    //         item.patient.contactNumber!.isNotEmpty)
+                    //       _InfoChip(Icons.phone, item.patient.contactNumber!),
+                    //   ],
+                    // ),
                     Wrap(
                       spacing: 8,
                       runSpacing: 4,
                       children: [
-                        if (item.attendant.relation != null && item.attendant.relation!.isNotEmpty)
-                          _InfoChip(Icons.family_restroom, item.attendant.relation!),
-                        if (item.patient.contactNumber != null && item.patient.contactNumber!.isNotEmpty)
+                        if (item.attendant.relation != null &&
+                            item.attendant.relation!.isNotEmpty)
+                          _InfoChip(
+                            Icons.family_restroom,
+                            item.attendant.relation!,
+                          ),
+                        if (item.patient.contactNumber != null &&
+                            item.patient.contactNumber!.isNotEmpty)
                           _InfoChip(Icons.phone, item.patient.contactNumber!),
+                        if (item.attendant.aadhaarNumber != null &&
+                            item.attendant.aadhaarNumber!.isNotEmpty)
+                          _InfoChip(
+                            Icons.credit_card,
+                            item.attendant.aadhaarNumber!,
+                          ),
                       ],
                     ),
                   ],
@@ -1130,9 +1729,14 @@ class _AttendantAttendanceCard extends StatelessWidget {
               ),
               if (status != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: status! ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                    color: status!
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.red.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -1193,7 +1797,10 @@ class _InfoChip extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: const Color(0xFF639922)),
           const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF639922))),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
+          ),
         ],
       ),
     );

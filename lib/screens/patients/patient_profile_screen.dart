@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/patient_model.dart';
@@ -9,16 +12,14 @@ import '../../utils/bed_helper.dart';
 
 class PatientProfileScreen extends StatefulWidget {
   final PatientModel patient;
-  const PatientProfileScreen({
-    super.key,
-    required this.patient,
-  });
+  const PatientProfileScreen({super.key, required this.patient});
 
   @override
   State<PatientProfileScreen> createState() => _PatientProfileScreenState();
 }
 
-class _PatientProfileScreenState extends State<PatientProfileScreen> with SingleTickerProviderStateMixin {
+class _PatientProfileScreenState extends State<PatientProfileScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
@@ -40,6 +41,18 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 
+  Uint8List? _decodePhoto(String? dataUrl) {
+    if (dataUrl == null || dataUrl.isEmpty) return null;
+    try {
+      final base64Part = dataUrl.contains(',')
+          ? dataUrl.split(',').last
+          : dataUrl;
+      return base64Decode(base64Part);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _showEditDialog(BuildContext context, PatientModel currentPatient) {
     showDialog(
       context: context,
@@ -52,7 +65,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
     );
   }
 
-  Future<void> _handlePayNow(BuildContext context, PatientModel currentPatient) async {
+  Future<void> _handlePayNow(
+    BuildContext context,
+    PatientModel currentPatient,
+  ) async {
     final result = await showPatientPaymentDialog(
       context: context,
       patientName: currentPatient.fullName,
@@ -62,11 +78,15 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
       roomIdentifier: currentPatient.roomNumber,
       alreadyPaid: currentPatient.totalPaidAmount ?? 0.0,
       showPayLater: false,
-      totalBillOverride: currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
+      totalBillOverride:
+          currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
     );
 
     if (result != null && result.payment != null) {
-      await ServiceLocator().patientService.recordPayment(currentPatient.id, result.payment!);
+      await ServiceLocator().patientService.recordPayment(
+        currentPatient.id,
+        result.payment!,
+      );
       await ServiceLocator().patientService.updatePatient(currentPatient.id, {
         'paymentPending': result.payment!.paymentStatus == "Pending",
         'paymentStatus': result.payment!.paymentStatus,
@@ -85,7 +105,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
     }
   }
 
-  void _showDischargeConfirmation(BuildContext context, PatientModel currentPatient) {
+  void _showDischargeConfirmation(
+    BuildContext context,
+    PatientModel currentPatient,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -102,7 +125,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
           ElevatedButton(
             onPressed: () async {
               try {
-                await ServiceLocator().patientService.dischargePatient(currentPatient.id);
+                await ServiceLocator().patientService.dischargePatient(
+                  currentPatient.id,
+                );
                 if (context.mounted) {
                   Navigator.pop(context); // Close confirmation
                   Navigator.pop(context); // Close profile page, back to listing
@@ -145,9 +170,16 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
           orElse: () => widget.patient,
         );
 
-        final isActive = currentPatient.status == 'active' || currentPatient.status.toLowerCase() == 'paid';
-        final showPayBtn = (currentPatient.currentDueAmount ?? 0) > 0 || currentPatient.paymentStatus != 'Paid';
-        final payBtnLabel = currentPatient.paymentStatus == 'Partial' ? 'Pay Remaining' : 'Pay Now';
+        final isActive =
+            currentPatient.status == 'active' ||
+            currentPatient.status.toLowerCase() == 'paid';
+        final showPayBtn =
+            (currentPatient.currentDueAmount ?? 0) > 0 ||
+            currentPatient.paymentStatus != 'Paid';
+        final payBtnLabel = currentPatient.paymentStatus == 'Partial'
+            ? 'Pay Remaining'
+            : 'Pay Now';
+        final photoBytes = _decodePhoto(currentPatient.photoDataUrl);
 
         return Scaffold(
           backgroundColor: const Color(0xFFF0F7EA),
@@ -171,7 +203,11 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                         // Back to Patients button
                         TextButton.icon(
                           onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF3B6D11), size: 20),
+                          icon: const Icon(
+                            Icons.arrow_back_rounded,
+                            color: Color(0xFF3B6D11),
+                            size: 20,
+                          ),
                           label: const Text(
                             "Back to Patients",
                             style: TextStyle(
@@ -181,7 +217,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                             ),
                           ),
                           style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             backgroundColor: const Color(0xFFEAF3DE),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -195,13 +234,24 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                             if (isActive) ...[
                               // Discharge Patient
                               OutlinedButton.icon(
-                                onPressed: () => _showDischargeConfirmation(context, currentPatient),
-                                icon: const Icon(Icons.logout_rounded, size: 16),
+                                onPressed: () => _showDischargeConfirmation(
+                                  context,
+                                  currentPatient,
+                                ),
+                                icon: const Icon(
+                                  Icons.logout_rounded,
+                                  size: 16,
+                                ),
                                 label: const Text('Discharge Patient'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFFD32F2F),
-                                  side: const BorderSide(color: Color(0xFFD32F2F)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  side: const BorderSide(
+                                    color: Color(0xFFD32F2F),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -212,14 +262,21 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                               // Pay Now / Pay Remaining
                               if (showPayBtn) ...[
                                 ElevatedButton.icon(
-                                  onPressed: () => _handlePayNow(context, currentPatient),
-                                  icon: const Icon(Icons.payment_rounded, size: 16),
+                                  onPressed: () =>
+                                      _handlePayNow(context, currentPatient),
+                                  icon: const Icon(
+                                    Icons.payment_rounded,
+                                    size: 16,
+                                  ),
                                   label: Text(payBtnLabel),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF3B6D11),
                                     foregroundColor: Colors.white,
                                     elevation: 0,
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -230,14 +287,18 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
 
                               // Edit Details
                               ElevatedButton.icon(
-                                onPressed: () => _showEditDialog(context, currentPatient),
+                                onPressed: () =>
+                                    _showEditDialog(context, currentPatient),
                                 icon: const Icon(Icons.edit_outlined, size: 16),
                                 label: const Text('Edit Details'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF639922),
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -258,22 +319,32 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                           width: 64,
                           height: 64,
                           decoration: BoxDecoration(
-                            color: isActive ? const Color(0xFFEAF3DE) : const Color(0xFFE8E8E8),
+                            color: isActive
+                                ? const Color(0xFFEAF3DE)
+                                : const Color(0xFFE8E8E8),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: isActive ? const Color(0xFF97C459) : const Color(0xFFBDBDBD),
+                              color: isActive
+                                  ? const Color(0xFF97C459)
+                                  : const Color(0xFFBDBDBD),
                               width: 2,
                             ),
                           ),
-                          child: Center(
-                            child: Text(
-                              _getInitials(currentPatient.fullName),
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: isActive ? const Color(0xFF3B6D11) : const Color(0xFF757575),
-                              ),
-                            ),
+                          child: ClipOval(
+                            child: photoBytes != null
+                                ? Image.memory(photoBytes, fit: BoxFit.cover)
+                                : Center(
+                                    child: Text(
+                                      _getInitials(currentPatient.fullName),
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: isActive
+                                            ? const Color(0xFF3B6D11)
+                                            : const Color(0xFF757575),
+                                      ),
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -308,7 +379,8 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
-                                  if (currentPatient.registrationNumber != null) ...[
+                                  if (currentPatient.registrationNumber !=
+                                      null) ...[
                                     const SizedBox(width: 16),
                                     Text(
                                       'Reg No: ${currentPatient.registrationNumber}',
@@ -338,8 +410,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> with Single
                         unselectedLabelColor: const Color(0xFF639922),
                         indicatorColor: const Color(0xFF3B6D11),
                         indicatorWeight: 3,
-                        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
                         tabs: const [
                           Tab(text: 'Overview'),
                           Tab(text: 'Payment History'),
@@ -425,7 +503,7 @@ class _StatusBadge extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 10,
           fontWeight: FontWeight.w600,
           color: textColor,
         ),
@@ -467,14 +545,33 @@ class _OverviewTab extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 24),
+                    // Expanded(
+                    //   child: Column(
+                    //     children: [
+                    //       _buildEmergencyInfo(),
+                    //       const SizedBox(height: 20),
+                    //       _buildRoomAssignment(),
+                    //       const SizedBox(height: 20),
+                    //       _buildAdmissionDetails(),
+                    //     ],
+                    //   ),
+                    // ),
                     Expanded(
                       child: Column(
                         children: [
                           _buildEmergencyInfo(),
                           const SizedBox(height: 20),
+
                           _buildRoomAssignment(),
                           const SizedBox(height: 20),
+
+                          _buildIdentityInformation(),
+                          const SizedBox(height: 20),
+
                           _buildAdmissionDetails(),
+                          const SizedBox(height: 20),
+
+                          _buildAttendantsDropdown(),
                         ],
                       ),
                     ),
@@ -492,11 +589,83 @@ class _OverviewTab extends StatelessWidget {
                     _buildEmergencyInfo(),
                     const SizedBox(height: 20),
                     _buildRoomAssignment(),
+                    _buildIdentityInformation(),
+                    const SizedBox(height: 20),
                     const SizedBox(height: 20),
                     _buildAdmissionDetails(),
                   ],
                 ),
-              
+
+              // if (patient.notes != null && patient.notes!.isNotEmpty) ...[
+              //   const SizedBox(height: 20),
+              //   _Section(
+              //     label: "Additional Notes",
+              //     child: Container(
+              //       width: double.infinity,
+              //       padding: const EdgeInsets.all(16),
+              //       decoration: BoxDecoration(
+              //         color: const Color(0xFFFAFDF7),
+              //         borderRadius: BorderRadius.circular(12),
+              //         border: Border.all(
+              //           color: const Color(0xFFC0DD97),
+              //           width: 1,
+              //         ),
+              //       ),
+              //       child: Text(
+              //         patient.notes!,
+              //         style: const TextStyle(
+              //           fontSize: 14,
+              //           color: Color(0xFF27500A),
+              //           height: 1.5,
+              //         ),
+              //       ),
+              //     ),
+              //   ),
+              // ],
+              // Attendants Section
+              // if (patient.attendants != null &&
+              //     patient.attendants!.isNotEmpty) ...[
+              //   const SizedBox(height: 20),
+              //   // _Section(
+              //   //   label: "Attendants",
+              //   //   child: SizedBox(
+              //   //     height: patient.attendants!.length > 2 ? 220 : null,
+              //   //     child: patient.attendants!.length > 2
+              //   //         ? ListView.builder(
+              //   //             itemCount: patient.attendants!.length,
+              //   //             itemBuilder: (context, index) => _AttendantCard(
+              //   //               attendant: patient.attendants![index],
+              //   //             ),
+              //   //           )
+              //   //         : Column(
+              //   //             children: patient.attendants!
+              //   //                 .map((a) => _AttendantCard(attendant: a))
+              //   //                 .toList(),
+              //   //           ),
+              //   //   ),
+              //   // ),
+              //   _Section(
+              //     label: "Attendants",
+              //     child: patient.attendants!.length > 2
+              //         ? SizedBox(
+              //             height: 240,
+              //             child: ListView.builder(
+              //               physics: const AlwaysScrollableScrollPhysics(),
+              //               itemCount: patient.attendants!.length,
+              //               itemBuilder: (context, index) => _AttendantCard(
+              //                 attendant: patient.attendants![index],
+              //               ),
+              //             ),
+              //           )
+              //         : Column(
+              //             children: patient.attendants!
+              //                 .map((a) => _AttendantCard(attendant: a))
+              //                 .toList(),
+              //           ),
+              //   ),
+              // ],
+
+              // Additional Notes (attendant lines removed)
               if (patient.notes != null && patient.notes!.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 _Section(
@@ -507,10 +676,13 @@ class _OverviewTab extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: const Color(0xFFFAFDF7),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                      border: Border.all(
+                        color: const Color(0xFFC0DD97),
+                        width: 1,
+                      ),
                     ),
                     child: Text(
-                      patient.notes!,
+                      _cleanNotes(patient.notes!),
                       style: const TextStyle(
                         fontSize: 14,
                         color: Color(0xFF27500A),
@@ -527,20 +699,48 @@ class _OverviewTab extends StatelessWidget {
     );
   }
 
+  String _cleanNotes(String notes) {
+    final lines = notes.split('\n');
+    final filtered = lines.where((line) {
+      final lower = line.toLowerCase();
+      return !lower.startsWith('attendant ') &&
+          !lower.startsWith('attendant count');
+    }).toList();
+    return filtered.join('\n').trim();
+  }
+
   Widget _buildPersonalInfo() {
-    final dobStr = '${patient.dateOfBirth.day}/${patient.dateOfBirth.month}/${patient.dateOfBirth.year}';
+    final dobStr =
+        '${patient.dateOfBirth.day}/${patient.dateOfBirth.month}/${patient.dateOfBirth.year}';
     return _Section(
       label: "Personal Information",
       child: Column(
         children: [
           _Row2(
-            _InfoField(label: "Age", value: "${patient.age} years", icon: Icons.cake_outlined),
-            _InfoField(label: "Gender", value: patient.gender[0].toUpperCase() + patient.gender.substring(1), icon: Icons.person_outline_rounded),
+            _InfoField(
+              label: "Age",
+              value: "${patient.age} years",
+              icon: Icons.cake_outlined,
+            ),
+            _InfoField(
+              label: "Gender",
+              value:
+                  patient.gender[0].toUpperCase() + patient.gender.substring(1),
+              icon: Icons.person_outline_rounded,
+            ),
           ),
           const SizedBox(height: 12),
           _Row2(
-            _InfoField(label: "Contact Number", value: patient.contactNumber, icon: Icons.phone_outlined),
-            _InfoField(label: "Date of Birth", value: dobStr, icon: Icons.calendar_today_outlined),
+            _InfoField(
+              label: "Contact Number",
+              value: patient.contactNumber,
+              icon: Icons.phone_outlined,
+            ),
+            _InfoField(
+              label: "Date of Birth",
+              value: dobStr,
+              icon: Icons.calendar_today_outlined,
+            ),
           ),
         ],
       ),
@@ -549,19 +749,36 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildFinancialSummary() {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    double total = (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+    double total =
+        (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
     return _Section(
       label: "Financial Summary",
       child: Column(
         children: [
           _Row2(
-            _InfoField(label: "Total Amount", value: currencyFmt.format(total), icon: Icons.receipt_long_outlined),
-            _InfoField(label: "Paid Amount", value: currencyFmt.format(patient.totalPaidAmount ?? 0), icon: Icons.check_circle_outline),
+            _InfoField(
+              label: "Total Amount",
+              value: currencyFmt.format(total),
+              icon: Icons.receipt_long_outlined,
+            ),
+            _InfoField(
+              label: "Paid Amount",
+              value: currencyFmt.format(patient.totalPaidAmount ?? 0),
+              icon: Icons.check_circle_outline,
+            ),
           ),
           const SizedBox(height: 12),
           _Row2(
-            _InfoField(label: "Pending Amount", value: currencyFmt.format(patient.currentDueAmount ?? 0), icon: Icons.pending_actions_outlined),
-            _InfoField(label: "Payment Status", value: patient.paymentStatus ?? "Pending", icon: Icons.info_outline),
+            _InfoField(
+              label: "Pending Amount",
+              value: currencyFmt.format(patient.currentDueAmount ?? 0),
+              icon: Icons.pending_actions_outlined,
+            ),
+            _InfoField(
+              label: "Payment Status",
+              value: patient.paymentStatus ?? "Pending",
+              icon: Icons.info_outline,
+            ),
           ),
         ],
       ),
@@ -573,14 +790,29 @@ class _OverviewTab extends StatelessWidget {
       label: "Medical Information",
       child: Column(
         children: [
-          _InfoField(label: "Medical Condition", value: patient.medicalCondition, icon: Icons.medical_services_outlined, fullWidth: true),
+          _InfoField(
+            label: "Medical Condition",
+            value: patient.medicalCondition,
+            icon: Icons.medical_services_outlined,
+            fullWidth: true,
+          ),
           if (patient.allergies != null && patient.allergies!.isNotEmpty) ...[
             const SizedBox(height: 12),
-            _InfoField(label: "Allergies", value: patient.allergies!, icon: Icons.warning_amber_rounded, fullWidth: true),
+            _InfoField(
+              label: "Allergies",
+              value: patient.allergies!,
+              icon: Icons.warning_amber_rounded,
+              fullWidth: true,
+            ),
           ],
           if (patient.bloodType != null && patient.bloodType!.isNotEmpty) ...[
             const SizedBox(height: 12),
-            _InfoField(label: "Blood Type", value: patient.bloodType!, icon: Icons.bloodtype_outlined, fullWidth: true),
+            _InfoField(
+              label: "Blood Type",
+              value: patient.bloodType!,
+              icon: Icons.bloodtype_outlined,
+              fullWidth: true,
+            ),
           ],
         ],
       ),
@@ -591,8 +823,20 @@ class _OverviewTab extends StatelessWidget {
     return _Section(
       label: "Emergency Contact",
       child: _Row2(
-        _InfoField(label: "Contact Name", value: patient.emergencyContactName.isNotEmpty ? patient.emergencyContactName : "N/A", icon: Icons.contact_emergency_outlined),
-        _InfoField(label: "Contact Number", value: patient.emergencyContact.isNotEmpty ? patient.emergencyContact : "N/A", icon: Icons.phone_in_talk_outlined),
+        _InfoField(
+          label: "Contact Name",
+          value: patient.emergencyContactName.isNotEmpty
+              ? patient.emergencyContactName
+              : "N/A",
+          icon: Icons.contact_emergency_outlined,
+        ),
+        _InfoField(
+          label: "Contact Number",
+          value: patient.emergencyContact.isNotEmpty
+              ? patient.emergencyContact
+              : "N/A",
+          icon: Icons.phone_in_talk_outlined,
+        ),
       ),
     );
   }
@@ -601,55 +845,156 @@ class _OverviewTab extends StatelessWidget {
     if (patient.roomNumber == null) {
       return _Section(
         label: "Room Assignment",
-        child: _InfoField(label: "Room Status", value: "No room assigned yet", icon: Icons.meeting_room_outlined, fullWidth: true),
+        child: _InfoField(
+          label: "Room Status",
+          value: "No room assigned yet",
+          icon: Icons.meeting_room_outlined,
+          fullWidth: true,
+        ),
       );
     }
-    final bedLabels = patient.bedLabels != null &&
-        patient.bedLabels!.isNotEmpty
+    final bedLabels = patient.bedLabels != null && patient.bedLabels!.isNotEmpty
         ? patient.bedLabels!
-        .map((bed) {
-      final raw = bed.toString().trim();
-
-      // Handle legacy numeric values like 1-12
-      final number = int.tryParse(raw);
-      if (number != null) {
-        if (number >= 1 && number <= 2) return 'Bed 1/2';
-        if (number >= 3 && number <= 4) return 'Bed 3/4';
-        if (number >= 5 && number <= 6) return 'Bed 5/6';
-        if (number >= 7 && number <= 8) return 'Bed 7/8';
-        if (number >= 9 && number <= 10) return 'Bed 9/10';
-        if (number >= 11 && number <= 12) return 'Bed 11/12';
-      }
-
-      // Handle new values like bed1, bed2, bed3...
-      return BedHelper.getBedDisplayName(raw);
-    })
-        .toSet() // Remove duplicates
-        .join(', ')
+              .map((bed) {
+                final raw = bed.toString().trim();
+                return BedHelper.getBedDisplayName(
+                  raw,
+                  roomIdentifier: patient.roomNumber,
+                );
+              })
+              .toSet() // Remove duplicates
+              .join(', ')
         : 'N/A';
     return _Section(
       label: "Room Assignment",
       child: Column(
         children: [
           _Row2(
-            _InfoField(label: "Room Number", value: patient.roomNumber!, icon: Icons.meeting_room_outlined),
-            _InfoField(label: "Floor", value: "Floor ${patient.floor ?? 0}", icon: Icons.layers_outlined),
+            _InfoField(
+              label: "Room Number",
+              value: patient.roomNumber!,
+              icon: Icons.meeting_room_outlined,
+            ),
+            _InfoField(
+              label: "Floor",
+              value: "Floor ${patient.floor ?? 0}",
+              icon: Icons.layers_outlined,
+            ),
           ),
           const SizedBox(height: 12),
-          _InfoField(label: "Assigned Beds", value: bedLabels, icon: Icons.bed_outlined, fullWidth: true),
+          _InfoField(
+            label: "Assigned Beds",
+            value: bedLabels,
+            icon: Icons.bed_outlined,
+            fullWidth: true,
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildIdentityInformation() {
+    return _Section(
+      label: "Identity Information",
+      child: _Row2(
+        _InfoField(
+          label: "Aadhaar Number",
+          value: (patient.aadhaarCardNumber?.trim().isNotEmpty ?? false)
+              ? patient.aadhaarCardNumber!
+              : '—',
+          icon: Icons.badge_outlined,
+        ),
+        _InfoField(
+          label: "PAN Card Number",
+          value: (patient.panCardNumber?.trim().isNotEmpty ?? false)
+              ? patient.panCardNumber!
+              : '—',
+          icon: Icons.credit_card_outlined,
+        ),
+      ),
+    );
+  }
+
   Widget _buildAdmissionDetails() {
-    final admStr = '${patient.admissionDate.day}/${patient.admissionDate.month}/${patient.admissionDate.year}';
-    final daysAdmitted = DateTime.now().difference(patient.admissionDate).inDays;
+    final admStr =
+        '${patient.admissionDate.day}/${patient.admissionDate.month}/${patient.admissionDate.year}';
+    final daysAdmitted = DateTime.now()
+        .difference(patient.admissionDate)
+        .inDays;
     return _Section(
       label: "Admission Details",
       child: _Row2(
-        _InfoField(label: "Admission Date", value: admStr, icon: Icons.event_outlined),
-        _InfoField(label: "Days Admitted", value: "$daysAdmitted days", icon: Icons.access_time_outlined),
+        _InfoField(
+          label: "Admission Date",
+          value: admStr,
+          icon: Icons.event_outlined,
+        ),
+        _InfoField(
+          label: "Days Admitted",
+          value: "$daysAdmitted days",
+          icon: Icons.access_time_outlined,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttendantsDropdown() {
+    final attendants = patient.attendants ?? [];
+
+    return _Section(
+      label: "Attendees",
+      child: Theme(
+        data: ThemeData().copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          childrenPadding: const EdgeInsets.all(12),
+
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: const Color(0xFFC0DD97).withOpacity(0.6)),
+          ),
+
+          collapsedShape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: const Color(0xFFC0DD97).withOpacity(0.6)),
+          ),
+
+          title: Row(
+            children: [
+              const Icon(Icons.people_alt_outlined, color: Color(0xFF3B6D11)),
+              const SizedBox(width: 10),
+              Text(
+                "Attendees (${attendants.length})",
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+            ],
+          ),
+
+          children: [
+            SizedBox(
+              height: attendants.length > 3 ? 280 : null,
+              child: attendants.length > 3
+                  ? Scrollbar(
+                      thumbVisibility: true,
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: attendants.length,
+                        itemBuilder: (context, index) {
+                          return _AttendantCard(attendant: attendants[index]);
+                        },
+                      ),
+                    )
+                  : Column(
+                      children: attendants
+                          .map((a) => _AttendantCard(attendant: a))
+                          .toList(),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -789,11 +1134,15 @@ class _PaymentHistoryTab extends StatelessWidget {
       stream: ServiceLocator().paymentService.getAllPaymentsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+          );
         }
 
         final allPayments = snapshot.data ?? [];
-        final patientPayments = allPayments.where((p) => p['patientId'] == patient.id).toList();
+        final patientPayments = allPayments
+            .where((p) => p['patientId'] == patient.id)
+            .toList();
 
         if (patientPayments.isEmpty) {
           return Center(
@@ -818,8 +1167,14 @@ class _PaymentHistoryTab extends StatelessWidget {
           );
         }
 
-        final totalPaid = patientPayments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0.0));
-        final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
+        final totalPaid = patientPayments.fold(
+          0.0,
+          (sum, p) => sum + (p['amount'] ?? 0.0),
+        );
+        final currencyFmt = NumberFormat.currency(
+          symbol: "₹",
+          decimalDigits: 0,
+        );
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -862,10 +1217,7 @@ class _PaymentHistoryTab extends StatelessWidget {
                         SizedBox(height: 4),
                         Text(
                           "All payments recorded via Payments Module",
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                          ),
+                          style: TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
                     ),
@@ -897,7 +1249,9 @@ class _PaymentHistoryTab extends StatelessWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
                   final payment = patientPayments[index];
-                  final date = DateTime.fromMillisecondsSinceEpoch(payment['date'] ?? 0);
+                  final date = DateTime.fromMillisecondsSinceEpoch(
+                    payment['date'] ?? 0,
+                  );
                   final method = payment['method']?.toString() ?? "CASH";
                   final amount = (payment['amount'] ?? 0).toDouble();
 
@@ -922,8 +1276,8 @@ class _PaymentHistoryTab extends StatelessWidget {
                             method.toLowerCase().contains('online')
                                 ? Icons.qr_code_rounded
                                 : method.toLowerCase().contains('check')
-                                    ? Icons.account_balance_rounded
-                                    : Icons.money_rounded,
+                                ? Icons.account_balance_rounded
+                                : Icons.money_rounded,
                             color: const Color(0xFF3B6D11),
                             size: 20,
                           ),
@@ -951,7 +1305,8 @@ class _PaymentHistoryTab extends StatelessWidget {
                                   color: Color(0xFF27500A),
                                 ),
                               ),
-                              if (payment['notes'] != null && payment['notes'].toString().isNotEmpty) ...[
+                              if (payment['notes'] != null &&
+                                  payment['notes'].toString().isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
                                   payment['notes'],
@@ -961,7 +1316,7 @@ class _PaymentHistoryTab extends StatelessWidget {
                                     fontStyle: FontStyle.italic,
                                   ),
                                 ),
-                              ]
+                              ],
                             ],
                           ),
                         ),
@@ -971,9 +1326,10 @@ class _PaymentHistoryTab extends StatelessWidget {
                             Text(
                               currencyFmt.format(amount),
                               style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF3B6D11)),
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF3B6D11),
+                              ),
                             ),
                             if (payment['receiptNumber'] != null)
                               Text(
@@ -1010,33 +1366,73 @@ class _AttendanceTab extends StatefulWidget {
 
 class _AttendanceTabState extends State<_AttendanceTab> {
   late Future<Map<String, Map<String, dynamic>>> _attendanceDataFuture;
+  late Future<Map<String, dynamic>> _attendantAttendanceFuture;
 
   @override
   void initState() {
     super.initState();
+
     _attendanceDataFuture = _loadAttendanceData();
+    _attendantAttendanceFuture = _loadAttendantAttendance();
+
+    _attendantAttendanceFuture.then((data) {
+      print("ATTENDANT DATA = $data");
+    });
   }
 
   Future<Map<String, Map<String, dynamic>>> _loadAttendanceData() async {
     final result = <String, Map<String, dynamic>>{};
+
     try {
-      final data = await ServiceLocator().rtdbService.get('attendance');
+      final data = await ServiceLocator().rtdbService.get('attendance/daily');
+
       if (data != null && data is Map) {
         data.forEach((dateStr, records) {
           if (records is Map) {
-            records.forEach((pId, record) {
-              if (pId == widget.patient.id && record is Map) {
+            records.forEach((patientId, record) {
+              if (patientId == widget.patient.id && record is Map) {
                 result[dateStr] = Map<String, dynamic>.from(record);
               }
             });
           }
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Attendance error: $e");
+    }
+
     return result;
   }
 
-  Map<String, dynamic> _computeSummaries(Map<String, Map<String, dynamic>> attendanceMap) {
+  Future<Map<String, dynamic>> _loadAttendantAttendance() async {
+    final result = <String, dynamic>{};
+
+    try {
+      final data = await ServiceLocator().rtdbService.get(
+        'attendant_attendance/daily',
+      );
+
+      if (data != null && data is Map) {
+        data.forEach((dateStr, records) {
+          if (records is Map && records.containsKey(widget.patient.id)) {
+            final attendants = Map<String, dynamic>.from(
+              records[widget.patient.id],
+            );
+
+            result[dateStr] = attendants;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Attendant attendance error: $e");
+    }
+
+    return result;
+  }
+
+  Map<String, dynamic> _computeSummaries(
+    Map<String, Map<String, dynamic>> attendanceMap,
+  ) {
     int totalPresent = 0;
     int totalAbsent = 0;
 
@@ -1072,7 +1468,9 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     });
 
     final totalDays = totalPresent + totalAbsent;
-    final rate = totalDays > 0 ? (totalPresent / totalDays * 100).toStringAsFixed(1) : '0.0';
+    final rate = totalDays > 0
+        ? (totalPresent / totalDays * 100).toStringAsFixed(1)
+        : '0.0';
 
     return {
       'totalPresent': totalPresent,
@@ -1084,203 +1482,344 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     };
   }
 
+  // @override
+  // Widget build(BuildContext context) {
+  //   return FutureBuilder<Map<String, Map<String, dynamic>>>(
+  //     future: _attendanceDataFuture,
+  //     builder: (context, snapshot) {
+  //       if (snapshot.connectionState == ConnectionState.waiting) {
+  //         return const Center(
+  //           child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+  //         );
+  //       }
+
+  //       final patientData = snapshot.data ?? {};
+
+  //       return FutureBuilder<Map<String, dynamic>>(
+  //         future: _attendantAttendanceFuture,
+  //         builder: (context, attendantSnapshot) {
+  //           final attendantData = attendantSnapshot.data ?? {};
+
+  //           // Compute totals
+  //           int patientPresent = patientData.values
+  //               .where((r) => r['status'] == 'Present')
+  //               .length;
+  //           int patientAbsent = patientData.values
+  //               .where((r) => r['status'] == 'Absent')
+  //               .length;
+
+  //           // Attendant totals across all dates
+  //           int attendantPresent = 0;
+  //           int attendantAbsent = 0;
+  //           attendantData.forEach((date, attendants) {
+  //             if (attendants is Map) {
+  //               attendants.forEach((key, val) {
+  //                 if (val is Map) {
+  //                   if (val['status'] == 'Present') attendantPresent++;
+  //                   if (val['status'] == 'Absent') attendantAbsent++;
+  //                 }
+  //               });
+  //             }
+  //           });
+
+  //           return SingleChildScrollView(
+  //             padding: const EdgeInsets.all(24),
+  //             child: Column(
+  //               crossAxisAlignment: CrossAxisAlignment.start,
+  //               children: [
+  //                 _CalendarView(
+  //                   patientData: patientData,
+  //                   attendantData: attendantData,
+  //                   patientName: widget.patient.fullName,
+  //                 ),
+  //                 const SizedBox(height: 32),
+
+  //                 // ── Overall summary counts ──
+  //                 const Text(
+  //                   "Overall Summary",
+  //                   style: TextStyle(
+  //                     fontSize: 16,
+  //                     fontWeight: FontWeight.bold,
+  //                     color: Color(0xFF27500A),
+  //                   ),
+  //                 ),
+  //                 const SizedBox(height: 12),
+
+  //                 // Patient counts
+  //                 Container(
+  //                   padding: const EdgeInsets.all(16),
+  //                   decoration: BoxDecoration(
+  //                     color: Colors.white,
+  //                     borderRadius: BorderRadius.circular(12),
+  //                     border: Border.all(
+  //                       color: const Color(0xFFC0DD97).withOpacity(0.5),
+  //                     ),
+  //                   ),
+  //                   child: Column(
+  //                     crossAxisAlignment: CrossAxisAlignment.start,
+  //                     children: [
+  //                       const Text(
+  //                         "Patient",
+  //                         style: TextStyle(
+  //                           fontWeight: FontWeight.w600,
+  //                           fontSize: 14,
+  //                           color: Color(0xFF27500A),
+  //                         ),
+  //                       ),
+  //                       const SizedBox(height: 10),
+  //                       Row(
+  //                         children: [
+  //                           _CountChip(
+  //                             label: "Present",
+  //                             count: patientPresent,
+  //                             color: Colors.green,
+  //                           ),
+  //                           const SizedBox(width: 12),
+  //                           _CountChip(
+  //                             label: "Absent",
+  //                             count: patientAbsent,
+  //                             color: const Color(0xFFD32F2F),
+  //                           ),
+  //                           const SizedBox(width: 12),
+  //                           _CountChip(
+  //                             label: "Total",
+  //                             count: patientPresent + patientAbsent,
+  //                             color: const Color(0xFF3B6D11),
+  //                           ),
+  //                         ],
+  //                       ),
+  //                     ],
+  //                   ),
+  //                 ),
+  //                 const SizedBox(height: 12),
+
+  //                 // Attendant counts
+  //                 Container(
+  //                   padding: const EdgeInsets.all(16),
+  //                   decoration: BoxDecoration(
+  //                     color: Colors.white,
+  //                     borderRadius: BorderRadius.circular(12),
+  //                     border: Border.all(
+  //                       color: const Color(0xFFC0DD97).withOpacity(0.5),
+  //                     ),
+  //                   ),
+  //                   child: Column(
+  //                     crossAxisAlignment: CrossAxisAlignment.start,
+  //                     children: [
+  //                       const Text(
+  //                         "Attendants",
+  //                         style: TextStyle(
+  //                           fontWeight: FontWeight.w600,
+  //                           fontSize: 14,
+  //                           color: Color(0xFF27500A),
+  //                         ),
+  //                       ),
+  //                       const SizedBox(height: 10),
+  //                       Row(
+  //                         children: [
+  //                           _CountChip(
+  //                             label: "Present",
+  //                             count: attendantPresent,
+  //                             color: Colors.green,
+  //                           ),
+  //                           const SizedBox(width: 12),
+  //                           _CountChip(
+  //                             label: "Absent",
+  //                             count: attendantAbsent,
+  //                             color: const Color(0xFFD32F2F),
+  //                           ),
+  //                           const SizedBox(width: 12),
+  //                           _CountChip(
+  //                             label: "Total",
+  //                             count: attendantPresent + attendantAbsent,
+  //                             color: const Color(0xFF3B6D11),
+  //                           ),
+  //                         ],
+  //                       ),
+  //                     ],
+  //                   ),
+  //                 ),
+  //               ],
+  //             ),
+  //           );
+  //         },
+  //       );
+  //     },
+  //   );
+  // }
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, Map<String, dynamic>>>(
       future: _attendanceDataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
-        }
-
-        final data = snapshot.data ?? {};
-        final summary = _computeSummaries(data);
-
-        final totalPresent = summary['totalPresent'] as int;
-        final totalAbsent = summary['totalAbsent'] as int;
-        final rate = summary['rate'] as String;
-        final monthly = summary['monthly'] as Map<String, Map<String, int>>;
-        final yearly = summary['yearly'] as Map<String, Map<String, int>>;
-
-        if (data.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 64,
-                  color: const Color(0xFF639922).withOpacity(0.3),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  "No attendance records found",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: const Color(0xFF639922).withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
           );
         }
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Summary cards
-              Row(
+        final patientData = snapshot.data ?? {};
+
+        return FutureBuilder<Map<String, dynamic>>(
+          future: _attendantAttendanceFuture,
+          builder: (context, attendantSnapshot) {
+            final attendantData = attendantSnapshot.data ?? {};
+
+            int patientPresent = patientData.values
+                .where((r) => r['status'] == 'Present')
+                .length;
+            int patientAbsent = patientData.values
+                .where((r) => r['status'] == 'Absent')
+                .length;
+
+            int attendantPresent = 0;
+            int attendantAbsent = 0;
+            attendantData.forEach((date, attendants) {
+              if (attendants is Map) {
+                attendants.forEach((key, val) {
+                  if (val is Map) {
+                    if (val['status'] == 'Present') attendantPresent++;
+                    if (val['status'] == 'Absent') attendantAbsent++;
+                  }
+                });
+              }
+            });
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _StatItemCard(
-                    title: "Days Present",
-                    value: totalPresent.toString(),
-                    icon: Icons.check_circle_outline_rounded,
-                    color: Colors.green,
+                  // ── LEFT: Calendar ──
+                  Flexible(
+                    flex: 5,
+                    child: _CalendarView(
+                      patientData: patientData,
+                      attendantData: attendantData,
+                      patientName: widget.patient.fullName,
+                    ),
                   ),
-                  const SizedBox(width: 16),
-                  _StatItemCard(
-                    title: "Days Absent",
-                    value: totalAbsent.toString(),
-                    icon: Icons.cancel_outlined,
-                    color: const Color(0xFFD32F2F),
-                  ),
-                  const SizedBox(width: 16),
-                  _StatItemCard(
-                    title: "Attendance Rate",
-                    value: "$rate%",
-                    icon: Icons.analytics_outlined,
-                    color: const Color(0xFF3B6D11),
+                  const SizedBox(width: 28),
+
+                  // ── RIGHT: Overall Summary ──
+                  Flexible(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Overall Summary",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF27500A),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Patient summary
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFC0DD97).withOpacity(0.5),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Patient",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Color(0xFF27500A),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  _CountChip(
+                                    label: "Present",
+                                    count: patientPresent,
+                                    color: Colors.green,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _CountChip(
+                                    label: "Absent",
+                                    count: patientAbsent,
+                                    color: const Color(0xFFD32F2F),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _CountChip(
+                                    label: "Total",
+                                    count: patientPresent + patientAbsent,
+                                    color: const Color(0xFF3B6D11),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Attendant summary
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFC0DD97).withOpacity(0.5),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Attendants",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Color(0xFF27500A),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  _CountChip(
+                                    label: "Present",
+                                    count: attendantPresent,
+                                    color: Colors.green,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _CountChip(
+                                    label: "Absent",
+                                    count: attendantAbsent,
+                                    color: const Color(0xFFD32F2F),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _CountChip(
+                                    label: "Total",
+                                    count: attendantPresent + attendantAbsent,
+                                    color: const Color(0xFF3B6D11),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
-
-              // Yearly Summaries
-              const Text(
-                "Yearly Summary",
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF27500A),
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: yearly.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final year = yearly.keys.toList()[index];
-                  final counts = yearly[year]!;
-                  final p = counts['present'] ?? 0;
-                  final a = counts['absent'] ?? 0;
-                  final total = p + a;
-                  final pct = total > 0 ? p / total : 0.0;
-
-                  return Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.4)),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              year,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF27500A)),
-                            ),
-                            Text(
-                              "Present: $p / $total days (${(pct * 100).toStringAsFixed(1)}%)",
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF3B6D11)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value: pct,
-                            minHeight: 8,
-                            backgroundColor: const Color(0xFFF4F9F0),
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF3B6D11)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 32),
-
-              // Monthly Summaries
-              const Text(
-                "Monthly Breakdown",
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF27500A),
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: monthly.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final month = monthly.keys.toList()[index];
-                  final counts = monthly[month]!;
-                  final p = counts['present'] ?? 0;
-                  final a = counts['absent'] ?? 0;
-                  final total = p + a;
-                  final pct = total > 0 ? p / total : 0.0;
-
-                  return Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.4)),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              month,
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF27500A)),
-                            ),
-                            Text(
-                              "$p Present  •  $a Absent",
-                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: Color(0xFF639922)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value: pct,
-                            minHeight: 6,
-                            backgroundColor: const Color(0xFFF4F9F0),
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF639922)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -1365,7 +1904,9 @@ class _StaysTab extends StatelessWidget {
       stream: ServiceLocator().roomService.getStaysByPatientStream(patient.id),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+          );
         }
 
         final stays = snapshot.data ?? [];
@@ -1411,7 +1952,9 @@ class _StaysTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ...activeStays.map((stay) => _buildActiveStayCard(stay)).toList(),
+                ...activeStays
+                    .map((stay) => _buildActiveStayCard(stay))
+                    .toList(),
                 const SizedBox(height: 32),
               ],
 
@@ -1480,23 +2023,38 @@ class _StaysTab extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.bed_outlined, color: Color(0xFF3B6D11), size: 20),
+                    const Icon(
+                      Icons.bed_outlined,
+                      color: Color(0xFF3B6D11),
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       "Room ${stay.roomNumber} • Bed ${stay.bedNumber ?? 'N/A'}",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF27500A)),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Color(0xFF27500A),
+                      ),
                     ),
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF3B6D11),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
                     "ACTIVE OCCUPANCY",
-                    style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -1529,9 +2087,13 @@ class _StaysTab extends StatelessWidget {
                     Expanded(
                       child: _buildMicroDetail(
                         label: "Days Remaining",
-                        value: daysRemaining >= 0 ? "$daysRemaining days" : "Expired",
+                        value: daysRemaining >= 0
+                            ? "$daysRemaining days"
+                            : "Expired",
                         icon: Icons.access_time_filled_rounded,
-                        valueColor: daysRemaining >= 0 ? const Color(0xFF3B6D11) : const Color(0xFFD32F2F),
+                        valueColor: daysRemaining >= 0
+                            ? const Color(0xFF3B6D11)
+                            : const Color(0xFFD32F2F),
                       ),
                     ),
                   ],
@@ -1565,7 +2127,7 @@ class _StaysTab extends StatelessWidget {
                     ),
                   ],
                 ),
-                
+
                 // Extensions Section if present
                 if (stay.extensions.isNotEmpty) ...[
                   const SizedBox(height: 20),
@@ -1588,11 +2150,17 @@ class _StaysTab extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F9F0),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.5)),
+                        border: Border.all(
+                          color: const Color(0xFFC0DD97).withOpacity(0.5),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.history_rounded, size: 16, color: Color(0xFF639922)),
+                          const Icon(
+                            Icons.history_rounded,
+                            size: 16,
+                            color: Color(0xFF639922),
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Column(
@@ -1600,19 +2168,31 @@ class _StaysTab extends StatelessWidget {
                               children: [
                                 Text(
                                   "Extended by ${ext.additionalDays} days on ${dateFmt.format(ext.extendedOn)}",
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF27500A)),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    color: Color(0xFF27500A),
+                                  ),
                                 ),
                                 if (ext.reason.isNotEmpty)
                                   Text(
                                     "Reason: ${ext.reason}",
-                                    style: const TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                      fontStyle: FontStyle.italic,
+                                    ),
                                   ),
                               ],
                             ),
                           ),
                           Text(
                             "+${currencyFmt.format(ext.additionalCost)}",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF3B6D11)),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Color(0xFF3B6D11),
+                            ),
                           ),
                         ],
                       ),
@@ -1649,7 +2229,11 @@ class _StaysTab extends StatelessWidget {
               color: const Color(0xFFE8E8E8),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.meeting_room_outlined, color: Colors.grey, size: 20),
+            child: const Icon(
+              Icons.meeting_room_outlined,
+              color: Colors.grey,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -1658,7 +2242,11 @@ class _StaysTab extends StatelessWidget {
               children: [
                 Text(
                   "Room ${stay.roomNumber} (Bed ${stay.bedNumber ?? 'N/A'})",
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF27500A)),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: Color(0xFF27500A),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -1673,7 +2261,11 @@ class _StaysTab extends StatelessWidget {
             children: [
               Text(
                 currencyFmt.format(stay.totalCost),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF639922)),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Color(0xFF639922),
+                ),
               ),
               const SizedBox(height: 2),
               Container(
@@ -1684,7 +2276,11 @@ class _StaysTab extends StatelessWidget {
                 ),
                 child: const Text(
                   "COMPLETED",
-                  style: TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -1705,7 +2301,11 @@ class _StaysTab extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, size: 14, color: const Color(0xFF639922).withOpacity(0.7)),
+            Icon(
+              icon,
+              size: 14,
+              color: const Color(0xFF639922).withOpacity(0.7),
+            ),
             const SizedBox(width: 4),
             Text(
               label.toUpperCase(),
@@ -1728,6 +2328,613 @@ class _StaysTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AttendantCard extends StatelessWidget {
+  final AttendantModel attendant;
+
+  const _AttendantCard({required this.attendant});
+
+  Uint8List? _decodePhoto(String? dataUrl) {
+    if (dataUrl == null || dataUrl.isEmpty) return null;
+    try {
+      final base64Part = dataUrl.contains(',')
+          ? dataUrl.split(',').last
+          : dataUrl;
+      return base64Decode(base64Part);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photoBytes = _decodePhoto(attendant.photoDataUrl);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFC0DD97)),
+      ),
+      child: Row(
+        children: [
+          // ── Left: info ──
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attendant.name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF27500A),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    if (attendant.age != null)
+                      _MiniChip(Icons.cake_outlined, '${attendant.age} yrs'),
+                    if (attendant.relation != null)
+                      _MiniChip(Icons.family_restroom, attendant.relation!),
+                    if (attendant.aadhaarNumber != null)
+                      _MiniChip(Icons.credit_card, attendant.aadhaarNumber!),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          // ── Right: photo ──
+          ClipOval(
+            child: Container(
+              width: 56,
+              height: 56,
+              color: const Color(0xFFE3F2FD),
+              child: photoBytes != null
+                  ? Image.memory(photoBytes, fit: BoxFit.cover)
+                  : Center(
+                      child: Text(
+                        attendant.name.isNotEmpty
+                            ? attendant.name[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1565C0),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MiniChip(this.icon, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: const Color(0xFF639922)),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
+        ),
+      ],
+    );
+  }
+}
+
+class _CalendarView extends StatefulWidget {
+  final Map<String, Map<String, dynamic>> patientData;
+  final Map<String, dynamic> attendantData;
+  final String patientName;
+
+  const _CalendarView({
+    required this.patientData,
+    required this.attendantData,
+    required this.patientName,
+  });
+
+  @override
+  State<_CalendarView> createState() => _CalendarViewState();
+}
+
+class _CalendarViewState extends State<_CalendarView> {
+  DateTime _currentMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  String? _hoveredDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final daysInMonth = DateUtils.getDaysInMonth(
+      _currentMonth.year,
+      _currentMonth.month,
+    );
+    final firstWeekday =
+        DateTime(_currentMonth.year, _currentMonth.month, 1).weekday % 7;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Month navigation
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left, color: Color(0xFF3B6D11)),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() {
+                _currentMonth = DateTime(
+                  _currentMonth.year,
+                  _currentMonth.month - 1,
+                );
+              }),
+            ),
+            Expanded(
+              child: Text(
+                DateFormat('MMMM yyyy').format(_currentMonth),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right, color: Color(0xFF3B6D11)),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() {
+                _currentMonth = DateTime(
+                  _currentMonth.year,
+                  _currentMonth.month + 1,
+                );
+              }),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+
+        // Day headers
+        Row(
+          children: ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+              .map(
+                (d) => Expanded(
+                  child: Center(
+                    child: Text(
+                      d,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF639922),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 4),
+
+        // Calendar grid
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            childAspectRatio: 1.3,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
+          ),
+          itemCount: firstWeekday + daysInMonth,
+          itemBuilder: (context, index) {
+            if (index < firstWeekday) return const SizedBox();
+
+            final day = index - firstWeekday + 1;
+            final dateStr = DateFormat(
+              'yyyy-MM-dd',
+            ).format(DateTime(_currentMonth.year, _currentMonth.month, day));
+
+            final patientRecord = widget.patientData[dateStr];
+            final patientStatus = patientRecord?['status']?.toString();
+            final attendantRecords = widget.attendantData[dateStr];
+            final hasAttendantData =
+                attendantRecords != null && attendantRecords is Map;
+            final isSelected = _hoveredDate == dateStr;
+            final isPresent = patientStatus == 'Present';
+            final isAbsent = patientStatus == 'Absent';
+            final hasData = patientStatus != null || hasAttendantData;
+
+            return InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () {
+                if (!hasData) return;
+                setState(() {
+                  _hoveredDate = _hoveredDate == dateStr ? null : dateStr;
+                });
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFFEAF3DE) : Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isSelected
+                        ? const Color(0xFF3B6D11)
+                        : const Color(0xFFE0EDD0),
+                    width: isSelected ? 1.5 : 0.8,
+                  ),
+                ),
+                child: Center(
+                  child: isPresent
+                      // Green filled circle for present
+                      ? Container(
+                          width: 26,
+                          height: 26,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF3B6D11),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              "$day",
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        )
+                      : isAbsent
+                      // Red outlined circle for absent
+                      ? Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFFD32F2F),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              "$day",
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFD32F2F),
+                              ),
+                            ),
+                          ),
+                        )
+                      : Text(
+                          "$day",
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF27500A),
+                          ),
+                        ),
+                ),
+              ),
+            );
+          },
+        ),
+
+        // Detail card shown below tapped date
+        if (_hoveredDate != null) ...[
+          const SizedBox(height: 10),
+          _DateDetailCard(
+            date: _hoveredDate!,
+            patientName: widget.patientName,
+            patientRecord: widget.patientData[_hoveredDate!],
+            attendantRecords: widget.attendantData[_hoveredDate!],
+          ),
+        ],
+
+        const SizedBox(height: 8),
+        // Legend
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            _LegendItem(
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF3B6D11),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Text(
+                    "1",
+                    style: TextStyle(fontSize: 8, color: Colors.white),
+                  ),
+                ),
+              ),
+              label: "Present",
+            ),
+            _LegendItem(
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFD32F2F),
+                    width: 1.5,
+                  ),
+                ),
+                child: const Center(
+                  child: Text(
+                    "1",
+                    style: TextStyle(fontSize: 8, color: Color(0xFFD32F2F)),
+                  ),
+                ),
+              ),
+              label: "Absent",
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DateDetailCard extends StatelessWidget {
+  final String date;
+  final String patientName;
+  final Map<String, dynamic>? patientRecord;
+  final dynamic attendantRecords;
+
+  const _DateDetailCard({
+    required this.date,
+    required this.patientName,
+    required this.patientRecord,
+    required this.attendantRecords,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final patientStatus = patientRecord?['status']?.toString() ?? 'No record';
+    final formattedDate = DateFormat(
+      'EEE, dd MMM yyyy',
+    ).format(DateTime.parse(date));
+
+    final List<Map<String, String>> attendantRows = [];
+    if (attendantRecords != null && attendantRecords is Map) {
+      Map<String, dynamic>.from(attendantRecords).forEach((key, val) {
+        if (val is Map) {
+          attendantRows.add({
+            'name': val['attendantName']?.toString() ?? 'Unknown',
+            'status': val['status']?.toString() ?? 'Unknown',
+          });
+        }
+      });
+    }
+
+    Widget statusBadge(String status) {
+      final isPresent = status == 'Present';
+      final isNoRecord = status == 'No record';
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: isPresent
+              ? Colors.green.shade100
+              : isNoRecord
+              ? Colors.grey.shade100
+              : Colors.red.shade100,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: Text(
+          status,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: isPresent
+                ? Colors.green.shade800
+                : isNoRecord
+                ? Colors.grey
+                : Colors.red.shade800,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFC0DD97)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Date
+          Text(
+            formattedDate,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF639922),
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ── Patient section label ──
+          const Text(
+            "Patient",
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF3B6D11),
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(
+                Icons.person_outline_rounded,
+                size: 14,
+                color: Color(0xFF3B6D11),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  patientName,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF27500A),
+                  ),
+                ),
+              ),
+              statusBadge(patientStatus),
+            ],
+          ),
+
+          // ── Attendees section ──
+          if (attendantRows.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Divider(color: Color(0xFFE0EDD0), height: 1, thickness: 0.8),
+            const SizedBox(height: 6),
+            const Text(
+              "Attendees",
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1565C0),
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Scrollable if more than 3
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: attendantRows.length > 3 ? 110 : double.infinity,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: attendantRows.map((a) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 5),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.people_alt_outlined,
+                            size: 14,
+                            color: Color(0xFF1565C0),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              a['name']!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF27500A),
+                              ),
+                            ),
+                          ),
+                          statusBadge(a['status']!),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  final Widget child;
+  final String label;
+  const _LegendItem({required this.child, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        child,
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
+        ),
+      ],
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  const _CountChip({
+    required this.label,
+    required this.count,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(label, style: TextStyle(fontSize: 11, color: color)),
+        ],
+      ),
     );
   }
 }

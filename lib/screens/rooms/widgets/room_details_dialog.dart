@@ -44,7 +44,9 @@ class RoomDetailsDialog extends StatelessWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
-                        room.isPrivate ? Icons.hotel_rounded : Icons.bed_rounded,
+                        room.isPrivate
+                            ? Icons.hotel_rounded
+                            : Icons.bed_rounded,
                         color: const Color(0xFF3B6D11),
                         size: 24,
                       ),
@@ -92,14 +94,19 @@ class RoomDetailsDialog extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F9F0),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                        border: Border.all(
+                          color: const Color(0xFFC0DD97),
+                          width: 1,
+                        ),
                       ),
                       child: Row(
                         children: [
                           Expanded(
                             child: _InfoItem(
                               label: "Status",
-                              value: room.derivedOccupancyStatus.toUpperCase().replaceAll('_', ' '),
+                              value: room.derivedOccupancyStatus
+                                  .toUpperCase()
+                                  .replaceAll('_', ' '),
                               icon: Icons.info_outline_rounded,
                             ),
                           ),
@@ -107,7 +114,8 @@ class RoomDetailsDialog extends StatelessWidget {
                             Expanded(
                               child: _InfoItem(
                                 label: "Attendants",
-                                value: "${room.currentAttendants}/${room.maxAttendants}",
+                                value:
+                                    "${room.currentAttendants}/${room.maxAttendants}",
                                 icon: Icons.people_outline_rounded,
                               ),
                             )
@@ -115,7 +123,8 @@ class RoomDetailsDialog extends StatelessWidget {
                             Expanded(
                               child: _InfoItem(
                                 label: "Beds",
-                                value: "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
+                                value:
+                                    "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
                                 icon: Icons.bed_outlined,
                               ),
                             ),
@@ -142,7 +151,11 @@ class RoomDetailsDialog extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _BedStatusGrid(beds: room.beds, roomType: room.roomType),
+                      _BedStatusGrid(
+                        beds: room.beds,
+                        roomType: room.roomType,
+                        roomIdentifier: room.roomIdentifier,
+                      ),
                       const SizedBox(height: 20),
                     ],
 
@@ -164,7 +177,8 @@ class RoomDetailsDialog extends StatelessWidget {
                               Navigator.pop(context);
                               showDialog(
                                 context: context,
-                                builder: (context) => CreateStayDialog(room: room),
+                                builder: (context) =>
+                                    CreateStayDialog(room: room),
                               );
                             },
                             icon: const Icon(Icons.add_rounded, size: 16),
@@ -173,7 +187,10 @@ class RoomDetailsDialog extends StatelessWidget {
                               backgroundColor: const Color(0xFF3B6D11),
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -187,12 +204,17 @@ class RoomDetailsDialog extends StatelessWidget {
                     StreamBuilder<List<StayModel>>(
                       stream: roomService.getStaysByRoomStream(room.id),
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
                         }
 
                         if (snapshot.hasError) {
-                          return Center(child: Text('Error: ${snapshot.error}'));
+                          return Center(
+                            child: Text('Error: ${snapshot.error}'),
+                          );
                         }
 
                         final stays = snapshot.data ?? [];
@@ -205,14 +227,18 @@ class RoomDetailsDialog extends StatelessWidget {
                                 Icon(
                                   Icons.event_busy_rounded,
                                   size: 48,
-                                  color: const Color(0xFF639922).withOpacity(0.3),
+                                  color: const Color(
+                                    0xFF639922,
+                                  ).withOpacity(0.3),
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
                                   "No active stays in this room",
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: const Color(0xFF639922).withOpacity(0.6),
+                                    color: const Color(
+                                      0xFF639922,
+                                    ).withOpacity(0.6),
                                   ),
                                 ),
                               ],
@@ -226,7 +252,10 @@ class RoomDetailsDialog extends StatelessWidget {
                           itemCount: stays.length,
                           itemBuilder: (context, index) {
                             final stay = stays[index];
-                            return _StayCard(stay: stay, roomType: room.roomType);
+                            return _StayCard(
+                              stay: stay,
+                              roomType: room.roomType,
+                            );
                           },
                         );
                       },
@@ -246,14 +275,23 @@ class RoomDetailsDialog extends StatelessWidget {
 class _BedStatusGrid extends StatelessWidget {
   final List<BedModel> beds;
   final String roomType;
+  final String roomIdentifier;
 
-  const _BedStatusGrid({required this.beds, required this.roomType});
+  const _BedStatusGrid({
+    required this.beds,
+    required this.roomType,
+    required this.roomIdentifier,
+  });
 
   @override
   Widget build(BuildContext context) {
     final Map<String, BedModel> uniqueBeds = {};
     for (final bed in beds) {
-      final label = BedModel.formatBedLabel(bed.bedLabel, roomType);
+      final label = BedModel.formatBedLabel(
+        bed.bedLabel,
+        roomType,
+        roomIdentifier: roomIdentifier,
+      );
       final existing = uniqueBeds[label];
       if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
         uniqueBeds[label] = bed;
@@ -264,7 +302,15 @@ class _BedStatusGrid extends StatelessWidget {
     return Wrap(
       spacing: 10,
       runSpacing: 10,
-      children: displayBeds.map((bed) => _BedStatusCard(bed: bed, roomType: roomType)).toList(),
+      children: displayBeds
+          .map(
+            (bed) => _BedStatusCard(
+              bed: bed,
+              roomType: roomType,
+              roomIdentifier: roomIdentifier,
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -273,8 +319,13 @@ class _BedStatusGrid extends StatelessWidget {
 class _BedStatusCard extends StatelessWidget {
   final BedModel bed;
   final String roomType;
+  final String roomIdentifier;
 
-  const _BedStatusCard({required this.bed, required this.roomType});
+  const _BedStatusCard({
+    required this.bed,
+    required this.roomType,
+    required this.roomIdentifier,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -321,6 +372,7 @@ class _BedStatusCard extends StatelessWidget {
               Text(
                 BedHelper.getBedDisplayName(
                   bed.bedLabel.toString(),
+                  roomIdentifier: roomIdentifier,
                 ),
                 style: TextStyle(
                   fontSize: 12,
@@ -371,10 +423,7 @@ class _InfoItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Color(0xFF639922),
-          ),
+          style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
         ),
       ],
     );
@@ -399,7 +448,9 @@ class _StayCard extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Complete Stay"),
-        content: Text("Are you sure you want to complete the stay for ${stay.patientName}?"),
+        content: Text(
+          "Are you sure you want to complete the stay for ${stay.patientName}?",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -456,8 +507,8 @@ class _StayCard extends StatelessWidget {
           color: isExpired
               ? const Color(0xFFE8B4B8)
               : isExpiringSoon
-                  ? const Color(0xFFFFB74D)
-                  : const Color(0xFFC0DD97),
+              ? const Color(0xFFFFB74D)
+              : const Color(0xFFC0DD97),
           width: 1.5,
         ),
       ),
@@ -495,6 +546,7 @@ class _StayCard extends StatelessWidget {
                                   stay.bedId?.split('_').last ??
                                   'N/A')
                                   .toString(),
+                              roomIdentifier: stay.roomNumber,
                             ),
                             style: const TextStyle(
                               fontSize: 12,
@@ -507,29 +559,32 @@ class _StayCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: isExpired
                       ? const Color(0xFFFFE5E7)
                       : isExpiringSoon
-                          ? const Color(0xFFFFF3E0)
-                          : const Color(0xFFE8F5E0),
+                      ? const Color(0xFFFFF3E0)
+                      : const Color(0xFFE8F5E0),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   isExpired
                       ? "EXPIRED"
                       : isExpiringSoon
-                          ? "$daysLeft days left"
-                          : "$daysLeft days left",
+                      ? "$daysLeft days left"
+                      : "$daysLeft days left",
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: isExpired
                         ? const Color(0xFFD32F2F)
                         : isExpiringSoon
-                            ? const Color(0xFFE65100)
-                            : const Color(0xFF3B6D11),
+                        ? const Color(0xFFE65100)
+                        : const Color(0xFF3B6D11),
                   ),
                 ),
               ),
@@ -541,7 +596,8 @@ class _StayCard extends StatelessWidget {
               _StayDetail(
                 icon: Icons.calendar_today_rounded,
                 label: "Admission",
-                value: "${stay.admissionDate.day}/${stay.admissionDate.month}/${stay.admissionDate.year}",
+                value:
+                    "${stay.admissionDate.day}/${stay.admissionDate.month}/${stay.admissionDate.year}",
               ),
               const SizedBox(width: 16),
               _StayDetail(
@@ -578,7 +634,10 @@ class _StayCard extends StatelessWidget {
                   backgroundColor: const Color(0xFF3B6D11),
                   foregroundColor: Colors.white,
                   elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -614,10 +673,7 @@ class _StayDetail extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(
-                fontSize: 10,
-                color: Color(0xFF97C459),
-              ),
+              style: const TextStyle(fontSize: 10, color: Color(0xFF97C459)),
             ),
             Text(
               value,

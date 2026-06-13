@@ -13,7 +13,10 @@ extension RoomServicePricing on RoomService {
       if (data != null && data is Map) {
         return Map<String, dynamic>.from(data);
       }
-      await rtdb.put(pricingPath, Map<String, dynamic>.from(RoomService.defaultPricing));
+      await rtdb.put(
+        pricingPath,
+        Map<String, dynamic>.from(RoomService.defaultPricing),
+      );
       return Map<String, dynamic>.from(RoomService.defaultPricing);
     } catch (e) {
       throw Exception('Failed to fetch pricing: $e');

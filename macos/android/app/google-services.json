@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "726267938718",
+    "firebase_url": "https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "ngo-management-system-d8c06",
+    "storage_bucket": "ngo-management-system-d8c06.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:726267938718:android:46f7ef0495c8e0ea15f88f",
+        "android_client_info": {
+          "package_name": "com.example.macos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLamxvGAMLVVICWrbdD_paDVmQCZpZJCg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

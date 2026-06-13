@@ -7,9 +7,13 @@ extension RoomServiceRooms on RoomService {
   // --- Rooms ---
 
   Stream<List<RoomModel>> streamRooms() {
-    return RoomService.combineLatest2(rtdb.stream(roomsPath), rtdb.stream(staysPath), (roomsData, staysData) {
-      return _processRoomsData(roomsData, staysData);
-    });
+    return RoomService.combineLatest2(
+      rtdb.stream(roomsPath),
+      rtdb.stream(staysPath),
+      (roomsData, staysData) {
+        return _processRoomsData(roomsData, staysData);
+      },
+    );
   }
 
   Stream<List<RoomModel>> getRoomsStream() {
@@ -27,9 +31,9 @@ extension RoomServiceRooms on RoomService {
       });
     }
 
-    final activeStays = parseStaysFromData(staysData)
-        .where((s) => s.status == 'active')
-        .toList();
+    final activeStays = parseStaysFromData(
+      staysData,
+    ).where((s) => s.status == 'active').toList();
 
     final now = DateTime.now();
     final List<RoomModel> enriched = rooms.map((room) {
@@ -58,11 +62,15 @@ extension RoomServiceRooms on RoomService {
   }
 
   Stream<List<RoomModel>> getRoomsByTypeStream(String type) {
-    return streamRooms().map((rooms) => rooms.where((r) => r.roomType == type).toList());
+    return streamRooms().map(
+      (rooms) => rooms.where((r) => r.roomType == type).toList(),
+    );
   }
 
   Stream<List<RoomModel>> getRoomsByFloorStream(int floor) {
-    return streamRooms().map((rooms) => rooms.where((r) => r.floor == floor).toList());
+    return streamRooms().map(
+      (rooms) => rooms.where((r) => r.floor == floor).toList(),
+    );
   }
 
   Future<RoomModel?> getRoom(String roomId) async {
@@ -72,10 +80,10 @@ extension RoomServiceRooms on RoomService {
 
       final room = RoomModel.fromMap(roomId, Map<String, dynamic>.from(data));
       final staysData = await rtdb.get(staysPath);
-      final roomStays = parseStaysFromData(staysData)
-          .where((s) => s.roomId == roomId && s.status == 'active')
-          .toList();
-          
+      final roomStays = parseStaysFromData(
+        staysData,
+      ).where((s) => s.roomId == roomId && s.status == 'active').toList();
+
       final meta = computeStatusMeta(room, roomStays, DateTime.now());
       return room.copyWith(
         status: meta.dbStatus,
@@ -98,12 +106,17 @@ extension RoomServiceRooms on RoomService {
     String? notes,
   }) async {
     try {
-      if (floor < 1 || floor > 2) throw Exception('Invalid floor: Only Floor 1 and Floor 2 are supported');
+      if (floor < 1 || floor > 2)
+        throw Exception(
+          'Invalid floor: Only Floor 1 and Floor 2 are supported',
+        );
 
       final upperIdentifier = roomIdentifier.toUpperCase();
       if (!RoomModel.validateIdentifierForFloor(upperIdentifier, floor)) {
         final validRooms = RoomModel.getValidIdentifiersForFloor(floor);
-        throw Exception('Room identifier "$roomIdentifier" is not valid for Floor $floor. Valid identifiers: ${validRooms.join(", ")}');
+        throw Exception(
+          'Room identifier "$roomIdentifier" is not valid for Floor $floor. Valid identifiers: ${validRooms.join(", ")}',
+        );
       }
 
       final now = DateTime.now();
@@ -112,21 +125,31 @@ extension RoomServiceRooms on RoomService {
       final List<BedModel> beds = [];
       if (roomType == 'general') {
         if (bedLabels != null && bedLabels.isNotEmpty) {
-          for (final label in bedLabels) beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
+          for (final label in bedLabels)
+            beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
         } else {
-          final bedCount = totalBeds ?? parseIntSafe(pricing['generalRoomDefaultBeds'], 6);
+          final bedCount =
+              totalBeds ?? parseIntSafe(pricing['generalRoomDefaultBeds'], 6);
           final clampedCount = bedCount.clamp(1, 6);
           for (int i = 1; i <= clampedCount; i++) {
             beds.add(BedModel.create(roomId: 'temp', bedLabel: 'bed$i'));
           }
         }
       } else {
-        final bedCount = totalBeds ?? 2;
-        for (int i = 1; i <= bedCount; i++) beds.add(BedModel.create(roomId: 'temp', bedLabel: i.toString()));
+        if (bedLabels != null && bedLabels.isNotEmpty) {
+          for (final label in bedLabels)
+            beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
+        } else {
+          final bedCount = totalBeds ?? 2;
+          for (int i = 1; i <= bedCount; i++)
+            beds.add(BedModel.create(roomId: 'temp', bedLabel: i.toString()));
+        }
       }
 
       final roomId = await rtdb.push(roomsPath, {'id': 'temp'});
-      final updatedBeds = beds.map((b) => b.copyWith(id: BedModel.generateId(roomId, b.bedLabel))).toList();
+      final updatedBeds = beds
+          .map((b) => b.copyWith(id: BedModel.generateId(roomId, b.bedLabel)))
+          .toList();
 
       final room = RoomModel(
         id: roomId,
@@ -135,7 +158,11 @@ extension RoomServiceRooms on RoomService {
         floor: floor,
         roomType: roomType,
         status: 'available',
-        maxAttendants: maxAttendants ?? (roomType == 'private' ? parseIntSafe(pricing['privateRoomMaxAttendants'], 5) : parseIntSafe(pricing['generalRoomMaxAttendants'], 2)),
+        maxAttendants:
+            maxAttendants ??
+            (roomType == 'private'
+                ? parseIntSafe(pricing['privateRoomMaxAttendants'], 5)
+                : parseIntSafe(pricing['generalRoomMaxAttendants'], 2)),
         currentAttendants: 0,
         beds: updatedBeds,
         totalBeds: updatedBeds.length,
@@ -172,19 +199,24 @@ extension RoomServiceRooms on RoomService {
   Future<String> updateRoomStatus(String roomId) async {
     try {
       final roomData = await rtdb.get('$roomsPath/$roomId');
-      if (roomData == null || roomData is! Map) throw Exception('Room not found');
+      if (roomData == null || roomData is! Map)
+        throw Exception('Room not found');
 
-      final room = RoomModel.fromMap(roomId, Map<String, dynamic>.from(roomData));
+      final room = RoomModel.fromMap(
+        roomId,
+        Map<String, dynamic>.from(roomData),
+      );
       final staysData = await rtdb.get(staysPath);
-      final activeStays = parseStaysFromData(staysData)
-          .where((s) => s.roomId == roomId && s.status == 'active')
-          .toList();
+      final activeStays = parseStaysFromData(
+        staysData,
+      ).where((s) => s.roomId == roomId && s.status == 'active').toList();
 
       final computed = computeStatusMeta(room, activeStays, DateTime.now());
       await rtdb.patch('$roomsPath/$roomId', {
         'status': computed.dbStatus,
         'occupiedBeds': room.actualOccupiedBeds,
-        'expectedVacancyDate': computed.expectedVacancyDate?.millisecondsSinceEpoch,
+        'expectedVacancyDate':
+            computed.expectedVacancyDate?.millisecondsSinceEpoch,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
         'lastUpdated': DateTime.now().millisecondsSinceEpoch,
       });
@@ -199,11 +231,17 @@ extension RoomServiceRooms on RoomService {
     try {
       final room = await getRoom(roomId);
       if (room == null) throw Exception('Room not found');
-      if (room.actualOccupiedBeds > 0) throw Exception('Cannot delete room while one or more beds are occupied');
+      if (room.actualOccupiedBeds > 0)
+        throw Exception(
+          'Cannot delete room while one or more beds are occupied',
+        );
 
       final staysData = await rtdb.get(staysPath);
-      final hasActiveStay = parseStaysFromData(staysData).any((s) => s.roomId == roomId && s.status == 'active');
-      if (hasActiveStay) throw Exception('Cannot delete room with active stays');
+      final hasActiveStay = parseStaysFromData(
+        staysData,
+      ).any((s) => s.roomId == roomId && s.status == 'active');
+      if (hasActiveStay)
+        throw Exception('Cannot delete room with active stays');
 
       await rtdb.delete('$roomsPath/$roomId');
     } catch (e) {
@@ -211,13 +249,22 @@ extension RoomServiceRooms on RoomService {
     }
   }
 
-  RoomStatusMeta computeStatusMeta(RoomModel room, List<StayModel> activeStays, DateTime now) {
+  RoomStatusMeta computeStatusMeta(
+    RoomModel room,
+    List<StayModel> activeStays,
+    DateTime now,
+  ) {
     if (room.status == 'maintenance') {
-      return const RoomStatusMeta(dbStatus: 'maintenance', uiStatus: 'Maintenance', expectedVacancyDate: null);
+      return const RoomStatusMeta(
+        dbStatus: 'maintenance',
+        uiStatus: 'Maintenance',
+        expectedVacancyDate: null,
+      );
     }
 
     final hasPendingDischarge = activeStays.any((stay) {
-      return now.isAfter(stay.expectedDischargeDate) && stay.totalExtendedDays == 0;
+      return now.isAfter(stay.expectedDischargeDate) &&
+          stay.totalExtendedDays == 0;
     });
 
     final occupiedCount = room.actualOccupiedBeds;
@@ -229,7 +276,9 @@ extension RoomServiceRooms on RoomService {
       );
     }
 
-    final isFull = room.isPrivate ? occupiedCount > 0 : occupiedCount >= room.actualTotalBeds;
+    final isFull = room.isPrivate
+        ? occupiedCount > 0
+        : occupiedCount >= room.actualTotalBeds;
     if (isFull) {
       return RoomStatusMeta(
         dbStatus: 'occupied',
@@ -240,7 +289,8 @@ extension RoomServiceRooms on RoomService {
 
     if (occupiedCount > 0 && !room.isPrivate) {
       return RoomStatusMeta(
-        dbStatus: 'partially_occupied', // Using 'partially_occupied' for accuracy, although original just used available
+        dbStatus:
+            'partially_occupied', // Using 'partially_occupied' for accuracy, although original just used available
         uiStatus: 'Partially Occupied',
         expectedVacancyDate: earliestExpectedVacancy(activeStays),
       );

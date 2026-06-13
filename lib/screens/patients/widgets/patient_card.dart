@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import '../../../models/patient_model.dart';
 import '../../../utils/bed_helper.dart';
@@ -22,17 +25,16 @@ class PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isActive = patient.status == 'active' || patient.status.toLowerCase() == 'paid';
-    
+    final isActive =
+        patient.status == 'active' || patient.status.toLowerCase() == 'paid';
+    final photoBytes = _decodePhoto(patient.photoDataUrl);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFC0DD97),
-          width: 1,
-        ),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF3B6D11).withOpacity(0.04),
@@ -55,32 +57,36 @@ class PatientCard extends StatelessWidget {
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: isActive 
+                    color: isActive
                         ? const Color(0xFFEAF3DE)
                         : const Color(0xFFE8E8E8),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: isActive 
+                      color: isActive
                           ? const Color(0xFF97C459)
                           : const Color(0xFFBDBDBD),
                       width: 2,
                     ),
                   ),
-                  child: Center(
-                    child: Text(
-                      _getInitials(patient.fullName),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: isActive 
-                            ? const Color(0xFF3B6D11)
-                            : const Color(0xFF757575),
-                      ),
-                    ),
+                  child: ClipOval(
+                    child: photoBytes != null
+                        ? Image.memory(photoBytes, fit: BoxFit.cover)
+                        : Center(
+                            child: Text(
+                              _getInitials(patient.fullName),
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: isActive
+                                    ? const Color(0xFF3B6D11)
+                                    : const Color(0xFF757575),
+                              ),
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(width: 16),
-                
+
                 // Patient Info
                 Expanded(
                   child: Column(
@@ -102,7 +108,10 @@ class PatientCard extends StatelessWidget {
                           if (patient.paymentPending == true) ...[
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFFEBEE),
                                 borderRadius: BorderRadius.circular(12),
@@ -138,14 +147,17 @@ class PatientCard extends StatelessWidget {
                               label: 'Room ${patient.roomNumber}',
                               color: const Color(0xFF3B6D11),
                             ),
-                          if (patient.bedLabels != null && patient.bedLabels!.isNotEmpty)
+                          if (patient.bedLabels != null &&
+                              patient.bedLabels!.isNotEmpty)
                             _InfoChip(
                               icon: Icons.bed_outlined,
                               label: patient.bedLabels!
-                                  .map((bed) =>
-                                  BedHelper.getBedDisplayName(
-                                    bed.toString().trim(),
-                                  ))
+                                  .map(
+                                    (bed) => BedHelper.getBedDisplayName(
+                                      bed.toString().trim(),
+                                      roomIdentifier: patient.roomNumber,
+                                    ),
+                                  )
                                   .toSet()
                                   .join(", "),
                               color: const Color(0xFF3B6D11),
@@ -188,16 +200,9 @@ class PatientCard extends StatelessWidget {
                     }
                   },
                   itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
 
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Text('Edit'),
-                    ),
-
-                    const PopupMenuItem(
-                      value: 'pay',
-                      child: Text('Pay'),
-                    ),
+                    const PopupMenuItem(value: 'pay', child: Text('Pay')),
 
                     if (isActive)
                       const PopupMenuItem(
@@ -211,7 +216,7 @@ class PatientCard extends StatelessWidget {
                         child: Text('Rejoin'),
                       ),
                   ],
-                )
+                ),
               ],
             ),
           ),
@@ -225,6 +230,18 @@ class PatientCard extends StatelessWidget {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts[0][0].toUpperCase();
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
+  }
+
+  Uint8List? _decodePhoto(String? dataUrl) {
+    if (dataUrl == null || dataUrl.isEmpty) return null;
+    try {
+      final base64Part = dataUrl.contains(',')
+          ? dataUrl.split(',').last
+          : dataUrl;
+      return base64Decode(base64Part);
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -284,28 +301,18 @@ class _InfoChip extends StatelessWidget {
   final String label;
   final Color? color;
 
-  const _InfoChip({
-    required this.icon,
-    required this.label,
-    this.color,
-  });
+  const _InfoChip({required this.icon, required this.label, this.color});
 
   @override
   Widget build(BuildContext context) {
     final chipColor = color ?? const Color(0xFF639922);
-    
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 14, color: chipColor.withOpacity(0.7)),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: chipColor,
-          ),
-        ),
+        Text(label, style: TextStyle(fontSize: 12, color: chipColor)),
       ],
     );
   }

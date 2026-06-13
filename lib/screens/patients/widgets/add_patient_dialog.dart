@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../utils/bed_helper.dart';
 import '../../../services/service_locator.dart';
@@ -18,7 +22,6 @@ class AddPatientDialog extends StatefulWidget {
 
 class _AddPatientDialogState extends State<AddPatientDialog> {
   bool _isLoading = false;
-  bool _isLoadingRooms = true;
 
   // Controllers
   final _dateController = TextEditingController();
@@ -29,12 +32,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _pincodeController = TextEditingController();
   final _addressController = TextEditingController();
   final _stateController = TextEditingController();
-  final _localAddressController = TextEditingController();
   final _diagnosisController = TextEditingController();
-  final _doctorNameController = TextEditingController();
-  final _hospitalNameController = TextEditingController();
   final _attendantCountController = TextEditingController();
-  
+
   // List to hold multiple attendants
   final List<_AttendantEntry> _attendants = [_AttendantEntry()];
 
@@ -50,7 +50,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   DateTime? _selectedDate;
   DateTime? _selectedRegistrationDate;
   String? _selectedModeOfPayment;
-  
+  Uint8List? _patientPhotoBytes;
+  String? _patientPhotoDataUrl;
+  String? _patientPhotoFileName;
+
   // Room and Bed Selection
   RoomModel? _selectedRoom;
   List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
@@ -73,10 +76,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _pincodeController.dispose();
     _addressController.dispose();
     _stateController.dispose();
-    _localAddressController.dispose();
     _diagnosisController.dispose();
-    _doctorNameController.dispose();
-    _hospitalNameController.dispose();
     for (final attendant in _attendants) {
       attendant.dispose();
     }
@@ -96,16 +96,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       final rooms = await ServiceLocator().roomService.getRoomsStream().first;
       if (mounted) {
         setState(() {
-          _isLoadingRooms = false;
           // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
           _availableRooms = List.from(rooms)
             ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoadingRooms = false);
-      }
+      // Keep the dialog usable; room selection will stay empty if loading fails.
     }
   }
 
@@ -151,7 +148,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
-        _dateController.text = '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
+        _dateController.text =
+            '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
       });
     }
   }
@@ -185,6 +183,51 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     }
   }
 
+  Future<void> _pickPatientPhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      if (result == null) return;
+
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        _showError('Could not read selected image');
+        return;
+      }
+      if (bytes.length > 1500 * 1024) {
+        _showError('Please select an image under 1.5 MB');
+        return;
+      }
+
+      final extension = (file.extension ?? '').toLowerCase();
+      final mimeType = switch (extension) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
+
+      setState(() {
+        _patientPhotoBytes = bytes;
+        _patientPhotoFileName = file.name;
+        _patientPhotoDataUrl = 'data:$mimeType;base64,${base64Encode(bytes)}';
+      });
+    } catch (e) {
+      _showError('Failed to select image: $e');
+    }
+  }
+
+  void _removePatientPhoto() {
+    setState(() {
+      _patientPhotoBytes = null;
+      _patientPhotoDataUrl = null;
+      _patientPhotoFileName = null;
+    });
+  }
+
   /// Step 1 — Validate form, show payment dialog, then save on confirmation.
   Future<void> _savePatient() async {
     // Validation
@@ -208,19 +251,28 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_attendants.isEmpty || _attendants.first.nameController.text.trim().isEmpty) {
+    if (_attendants.isEmpty ||
+        _attendants.first.nameController.text.trim().isEmpty) {
       _showError('Please enter at least one attendant name');
       return;
     }
     if (_selectedRoom?.isPrivate == true) {
-      final attendantCount = int.tryParse(_attendantCountController.text.trim());
+      final attendantCount = int.tryParse(
+        _attendantCountController.text.trim(),
+      );
       if (attendantCount == null || attendantCount < 1 || attendantCount > 5) {
-        _showError('Please enter a valid attendant count (1-5) for private rooms');
+        _showError(
+          'Please enter a valid attendant count (1-5) for private rooms',
+        );
         return;
       }
     }
     if (_selectedRoom?.isPrivate == false) {
-      final totalOccupants = 1 + _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length;
+      final totalOccupants =
+          1 +
+          _attendants
+              .where((a) => a.nameController.text.trim().isNotEmpty)
+              .length;
       if (totalOccupants > 3) {
         _showError('Maximum occupancy reached for this bed group.');
         return;
@@ -241,7 +293,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       patientName: _patientNameController.text.trim(),
       contactNumber: _mobileController.text.trim(),
       bedsCount: _selectedBeds.length,
-      attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+      attendantsCount: _attendants
+          .where((a) => a.nameController.text.trim().isNotEmpty)
+          .length,
       roomIdentifier: _selectedRoom?.roomIdentifier,
       showPayLater: true,
     );
@@ -279,7 +333,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         final bed = room.beds.where((b) => b.id == selectedBed.id).firstOrNull;
         if (bed == null || !bed.isAvailable) {
           throw Exception(
-            '${BedHelper.getBedDisplayName(selectedBed.bedLabel)} is no longer available. Please reselect beds.',
+            '${BedHelper.getBedDisplayName(selectedBed.bedLabel, roomIdentifier: room.roomIdentifier)} is no longer available. Please reselect beds.',
           );
         }
       }
@@ -302,17 +356,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       if (_stateController.text.trim().isNotEmpty) {
         notesList.add('State: ${_stateController.text.trim()}');
       }
-      if (_localAddressController.text.trim().isNotEmpty) {
-        notesList.add('Local Address: ${_localAddressController.text.trim()}');
-      }
       if (_pincodeController.text.trim().isNotEmpty) {
         notesList.add('Pincode: ${_pincodeController.text.trim()}');
-      }
-      if (_doctorNameController.text.trim().isNotEmpty) {
-        notesList.add('Doctor: ${_doctorNameController.text.trim()}');
-      }
-      if (_hospitalNameController.text.trim().isNotEmpty) {
-        notesList.add('Hospital: ${_hospitalNameController.text.trim()}');
       }
       if (_attendantCountController.text.trim().isNotEmpty) {
         notesList.add(
@@ -327,21 +372,31 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         final age = att.ageController.text.trim();
         final relation = att.relationController.text.trim();
         if (name.isNotEmpty) {
-          notesList.add('Attendant ${i + 1}: $name (Age: ${age.isEmpty ? 'N/A' : age}, Relation: ${relation.isEmpty ? 'N/A' : relation})');
-          structuredAttendants.add(AttendantModel(
-            name: name,
-            age: age.isNotEmpty ? age : null,
-            relation: relation.isNotEmpty ? relation : null,
-          ));
+          final aadhaar = att.aadhaarController.text.trim();
+          notesList.add(
+            'Attendant ${i + 1}: $name (Age: ${age.isEmpty ? 'N/A' : age}, Relation: ${relation.isEmpty ? 'N/A' : relation})',
+          );
+          structuredAttendants.add(
+            AttendantModel(
+              name: name,
+              age: age.isNotEmpty ? age : null,
+              relation: relation.isNotEmpty ? relation : null,
+              aadhaarNumber: aadhaar.isNotEmpty ? aadhaar : null,
+              photoDataUrl: att.photoDataUrl,
+            ),
+          );
         }
       }
       notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
       notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
 
       // Calculate Advance Bill
-      final advanceBilledAmount = _selectedRoom!.isPrivate 
-          ? 3500.0 
-          : _selectedBeds.length * (1 + structuredAttendants.length) * 200.0 * 7;
+      final advanceBilledAmount = _selectedRoom!.isPrivate
+          ? 3500.0
+          : _selectedBeds.length *
+                (1 + structuredAttendants.length) *
+                200.0 *
+                7;
 
       // Create patient
       final patientId = await ServiceLocator().patientService.addPatient(
@@ -350,7 +405,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         gender: _selectedGender!.toLowerCase(),
         contactNumber: _mobileController.text.trim(),
         emergencyContact: _mobileController.text.trim(),
-        emergencyContactName: _attendants.isNotEmpty ? _attendants.first.nameController.text.trim() : "",
+        emergencyContactName: _attendants.isNotEmpty
+            ? _attendants.first.nameController.text.trim()
+            : "",
         medicalCondition: _diagnosisController.text.trim(),
         admissionDate: admissionDate,
         roomId: _selectedRoom!.id,
@@ -358,6 +415,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         floor: _selectedRoom!.floor,
         bedIds: _selectedBeds.map((b) => b.id).toList(),
         bedLabels: _selectedBeds.map((b) => b.bedLabel).toList(),
+        photoDataUrl: _patientPhotoDataUrl,
+        photoFileName: _patientPhotoFileName,
         notes: notesList.isEmpty ? null : notesList.join('\n'),
         createdBy: currentUser.uid,
         registrationNumber: _registrationNumberController.text.trim().isNotEmpty
@@ -382,7 +441,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         attendanceCharges: 0.0,
         totalPresentDays: 0,
         totalAbsentDays: 0,
-        attendants: structuredAttendants.isNotEmpty ? structuredAttendants : null,
+        attendants: structuredAttendants.isNotEmpty
+            ? structuredAttendants
+            : null,
         payments: result.payment != null ? [result.payment!] : null,
       );
 
@@ -533,12 +594,19 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 hint: "Full name",
                                 controller: _patientNameController,
                               ),
-                              PatientFormField(
-                                label: "Mobile no",
-                                hint: "+91 XXXXX XXXXX",
-                                keyboard: TextInputType.phone,
-                                controller: _mobileController,
+                              _PatientPhotoPicker(
+                                imageBytes: _patientPhotoBytes,
+                                fileName: _patientPhotoFileName,
+                                onPick: _pickPatientPhoto,
+                                onRemove: _removePatientPhoto,
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormField(
+                              label: "Mobile no",
+                              hint: "+91 XXXXX XXXXX",
+                              keyboard: TextInputType.phone,
+                              controller: _mobileController,
                             ),
                             const SizedBox(height: 12),
                             PatientFormRow3(
@@ -570,18 +638,19 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               controller: _addressController,
                             ),
                             const SizedBox(height: 12),
-                            PatientFormRow2(
-                              PatientFormField(
-                                label: "State",
-                                hint: "State",
-                                controller: _stateController,
-                              ),
-                              PatientFormField(
-                                label: "Mumbai local contact address",
-                                hint: "Local address",
-                                controller: _localAddressController,
-                              ),
-                            ),
+                            // PatientFormRow2(
+                            //   PatientFormField(
+                            //     label: "State",
+                            //     hint: "State",
+                            //     controller: _stateController,
+                            //   ),
+                            //   PatientFormField(
+                            //     label: "Mumbai local contact address",
+                            //     hint: "Local address",
+                            //     controller: _localAddressController,
+                            //   ),
+                            // ),
+                            PatientFormField(label: "State", hint: "State", controller: _stateController),
                           ],
                         ),
                       ),
@@ -596,18 +665,18 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               controller: _diagnosisController,
                             ),
                             const SizedBox(height: 12),
-                            PatientFormRow2(
-                              PatientFormField(
-                                label: "Doctor name",
-                                hint: "Dr. name",
-                                controller: _doctorNameController,
-                              ),
-                              PatientFormField(
-                                label: "Hospital name",
-                                hint: "Hospital / clinic",
-                                controller: _hospitalNameController,
-                              ),
-                            ),
+                            // PatientFormRow2(
+                            //   PatientFormField(
+                            //     label: "Doctor name",
+                            //     hint: "Dr. name",
+                            //     controller: _doctorNameController,
+                            //   ),
+                            //   PatientFormField(
+                            //     label: "Hospital name",
+                            //     hint: "Hospital / clinic",
+                            //     controller: _hospitalNameController,
+                            //   ),
+                            // ),
                           ],
                         ),
                       ),
@@ -624,16 +693,28 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF4F9F0),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                                    border: Border.all(
+                                      color: const Color(0xFFC0DD97),
+                                      width: 1,
+                                    ),
                                   ),
-                                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 12),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    10,
+                                    8,
+                                    12,
+                                  ),
                                   child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Container(
                                         width: 22,
                                         height: 22,
-                                        margin: const EdgeInsets.only(top: 18, right: 8),
+                                        margin: const EdgeInsets.only(
+                                          top: 18,
+                                          right: 8,
+                                        ),
                                         decoration: const BoxDecoration(
                                           color: Color(0xFF3B6D11),
                                           shape: BoxShape.circle,
@@ -649,33 +730,113 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                           ),
                                         ),
                                       ),
+                                      // Expanded(
+                                      //   child: _Row3(
+                                      //     _NatureField(
+                                      //       label: "Attendant name",
+                                      //       hint: "Full name",
+                                      //       controller:
+                                      //           _attendants[i].nameController,
+                                      //     ),
+                                      //     _NatureField(
+                                      //       label: "Age",
+                                      //       hint: "Years",
+                                      //       keyboard: TextInputType.number,
+                                      //       controller:
+                                      //           _attendants[i].ageController,
+                                      //     ),
+                                      //     _NatureField(
+                                      //       label: "Relation",
+                                      //       hint: "e.g. Spouse",
+                                      //       controller: _attendants[i]
+                                      //           .relationController,
+                                      //     ),
+                                      //   ),
+                                      // ),
                                       Expanded(
-                                        child: _Row3(
-                                          _NatureField(
-                                            label: "Attendant name",
-                                            hint: "Full name",
-                                            controller: _attendants[i].nameController,
-                                          ),
-                                          _NatureField(
-                                            label: "Age",
-                                            hint: "Years",
-                                            keyboard: TextInputType.number,
-                                            controller: _attendants[i].ageController,
-                                          ),
-                                          _NatureField(
-                                            label: "Relation",
-                                            hint: "e.g. Spouse",
-                                            controller: _attendants[i].relationController,
-                                          ),
-                                        ),
-                                      ),
+                        child: Column(
+                          children: [
+                            _Row3(
+                              _NatureField(
+                                label: "Attendant name",
+                                hint: "Full name",
+                                controller: _attendants[i].nameController,
+                              ),
+                              _NatureField(
+                                label: "Age",
+                                hint: "Years",
+                                keyboard: TextInputType.number,
+                                controller: _attendants[i].ageController,
+                              ),
+                              _NatureField(
+                                label: "Relation",
+                                hint: "e.g. Spouse",
+                                controller: _attendants[i].relationController,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            _Row2(
+                              _NatureField(
+                                label: "Aadhaar number",
+                                hint: "XXXX XXXX XXXX",
+                                keyboard: TextInputType.number,
+                                controller: _attendants[i].aadhaarController,
+                              ),
+                              _AttendantPhotoPicker(
+                                imageBytes: _attendants[i].photoBytes,
+                                fileName: _attendants[i].photoFileName,
+                                onPick: () async {
+                                  final idx = i;
+                                  final result = await FilePicker.platform.pickFiles(
+                                    type: FileType.custom,
+                                    allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+                                    withData: true,
+                                  );
+                                  if (result == null) return;
+                                  final file = result.files.single;
+                                  final bytes = file.bytes;
+                                  if (bytes == null) return;
+                                  if (bytes.length > 1500 * 1024) {
+                                    _showError('Image must be under 1.5 MB');
+                                    return;
+                                  }
+                                  final ext = (file.extension ?? '').toLowerCase();
+                                  final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+                                  setState(() {
+                                    _attendants[idx].photoBytes = bytes;
+                                    _attendants[idx].photoFileName = file.name;
+                                    _attendants[idx].photoDataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+                                  });
+                                },
+                                onRemove: () {
+                                  final idx = i;
+                                  setState(() {
+                                    _attendants[idx].photoBytes = null;
+                                    _attendants[idx].photoDataUrl = null;
+                                    _attendants[idx].photoFileName = null;
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                                       if (_attendants.length > 1)
                                         Padding(
-                                          padding: const EdgeInsets.only(top: 14),
+                                          padding: const EdgeInsets.only(
+                                            top: 14,
+                                          ),
                                           child: IconButton(
-                                            icon: const Icon(Icons.remove_circle_outline, color: Color(0xFFD32F2F), size: 20),
+                                            icon: const Icon(
+                                              Icons.remove_circle_outline,
+                                              color: Color(0xFFD32F2F),
+                                              size: 20,
+                                            ),
                                             tooltip: "Remove attendant",
-                                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                            constraints: const BoxConstraints(
+                                              minWidth: 32,
+                                              minHeight: 32,
+                                            ),
                                             padding: EdgeInsets.zero,
                                             onPressed: () {
                                               setState(() {
@@ -698,7 +859,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               },
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFEAF3DE),
                                   borderRadius: BorderRadius.circular(8),
@@ -711,7 +874,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.add_circle_rounded, size: 18, color: Color(0xFF3B6D11)),
+                                    Icon(
+                                      Icons.add_circle_rounded,
+                                      size: 18,
+                                      color: Color(0xFF3B6D11),
+                                    ),
                                     SizedBox(width: 6),
                                     Text(
                                       "Add another attendant",
@@ -763,6 +930,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 label: "Bed",
                                 beds: _availableBeds,
                                 selectedBeds: _selectedBeds,
+                                roomIdentifier: _selectedRoom!.roomIdentifier,
                                 onChanged: (beds) {
                                   setState(() => _selectedBeds = beds);
                                 },
@@ -786,7 +954,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                   "Other",
                                 ],
                                 onChanged: (value) {
-                                  setState(() => _selectedModeOfPayment = value);
+                                  setState(
+                                    () => _selectedModeOfPayment = value,
+                                  );
                                 },
                               ),
                             ),
@@ -803,7 +973,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                       // ── Payment Summary ──
                       _PaymentSummary(
                         bedsCount: _selectedBeds.length,
-                        attendantsCount: _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+                        attendantsCount: _attendants
+                            .where(
+                              (a) => a.nameController.text.trim().isNotEmpty,
+                            )
+                            .length,
                         isPrivateRoom: _selectedRoom?.isPrivate ?? false,
                         roomIdentifier: _selectedRoom?.roomIdentifier,
                       ),
@@ -819,49 +993,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ── Header ────────────────────────────────────────────────────────────────────
-
-class _DialogHeader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF4F9F0),
-        border: Border(bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF3DE),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFC0DD97), width: 1.5),
-            ),
-            child: const Icon(Icons.person_add_outlined, color: Color(0xFF3B6D11), size: 20),
-          ),
-          const SizedBox(width: 12),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Add patient",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF27500A)),
-              ),
-              Text(
-                "Fill in the details below to register a new patient",
-                style: TextStyle(fontSize: 12, color: Color(0xFF639922)),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }
@@ -912,7 +1043,9 @@ class _DialogFooter extends StatelessWidget {
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEAF3DE)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFEAF3DE),
+                      ),
                     ),
                   )
                 : const Icon(Icons.check_rounded, size: 16),
@@ -925,7 +1058,9 @@ class _DialogFooter extends StatelessWidget {
               foregroundColor: const Color(0xFFEAF3DE),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],
@@ -958,7 +1093,9 @@ class _Section extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Expanded(child: Divider(color: Color(0xFFC0DD97), thickness: 0.5)),
+            const Expanded(
+              child: Divider(color: Color(0xFFC0DD97), thickness: 0.5),
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -968,6 +1105,193 @@ class _Section extends StatelessWidget {
   }
 }
 
+class _PatientPhotoPicker extends StatelessWidget {
+  final Uint8List? imageBytes;
+  final String? fileName;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  const _PatientPhotoPicker({
+    required this.imageBytes,
+    required this.fileName,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageBytes != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "PATIENT PHOTO",
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF27500A),
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F9F0),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 10),
+              ClipOval(
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  color: const Color(0xFFEAF3DE),
+                  child: hasImage
+                      ? Image.memory(imageBytes!, fit: BoxFit.cover)
+                      : const Icon(
+                          Icons.person_outline_rounded,
+                          color: Color(0xFF639922),
+                          size: 26,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  hasImage
+                      ? (fileName ?? 'Selected photo')
+                      : 'No image selected',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF27500A),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onPick,
+                icon: Icon(
+                  hasImage ? Icons.swap_horiz_rounded : Icons.upload_rounded,
+                  size: 16,
+                ),
+                label: Text(hasImage ? 'Change' : 'Upload'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF3B6D11),
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+              if (hasImage)
+                IconButton(
+                  onPressed: onRemove,
+                  tooltip: 'Remove photo',
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Color(0xFFD32F2F),
+                    size: 18,
+                  ),
+                )
+              else
+                const SizedBox(width: 8),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AttendantPhotoPicker extends StatelessWidget {
+  final Uint8List? imageBytes;
+  final String? fileName;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  const _AttendantPhotoPicker({
+    required this.imageBytes,
+    required this.fileName,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageBytes != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "ATTENDANT PHOTO",
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF27500A),
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F9F0),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 8),
+              ClipOval(
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  color: const Color(0xFFEAF3DE),
+                  child: hasImage
+                      ? Image.memory(imageBytes!, fit: BoxFit.cover)
+                      : const Icon(Icons.person_outline_rounded,
+                          color: Color(0xFF639922), size: 20),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasImage ? (fileName ?? 'Selected photo') : 'No image selected',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF27500A)),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onPick,
+                icon: Icon(
+                  hasImage ? Icons.swap_horiz_rounded : Icons.upload_rounded,
+                  size: 16,
+                ),
+                label: Text(hasImage ? 'Change' : 'Upload'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF3B6D11),
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+              if (hasImage)
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close_rounded,
+                      color: Color(0xFFD32F2F), size: 16),
+                )
+              else
+                const SizedBox(width: 4),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 // ── Grid helpers ──────────────────────────────────────────────────────────────
 
 class _Row2 extends StatelessWidget {
@@ -1051,18 +1375,28 @@ class _NatureField extends StatelessWidget {
               fontSize: 13,
             ),
             suffixIcon: isDate
-                ? const Icon(Icons.calendar_today_outlined, color: Color(0xFF639922), size: 16)
+                ? const Icon(
+                    Icons.calendar_today_outlined,
+                    color: Color(0xFF639922),
+                    size: 16,
+                  )
                 : null,
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF639922),
+                width: 1.5,
+              ),
             ),
           ),
         ),
@@ -1110,24 +1444,37 @@ class _NatureDropdownState extends State<_NatureDropdown> {
           value: selected,
           hint: Text(
             "Select",
-            style: TextStyle(color: const Color(0xFF97C459).withOpacity(0.75), fontSize: 13),
+            style: TextStyle(
+              color: const Color(0xFF97C459).withOpacity(0.75),
+              fontSize: 13,
+            ),
           ),
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           dropdownColor: const Color(0xFFF4F9F0),
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF639922),
+                width: 1.5,
+              ),
             ),
           ),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 20),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF639922),
+            size: 20,
+          ),
           items: widget.items
               .map((e) => DropdownMenuItem(value: e, child: Text(e)))
               .toList(),
@@ -1175,29 +1522,42 @@ class _RoomDropdown extends StatelessWidget {
           value: selectedRoom,
           hint: Text(
             "Select room",
-            style: TextStyle(color: const Color(0xFF97C459).withOpacity(0.75), fontSize: 13),
+            style: TextStyle(
+              color: const Color(0xFF97C459).withOpacity(0.75),
+              fontSize: 13,
+            ),
           ),
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           dropdownColor: const Color(0xFFF4F9F0),
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF639922),
+                width: 1.5,
+              ),
             ),
           ),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 20),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF639922),
+            size: 20,
+          ),
           items: rooms.map((room) {
             final floorName = room.floor == 1 ? 'Ground' : 'First';
             final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
             final availableBeds = room.actualAvailableBeds;
-            
+
             return DropdownMenuItem(
               value: room,
               child: Text(
@@ -1219,12 +1579,14 @@ class _BedSelection extends StatelessWidget {
   final String label;
   final List<BedModel> beds;
   final List<BedModel> selectedBeds;
+  final String? roomIdentifier;
   final ValueChanged<List<BedModel>>? onChanged;
 
   const _BedSelection({
     required this.label,
     required this.beds,
     required this.selectedBeds,
+    this.roomIdentifier,
     this.onChanged,
   });
 
@@ -1285,51 +1647,74 @@ class _BedSelection extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: beds.fold<List<BedModel>>([], (result, bed) {
-    final displayName =
-    BedHelper.getBedDisplayName(bed.bedLabel);
+                children: beds
+                    .fold<List<BedModel>>([], (result, bed) {
+                      final displayName = BedHelper.getBedDisplayName(
+                        bed.bedLabel,
+                        roomIdentifier: roomIdentifier,
+                      );
 
-    final alreadyExists = result.any(
-    (existing) =>
-    BedHelper.getBedDisplayName(existing.bedLabel) ==
-    displayName,
-    );
+                      final alreadyExists = result.any(
+                        (existing) =>
+                            BedHelper.getBedDisplayName(
+                              existing.bedLabel,
+                              roomIdentifier: roomIdentifier,
+                            ) ==
+                            displayName,
+                      );
 
-    if (!alreadyExists) {
-    result.add(bed);
-    }
-
-    return result;
-    }).
-                map((bed) {
-                  final isSelected = selectedBeds.any((b) => b.id == bed.id);
-                  return FilterChip(
-                    label: Text(BedHelper.getBedDisplayName(bed.bedLabel)),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      final newSelection = List<BedModel>.from(selectedBeds);
-                      if (selected) {
-                        newSelection.add(bed);
-                      } else {
-                        newSelection.removeWhere((b) => b.id == bed.id);
+                      if (!alreadyExists) {
+                        result.add(bed);
                       }
-                      onChanged?.call(newSelection);
-                    },
-                    backgroundColor: const Color(0xFFF4F9F0),
-                    selectedColor: const Color(0xFF3B6D11),
-                    checkmarkColor: Colors.white,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? Colors.white : const Color(0xFF27500A),
-                    ),
-                    side: BorderSide(
-                      color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-                      width: 1,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  );
-                }).toList(),
+
+                      return result;
+                    })
+                    .map((bed) {
+                      final isSelected = selectedBeds.any(
+                        (b) => b.id == bed.id,
+                      );
+                      return FilterChip(
+                        label: Text(
+                          BedHelper.getBedDisplayName(
+                            bed.bedLabel,
+                            roomIdentifier: roomIdentifier,
+                          ),
+                        ),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          final newSelection = List<BedModel>.from(
+                            selectedBeds,
+                          );
+                          if (selected) {
+                            newSelection.add(bed);
+                          } else {
+                            newSelection.removeWhere((b) => b.id == bed.id);
+                          }
+                          onChanged?.call(newSelection);
+                        },
+                        backgroundColor: const Color(0xFFF4F9F0),
+                        selectedColor: const Color(0xFF3B6D11),
+                        checkmarkColor: Colors.white,
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: isSelected
+                              ? Colors.white
+                              : const Color(0xFF27500A),
+                        ),
+                        side: BorderSide(
+                          color: isSelected
+                              ? const Color(0xFF3B6D11)
+                              : const Color(0xFFC0DD97),
+                          width: 1,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      );
+                    })
+                    .toList(),
               ),
               const SizedBox(height: 8),
               Container(
@@ -1341,7 +1726,11 @@ class _BedSelection extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF3B6D11)),
+                    const Icon(
+                      Icons.info_outline_rounded,
+                      size: 14,
+                      color: Color(0xFF3B6D11),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1366,11 +1755,17 @@ class _AttendantEntry {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();
+  final TextEditingController aadhaarController = TextEditingController();
+  
+  Uint8List? photoBytes;
+  String? photoDataUrl;
+  String? photoFileName;
 
   void dispose() {
     nameController.dispose();
     ageController.dispose();
     relationController.dispose();
+    aadhaarController.dispose();
   }
 }
 
@@ -1383,7 +1778,7 @@ class _PaymentSummary extends StatelessWidget {
   final String? roomIdentifier;
 
   // ── Pricing constants (edit here to update rates) ──
-  static const int _defaultDays = 7;                  // default stay duration
+  static const int _defaultDays = 7; // default stay duration
 
   const _PaymentSummary({
     required this.bedsCount,
@@ -1394,10 +1789,7 @@ class _PaymentSummary extends StatelessWidget {
 
   String _fmt(double amount) {
     if (amount >= 1000) {
-      return '₹${amount.toStringAsFixed(0).replaceAllMapped(
-        RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'),
-        (m) => '${m[1]},',
-      )}';
+      return '₹${amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'), (m) => '${m[1]},')}';
     }
     return '₹${amount.toStringAsFixed(0)}';
   }
@@ -1408,8 +1800,12 @@ class _PaymentSummary extends StatelessWidget {
     if (roomIdentifier == null) return const SizedBox.shrink();
 
     final occupants = 1 + attendantsCount;
-    final bedTotal = isPrivateRoom ? (700.0 * _defaultDays) : (bedsCount * occupants * 200.0 * _defaultDays);
-    final attendantTotal = isPrivateRoom ? (attendantsCount * 200.0 * _defaultDays) : 0.0;
+    final bedTotal = isPrivateRoom
+        ? (700.0 * _defaultDays)
+        : (bedsCount * occupants * 200.0 * _defaultDays);
+    final attendantTotal = isPrivateRoom
+        ? (attendantsCount * 200.0 * _defaultDays)
+        : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
     return Container(
@@ -1435,7 +1831,11 @@ class _PaymentSummary extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Row(
               children: [
-                const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 18),
+                const Icon(
+                  Icons.receipt_long_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -1449,7 +1849,10 @@ class _PaymentSummary extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
@@ -1477,7 +1880,9 @@ class _PaymentSummary extends StatelessWidget {
               children: [
                 _SummaryRow(
                   icon: Icons.bed_outlined,
-                  label: isPrivateRoom ? 'Private Room' : 'Grouped Beds ($bedsCount, $occupants occupants)',
+                  label: isPrivateRoom
+                      ? 'Private Room'
+                      : 'Grouped Beds ($bedsCount, $occupants occupants)',
                   count: isPrivateRoom ? 1 : bedsCount,
                   rate: isPrivateRoom ? 700.0 : (occupants * 200.0),
                   total: bedTotal,
@@ -1501,7 +1906,10 @@ class _PaymentSummary extends StatelessWidget {
           // Divider
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+            child: Container(
+              height: 0.5,
+              color: Colors.white.withValues(alpha: 0.3),
+            ),
           ),
 
           // Grand total
@@ -1545,10 +1953,7 @@ class _PaymentSummary extends StatelessWidget {
             child: const Text(
               '* Estimate based on standard rates. Actual charges may vary.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 9.5,
-              ),
+              style: TextStyle(color: Colors.white70, fontSize: 9.5),
             ),
           ),
         ],

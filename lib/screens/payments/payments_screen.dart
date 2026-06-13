@@ -11,7 +11,8 @@ class PaymentsScreen extends StatefulWidget {
   State<PaymentsScreen> createState() => _PaymentsScreenState();
 }
 
-class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProviderStateMixin {
+class _PaymentsScreenState extends State<PaymentsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String _searchQuery = "";
 
@@ -80,7 +81,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     foregroundColor: const Color(0xFF3B6D11),
                   ),
-                  child: const Text("Close", style: TextStyle(fontWeight: FontWeight.w700)),
+                  child: const Text(
+                    "Close",
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],
@@ -122,8 +126,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
                         backgroundColor: const Color(0xFF3B6D11),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ],
@@ -135,7 +144,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
                   unselectedLabelColor: Colors.grey,
                   indicatorColor: const Color(0xFF3B6D11),
                   indicatorWeight: 3,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
                   tabs: const [
                     Tab(text: "Patient Billing"),
                     Tab(text: "Transaction Ledger"),
@@ -147,10 +159,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [
-                _buildPatientBillingTab(),
-                _buildLedgerTab(),
-              ],
+              children: [_buildPatientBillingTab(), _buildLedgerTab()],
             ),
           ),
         ],
@@ -169,7 +178,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
         }
 
         final allPatients = snapshot.data ?? [];
-        final activePatients = allPatients.where((p) => p.status == 'active' || p.status == 'Paid').toList();
+        final activePatients = allPatients
+            .where((p) => p.status == 'active' || p.status == 'Paid')
+            .toList();
 
         final filtered = activePatients.where((p) {
           if (_searchQuery.isEmpty) return true;
@@ -178,9 +189,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
 
         final totalDue = activePatients.fold<double>(
           0.0,
-              (sum, p) => sum + (p.currentDueAmount ?? 0.0),
+          (sum, p) => sum + (p.currentDueAmount ?? 0.0),
         );
-        final totalCollected = activePatients.fold(0.0, (sum, p) => sum + (p.totalPaidAmount ?? 0));
+        final totalCollected = activePatients.fold(
+          0.0,
+          (sum, p) => sum + (p.totalPaidAmount ?? 0),
+        );
 
         return Padding(
           padding: const EdgeInsets.all(24),
@@ -189,9 +203,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
             children: [
               Row(
                 children: [
-                  _SummaryCard(title: "Total Outstanding Due", value: totalDue, color: const Color(0xFFD32F2F), icon: Icons.warning_rounded),
+                  _SummaryCard(
+                    title: "Total Outstanding Due",
+                    value: totalDue,
+                    color: const Color(0xFFD32F2F),
+                    icon: Icons.warning_rounded,
+                  ),
                   const SizedBox(width: 16),
-                  _SummaryCard(title: "Total Collected (Active)", value: totalCollected, color: const Color(0xFF3B6D11), icon: Icons.account_balance_wallet_rounded),
+                  _SummaryCard(
+                    title: "Total Collected (Active)",
+                    value: totalCollected,
+                    color: const Color(0xFF3B6D11),
+                    icon: Icons.account_balance_wallet_rounded,
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
@@ -199,7 +223,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
               const SizedBox(height: 16),
               Expanded(
                 child: filtered.isEmpty
-                    ? const Center(child: Text("No patients found.", style: TextStyle(color: Colors.grey)))
+                    ? const Center(
+                        child: Text(
+                          "No patients found.",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
                     : ListView.separated(
                         itemCount: filtered.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -232,13 +261,25 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
           final method = p['method']?.toString().toLowerCase() ?? "";
           final receipt = p['receiptNumber']?.toString().toLowerCase() ?? "";
           final query = _searchQuery.toLowerCase();
-          return name.contains(query) || method.contains(query) || receipt.contains(query);
+          return name.contains(query) ||
+              method.contains(query) ||
+              receipt.contains(query);
         }).toList();
 
         final total = payments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-        final cash = payments.where((p) => p['method'].toString().toLowerCase().contains('cash')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-        final online = payments.where((p) => p['method'].toString().toLowerCase().contains('online')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
-        final check = payments.where((p) => p['method'].toString().toLowerCase().contains('check')).fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final cash = payments
+            .where((p) => p['method'].toString().toLowerCase().contains('cash'))
+            .fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final online = payments
+            .where(
+              (p) => p['method'].toString().toLowerCase().contains('online'),
+            )
+            .fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+        final check = payments
+            .where(
+              (p) => p['method'].toString().toLowerCase().contains('check'),
+            )
+            .fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
 
         return Padding(
           padding: const EdgeInsets.all(24),
@@ -247,13 +288,33 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
             children: [
               Row(
                 children: [
-                  _SummaryCard(title: "Lifetime Collection", value: total, color: const Color(0xFF3B6D11), icon: Icons.account_balance_wallet_rounded),
+                  _SummaryCard(
+                    title: "Lifetime Collection",
+                    value: total,
+                    color: const Color(0xFF3B6D11),
+                    icon: Icons.account_balance_wallet_rounded,
+                  ),
                   const SizedBox(width: 16),
-                  _SummaryCard(title: "Cash", value: cash, color: Colors.orange, icon: Icons.money_rounded),
+                  _SummaryCard(
+                    title: "Cash",
+                    value: cash,
+                    color: Colors.orange,
+                    icon: Icons.money_rounded,
+                  ),
                   const SizedBox(width: 16),
-                  _SummaryCard(title: "Online", value: online, color: Colors.blue, icon: Icons.qr_code_rounded),
+                  _SummaryCard(
+                    title: "Online",
+                    value: online,
+                    color: Colors.blue,
+                    icon: Icons.qr_code_rounded,
+                  ),
                   const SizedBox(width: 16),
-                  _SummaryCard(title: "Check", value: check, color: Colors.purple, icon: Icons.account_balance_rounded),
+                  _SummaryCard(
+                    title: "Check",
+                    value: check,
+                    color: Colors.purple,
+                    icon: Icons.account_balance_rounded,
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
@@ -261,7 +322,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
               const SizedBox(height: 16),
               Expanded(
                 child: filtered.isEmpty
-                    ? const Center(child: Text("No transactions found.", style: TextStyle(color: Colors.grey)))
+                    ? const Center(
+                        child: Text(
+                          "No transactions found.",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
                     : ListView.separated(
                         itemCount: filtered.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -283,7 +349,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> with SingleTickerProvid
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC0DD97).withValues(alpha: 0.5)),
+        border: Border.all(
+          color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
+        ),
       ),
       child: TextField(
         onChanged: (v) => setState(() => _searchQuery = v),
@@ -303,7 +371,12 @@ class _SummaryCard extends StatelessWidget {
   final Color color;
   final IconData icon;
 
-  const _SummaryCard({required this.title, required this.value, required this.color, required this.icon});
+  const _SummaryCard({
+    required this.title,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -321,9 +394,23 @@ class _SummaryCard extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 24),
             const SizedBox(height: 12),
-            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(fmt.format(value), style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.w800)),
+            Text(
+              fmt.format(value),
+              style: TextStyle(
+                color: color,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
@@ -348,7 +435,9 @@ class _PatientBillingTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFC0DD97).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: const Color(0xFFC0DD97).withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         children: [
@@ -356,11 +445,15 @@ class _PatientBillingTile extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: patient.isAdvancePeriod ? const Color(0xFFE3F2FD) : const Color(0xFFF3E5F5),
+              color: patient.isAdvancePeriod
+                  ? const Color(0xFFE3F2FD)
+                  : const Color(0xFFF3E5F5),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              patient.isAdvancePeriod ? Icons.hourglass_top_rounded : Icons.calendar_month_rounded,
+              patient.isAdvancePeriod
+                  ? Icons.hourglass_top_rounded
+                  : Icons.calendar_month_rounded,
               color: patient.isAdvancePeriod ? Colors.blue : Colors.purple,
             ),
           ),
@@ -375,23 +468,36 @@ class _PatientBillingTile extends StatelessWidget {
                     Flexible(
                       child: Text(
                         patient.fullName,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF27500A)),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: Color(0xFF27500A),
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
-                        color: patient.isAdvancePeriod ? Colors.blue.withValues(alpha: 0.1) : Colors.purple.withValues(alpha: 0.1),
+                        color: patient.isAdvancePeriod
+                            ? Colors.blue.withValues(alpha: 0.1)
+                            : Colors.purple.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        patient.isAdvancePeriod ? 'Advance Mode' : 'Attendance Mode',
+                        patient.isAdvancePeriod
+                            ? 'Advance Mode'
+                            : 'Attendance Mode',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: patient.isAdvancePeriod ? Colors.blue : Colors.purple,
+                          color: patient.isAdvancePeriod
+                              ? Colors.blue
+                              : Colors.purple,
                         ),
                       ),
                     ),
@@ -400,23 +506,39 @@ class _PatientBillingTile extends StatelessWidget {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text("Room: ${patient.roomNumber ?? 'Unassigned'}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      "Room: ${patient.roomNumber ?? 'Unassigned'}",
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                     const SizedBox(width: 8),
                     const Text("•", style: TextStyle(color: Colors.grey)),
                     const SizedBox(width: 8),
-                    Text("Present: ${patient.totalPresentDays} days", style: const TextStyle(color: Color(0xFF639922), fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      "Present: ${patient.totalPresentDays} days",
+                      style: const TextStyle(
+                        color: Color(0xFF639922),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Text("Bill: ${fmt.format(totalBill)}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      "Bill: ${fmt.format(totalBill)}",
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                     const SizedBox(width: 8),
                     const Text("•", style: TextStyle(color: Colors.grey)),
                     const SizedBox(width: 8),
-                    Text("Paid: ${fmt.format(patient.totalPaidAmount ?? 0)}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      "Paid: ${fmt.format(patient.totalPaidAmount ?? 0)}",
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                   ],
-                )
+                ),
               ],
             ),
           ),
@@ -429,7 +551,9 @@ class _PatientBillingTile extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
-                  color: (patient.currentDueAmount ?? 0.0) > 0 ? const Color(0xFFD32F2F) : const Color(0xFF3B6D11),
+                  color: (patient.currentDueAmount ?? 0.0) > 0
+                      ? const Color(0xFFD32F2F)
+                      : const Color(0xFF3B6D11),
                 ),
               ),
               const SizedBox(height: 8),
@@ -445,19 +569,28 @@ class _PatientBillingTile extends StatelessWidget {
                       roomIdentifier: patient.roomNumber,
                       alreadyPaid: patient.totalPaidAmount ?? 0.0,
                       showPayLater: false,
-                      totalBillOverride: patient.advanceBilledAmount + patient.attendanceCharges,
+                      totalBillOverride:
+                          patient.advanceBilledAmount +
+                          patient.attendanceCharges,
                     );
-                    
+
                     if (result != null && result.payment != null) {
-                      await ServiceLocator().patientService.recordPayment(patient.id, result.payment!);
-                      await ServiceLocator().patientService.updatePatient(patient.id, {
-                        'paymentPending': result.payment!.paymentStatus == "Pending",
-                        'paymentStatus': result.payment!.paymentStatus,
-                        'status': result.payment!.paymentStatus == "Paid" ? 'Paid' : 'active',
-                        'totalPaidAmount': result.payment!.paidAmount,
-                        'currentDueAmount': result.payment!.pendingAmount,
-                      });
-                      
+                      await ServiceLocator().patientService.recordPayment(
+                        patient.id,
+                        result.payment!,
+                      );
+                      await ServiceLocator().patientService
+                          .updatePatient(patient.id, {
+                            'paymentPending':
+                                result.payment!.paymentStatus == "Pending",
+                            'paymentStatus': result.payment!.paymentStatus,
+                            'status': result.payment!.paymentStatus == "Paid"
+                                ? 'Paid'
+                                : 'active',
+                            'totalPaidAmount': result.payment!.paidAmount,
+                            'currentDueAmount': result.payment!.pendingAmount,
+                          });
+
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -472,9 +605,14 @@ class _PatientBillingTile extends StatelessWidget {
                     backgroundColor: const Color(0xFF3B6D11),
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 0,
+                    ),
                     minimumSize: const Size(80, 32),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
                   child: const Text("Pay Now", style: TextStyle(fontSize: 12)),
                 )
@@ -483,9 +621,20 @@ class _PatientBillingTile extends StatelessWidget {
                   padding: EdgeInsets.only(top: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle_rounded, color: Color(0xFF3B6D11), size: 16),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        color: Color(0xFF3B6D11),
+                        size: 16,
+                      ),
                       SizedBox(width: 4),
-                      Text("Cleared", style: TextStyle(color: Color(0xFF3B6D11), fontSize: 12, fontWeight: FontWeight.bold)),
+                      Text(
+                        "Cleared",
+                        style: TextStyle(
+                          color: Color(0xFF3B6D11),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -509,13 +658,15 @@ class _PaymentTile extends StatelessWidget {
     final date = DateTime.fromMillisecondsSinceEpoch(payment['date'] ?? 0);
     final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final method = payment['method']?.toString() ?? "CASH";
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFC0DD97).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: const Color(0xFFC0DD97).withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         children: [
@@ -526,9 +677,11 @@ class _PaymentTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              method.toLowerCase().contains('online') ? Icons.qr_code_rounded : 
-              method.toLowerCase().contains('check') ? Icons.account_balance_rounded : 
-              Icons.money_rounded,
+              method.toLowerCase().contains('online')
+                  ? Icons.qr_code_rounded
+                  : method.toLowerCase().contains('check')
+                  ? Icons.account_balance_rounded
+                  : Icons.money_rounded,
               color: const Color(0xFF3B6D11),
             ),
           ),
@@ -540,18 +693,36 @@ class _PaymentTile extends StatelessWidget {
                 Row(
                   children: [
                     Flexible(
-                      child: Text(payment['patientName'] ?? "Unknown Patient", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF27500A)), overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        payment['patientName'] ?? "Unknown Patient",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: Color(0xFF27500A),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text(DateFormat('dd MMM yyyy, hh:mm a').format(date), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      DateFormat('dd MMM yyyy, hh:mm a').format(date),
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                     const SizedBox(width: 8),
                     const Text("•", style: TextStyle(color: Colors.grey)),
                     const SizedBox(width: 8),
-                    Text(method, style: const TextStyle(color: Color(0xFF639922), fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      method,
+                      style: const TextStyle(
+                        color: Color(0xFF639922),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -560,9 +731,19 @@ class _PaymentTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(fmt.format(payment['amount'] ?? 0), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF3B6D11))),
+              Text(
+                fmt.format(payment['amount'] ?? 0),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: Color(0xFF3B6D11),
+                ),
+              ),
               if (payment['receiptNumber'] != null)
-                Text("Rec: ${payment['receiptNumber']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                Text(
+                  "Rec: ${payment['receiptNumber']}",
+                  style: const TextStyle(color: Colors.grey, fontSize: 11),
+                ),
             ],
           ),
         ],

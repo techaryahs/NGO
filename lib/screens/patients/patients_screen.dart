@@ -19,10 +19,10 @@ class PatientsScreen extends StatefulWidget {
 
 class _PatientsScreenState extends State<PatientsScreen> {
   final _searchController = TextEditingController();
-  
+
   String _selectedFilter = 'all'; // 'all', 'active', 'discharged'
   String _searchQuery = '';
-  
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -58,11 +58,15 @@ class _PatientsScreenState extends State<PatientsScreen> {
       roomIdentifier: patient.roomNumber,
       alreadyPaid: patient.totalPaidAmount ?? 0.0,
       showPayLater: false,
-      totalBillOverride: patient.advanceBilledAmount + patient.attendanceCharges,
+      totalBillOverride:
+          patient.advanceBilledAmount + patient.attendanceCharges,
     );
 
     if (result != null && result.payment != null) {
-      await ServiceLocator().patientService.recordPayment(patient.id, result.payment!);
+      await ServiceLocator().patientService.recordPayment(
+        patient.id,
+        result.payment!,
+      );
       await ServiceLocator().patientService.updatePatient(patient.id, {
         'paymentPending': result.payment!.paymentStatus == "Pending",
         'paymentStatus': result.payment!.paymentStatus,
@@ -86,22 +90,52 @@ class _PatientsScreenState extends State<PatientsScreen> {
     if (_searchQuery.isNotEmpty) {
       return ServiceLocator().patientService.searchPatients(_searchQuery);
     }
-    
+
     if (_selectedFilter == 'active') {
       return ServiceLocator().patientService.getPatientsByStatus('active');
     } else if (_selectedFilter == 'discharged') {
       return ServiceLocator().patientService.getPatientsByStatus('discharged');
     }
-    
+
     return ServiceLocator().patientService.getPatientsStream();
   }
 
+  // List<PatientModel> _filterPatients(List<PatientModel> patients) {
+  //   if (_selectedFilter == 'all') return patients;
+  //   if (_selectedFilter == 'active') {
+  //     return patients
+  //         .where(
+  //           (p) => p.status == 'active' || p.status.toLowerCase() == 'paid',
+  //         )
+  //         .toList();
+  //   }
+  //   return patients.where((p) => p.status == _selectedFilter).toList();
+  // }
   List<PatientModel> _filterPatients(List<PatientModel> patients) {
-    if (_selectedFilter == 'all') return patients;
-    if (_selectedFilter == 'active') {
-      return patients.where((p) => p.status == 'active' || p.status.toLowerCase() == 'paid').toList();
+    List<PatientModel> filtered;
+
+    if (_selectedFilter == 'all') {
+      filtered = patients;
+    } else if (_selectedFilter == 'active') {
+      filtered = patients
+          .where(
+            (p) => p.status == 'active' || p.status.toLowerCase() == 'paid',
+          )
+          .toList();
+    } else {
+      filtered = patients.where((p) => p.status == _selectedFilter).toList();
     }
-    return patients.where((p) => p.status == _selectedFilter).toList();
+
+    // Sort: active/paid first, discharged/others below
+    filtered.sort((a, b) {
+      bool aActive = a.status == 'active' || a.status.toLowerCase() == 'paid';
+      bool bActive = b.status == 'active' || b.status.toLowerCase() == 'paid';
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      return 0;
+    });
+
+    return filtered;
   }
 
   Future<void> _importFromExcel() async {
@@ -118,7 +152,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Importing patients, please wait...'), duration: Duration(seconds: 2)),
+          const SnackBar(
+            content: Text('Importing patients, please wait...'),
+            duration: Duration(seconds: 2),
+          ),
         );
 
         var bytes = result.files.single.bytes;
@@ -144,7 +181,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
           // Usually data row starts when column 0 is a number (Registration No)
           for (var row in rows) {
             String? regNo = row.length > 0 ? row[0]?.value?.toString() : null;
-            if (regNo == null || regNo.isEmpty || regNo.toLowerCase().contains("registration") || regNo.toLowerCase().contains("gistration")) {
+            if (regNo == null ||
+                regNo.isEmpty ||
+                regNo.toLowerCase().contains("registration") ||
+                regNo.toLowerCase().contains("gistration")) {
               continue; // Skip header or empty rows
             }
 
@@ -160,27 +200,45 @@ class _PatientsScreenState extends State<PatientsScreen> {
             // Col 8: Mode of Payment
             // Col 9: UTI No.
 
-            String dateStr = row.length > 1 ? (row[1]?.value?.toString() ?? '') : '';
+            String dateStr = row.length > 1
+                ? (row[1]?.value?.toString() ?? '')
+                : '';
             DateTime regDate = DateTime.now();
             if (dateStr.isNotEmpty) {
-               // Try parsing dd.MM.yyyy
-               final parts = dateStr.split('.');
-               if (parts.length == 3) {
-                 final day = int.tryParse(parts[0]) ?? 1;
-                 final month = int.tryParse(parts[1]) ?? 1;
-                 final year = int.tryParse(parts[2]) ?? 2000;
-                 regDate = DateTime(year, month, day);
-               }
+              // Try parsing dd.MM.yyyy
+              final parts = dateStr.split('.');
+              if (parts.length == 3) {
+                final day = int.tryParse(parts[0]) ?? 1;
+                final month = int.tryParse(parts[1]) ?? 1;
+                final year = int.tryParse(parts[2]) ?? 2000;
+                regDate = DateTime(year, month, day);
+              }
             }
 
-            String name = row.length > 2 ? (row[2]?.value?.toString() ?? 'Unknown') : 'Unknown';
-            String address = row.length > 3 ? (row[3]?.value?.toString() ?? '') : '';
-            String pan = row.length > 4 ? (row[4]?.value?.toString() ?? '') : '';
-            String adhar = row.length > 5 ? (row[5]?.value?.toString() ?? '') : '';
-            String amtRecd = row.length > 6 ? (row[6]?.value?.toString() ?? '') : '';
-            String receiptNo = row.length > 7 ? (row[7]?.value?.toString() ?? '') : '';
-            String modeOfPayment = row.length > 8 ? (row[8]?.value?.toString() ?? '') : '';
-            String utiNo = row.length > 9 ? (row[9]?.value?.toString() ?? '') : '';
+            String name = row.length > 2
+                ? (row[2]?.value?.toString() ?? 'Unknown')
+                : 'Unknown';
+            String address = row.length > 3
+                ? (row[3]?.value?.toString() ?? '')
+                : '';
+            String pan = row.length > 4
+                ? (row[4]?.value?.toString() ?? '')
+                : '';
+            String adhar = row.length > 5
+                ? (row[5]?.value?.toString() ?? '')
+                : '';
+            String amtRecd = row.length > 6
+                ? (row[6]?.value?.toString() ?? '')
+                : '';
+            String receiptNo = row.length > 7
+                ? (row[7]?.value?.toString() ?? '')
+                : '';
+            String modeOfPayment = row.length > 8
+                ? (row[8]?.value?.toString() ?? '')
+                : '';
+            String utiNo = row.length > 9
+                ? (row[9]?.value?.toString() ?? '')
+                : '';
 
             List<String> notesList = [];
             if (address.isNotEmpty) notesList.add('Address: $address');
@@ -241,9 +299,24 @@ class _PatientsScreenState extends State<PatientsScreen> {
             stream: ServiceLocator().patientService.getPatientsStream(),
             builder: (context, snapshot) {
               final allPatients = snapshot.data ?? [];
-              final activeCount = allPatients.where((p) => p.status == 'active' || p.status.toLowerCase() == 'paid').length;
-              final dischargedCount = allPatients.where((p) => p.status == 'discharged').length;
-              final withRoomCount = allPatients.where((p) => p.roomId != null && (p.status == 'active' || p.status.toLowerCase() == 'paid')).length;
+              final activeCount = allPatients
+                  .where(
+                    (p) =>
+                        p.status == 'active' ||
+                        p.status.toLowerCase() == 'paid',
+                  )
+                  .length;
+              final dischargedCount = allPatients
+                  .where((p) => p.status == 'discharged')
+                  .length;
+              final withRoomCount = allPatients
+                  .where(
+                    (p) =>
+                        p.roomId != null &&
+                        (p.status == 'active' ||
+                            p.status.toLowerCase() == 'paid'),
+                  )
+                  .length;
 
               return Container(
                 padding: const EdgeInsets.all(20),
@@ -400,7 +473,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     ),
                   ),
                 ),
-                
+
                 // Filter Chips
                 Wrap(
                   spacing: 8,
@@ -419,7 +492,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     _FilterChip(
                       label: 'Discharged',
                       isSelected: _selectedFilter == 'discharged',
-                      onTap: () => setState(() => _selectedFilter = 'discharged'),
+                      onTap: () =>
+                          setState(() => _selectedFilter = 'discharged'),
                     ),
                   ],
                 ),
@@ -434,9 +508,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF3B6D11),
-                    ),
+                    child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
                   );
                 }
 
@@ -508,8 +580,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       onEdit: () => _showPatientDetails(patient),
                       onDischarge: () async {
                         // Change patient status to discharged and clear assignments
-                        await ServiceLocator().patientService.dischargePatient(patient.id);
-                        
+                        await ServiceLocator().patientService.dischargePatient(
+                          patient.id,
+                        );
+
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -526,7 +600,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       onPayNow: () => _handlePayNow(patient),
                       onRejoin: () async {
                         if (patient.dischargeDate == null) return;
-                        
+
                         final remainingDays = patient.dischargeDate!
                             .add(const Duration(days: 15))
                             .difference(DateTime.now())
@@ -547,21 +621,27 @@ class _PatientsScreenState extends State<PatientsScreen> {
                         // Change status: discharged -> active
                         // Remove: dischargeDate
                         // Update admissionDate and registrationDate to now to represent a new active cycle/stay
-                        await ServiceLocator().patientService.updatePatient(patient.id, {
-                          'status': 'active',
-                          'dischargeDate': null,
-                          'admissionDate': DateTime.now().millisecondsSinceEpoch,
-                          'registrationDate': DateTime.now().millisecondsSinceEpoch,
-                          'isAdvancePeriod': true,
-                          'advanceBilledAmount': 700.0, // Default to general ward advance, can be updated when assigned to a private room
-                          'attendanceCharges': 0.0,
-                          'totalPresentDays': 0,
-                          'totalAbsentDays': 0,
-                          'maxStayDays': 60,
-                          'extensionDays': 0,
-                          'extensionApproved': false,
-                          'extensionReason': null,
-                        });
+                        await ServiceLocator().patientService.updatePatient(
+                          patient.id,
+                          {
+                            'status': 'active',
+                            'dischargeDate': null,
+                            'admissionDate':
+                                DateTime.now().millisecondsSinceEpoch,
+                            'registrationDate':
+                                DateTime.now().millisecondsSinceEpoch,
+                            'isAdvancePeriod': true,
+                            'advanceBilledAmount':
+                                700.0, // Default to general ward advance, can be updated when assigned to a private room
+                            'attendanceCharges': 0.0,
+                            'totalPresentDays': 0,
+                            'totalAbsentDays': 0,
+                            'maxStayDays': 60,
+                            'extensionDays': 0,
+                            'extensionApproved': false,
+                            'extensionReason': null,
+                          },
+                        );
 
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -677,7 +757,9 @@ class _FilterChip extends StatelessWidget {
           color: isSelected ? const Color(0xFF3B6D11) : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+            color: isSelected
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFC0DD97),
             width: 1.5,
           ),
         ),

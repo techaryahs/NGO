@@ -18,10 +18,8 @@ class PatientDetailsDialog extends StatelessWidget {
     Navigator.of(context).pop(); // Close details dialog
     showDialog(
       context: context,
-      builder: (context) => EditPatientDialog(
-        patient: patient,
-        onPatientUpdated: onUpdated,
-      ),
+      builder: (context) =>
+          EditPatientDialog(patient: patient, onPatientUpdated: onUpdated),
     );
   }
 
@@ -42,7 +40,9 @@ class PatientDetailsDialog extends StatelessWidget {
           ElevatedButton(
             onPressed: () async {
               try {
-                await ServiceLocator().patientService.dischargePatient(patient.id);
+                await ServiceLocator().patientService.dischargePatient(
+                  patient.id,
+                );
                 if (context.mounted) {
                   Navigator.pop(context); // Close confirmation
                   Navigator.pop(context); // Close details dialog
@@ -77,7 +77,8 @@ class PatientDetailsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isActive = patient.status == 'active' || patient.status.toLowerCase() == 'paid';
+    final isActive =
+        patient.status == 'active' || patient.status.toLowerCase() == 'paid';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -188,7 +189,8 @@ class PatientDetailsDialog extends StatelessWidget {
                               ),
                               _InfoField(
                                 label: "Gender",
-                                value: patient.gender[0].toUpperCase() +
+                                value:
+                                    patient.gender[0].toUpperCase() +
                                     patient.gender.substring(1),
                                 icon: Icons.person_outline_rounded,
                               ),
@@ -333,21 +335,26 @@ class PatientDetailsDialog extends StatelessWidget {
                       ],
 
                       // Payment History Section
-                      if (patient.payments != null && patient.payments!.isNotEmpty) ...[
+                      if (patient.payments != null &&
+                          patient.payments!.isNotEmpty) ...[
                         const SizedBox(height: 20),
                         _Section(
                           label: "Payment History",
                           child: Column(
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF3B6D11),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     const Text(
                                       "TOTAL PAID",
@@ -359,8 +366,14 @@ class PatientDetailsDialog extends StatelessWidget {
                                       ),
                                     ),
                                     Text(
-                                      NumberFormat.currency(symbol: "₹", decimalDigits: 0).format(
-                                        patient.payments!.fold(0.0, (sum, p) => sum + p.amount),
+                                      NumberFormat.currency(
+                                        symbol: "₹",
+                                        decimalDigits: 0,
+                                      ).format(
+                                        patient.payments!.fold(
+                                          0.0,
+                                          (sum, p) => sum + p.amount,
+                                        ),
                                       ),
                                       style: const TextStyle(
                                         color: Colors.white,
@@ -630,7 +643,7 @@ class _PaymentHistoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final dateFmt = DateFormat('dd MMM yyyy');
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -647,11 +660,11 @@ class _PaymentHistoryTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              payment.method.toLowerCase().contains('online') 
-                  ? Icons.qr_code_rounded 
+              payment.method.toLowerCase().contains('online')
+                  ? Icons.qr_code_rounded
                   : payment.method.toLowerCase().contains('check')
-                      ? Icons.account_balance_rounded
-                      : Icons.money_rounded,
+                  ? Icons.account_balance_rounded
+                  : Icons.money_rounded,
               size: 18,
               color: const Color(0xFF3B6D11),
             ),
