@@ -1,18 +1,26 @@
-import '../utils/bed_helper.dart';
-
 /// AttendantModel — RTDB-compatible data model for patient attendants.
 class AttendantModel {
   final String name;
   final String? age;
   final String? relation;
+  final String? aadhaarNumber;
+  final String? photoDataUrl;
 
-  AttendantModel({required this.name, this.age, this.relation});
+  AttendantModel({
+    required this.name,
+    this.age,
+    this.relation,
+    this.aadhaarNumber,
+    this.photoDataUrl,
+  });
 
   Map<String, dynamic> toMap() {
     return {
       'name': name,
       'age': age,
       'relation': relation,
+      'aadhaarNumber': aadhaarNumber,
+      'photoDataUrl': photoDataUrl,
     };
   }
 
@@ -21,6 +29,8 @@ class AttendantModel {
       name: data['name']?.toString() ?? '',
       age: data['age']?.toString(),
       relation: data['relation']?.toString(),
+      aadhaarNumber: data['aadhaarNumber']?.toString(),
+      photoDataUrl: data['photoDataUrl']?.toString(),
     );
   }
 
@@ -143,6 +153,8 @@ class PatientModel {
   final int? floor;
   final List<String>? bedIds; // Added for explicit bed tracking
   final List<String>? bedLabels; // Added for UI display
+  final String? photoDataUrl;
+  final String? photoFileName;
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -203,6 +215,8 @@ class PatientModel {
     this.floor,
     this.bedIds,
     this.bedLabels,
+    this.photoDataUrl,
+    this.photoFileName,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -261,6 +275,8 @@ class PatientModel {
       'floor': floor,
       'bedIds': bedIds,
       'bedLabels': bedLabels,
+      'photoDataUrl': photoDataUrl,
+      'photoFileName': photoFileName,
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -324,12 +340,12 @@ class PatientModel {
       roomId: data['roomId']?.toString(),
       roomNumber: data['roomNumber']?.toString(),
       floor: data['floor'] != null ? _parseInt(data['floor']) : null,
-      bedIds: data['bedIds'] != null 
-          ? List<String>.from(data['bedIds'])
-          : null,
-      bedLabels: data['bedLabels'] != null 
+      bedIds: data['bedIds'] != null ? List<String>.from(data['bedIds']) : null,
+      bedLabels: data['bedLabels'] != null
           ? List<String>.from(data['bedLabels'])
           : null,
+      photoDataUrl: data['photoDataUrl']?.toString(),
+      photoFileName: data['photoFileName']?.toString(),
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
@@ -356,7 +372,12 @@ class PatientModel {
       totalPresentDays: _parseInt(data['totalPresentDays']),
       totalAbsentDays: _parseInt(data['totalAbsentDays']),
       attendants: data['attendants'] != null
-          ? _parseList(data['attendants'], (item) => AttendantModel.fromMap(Map<String, dynamic>.from(item as Map)))
+          ? _parseList(
+              data['attendants'],
+              (item) => AttendantModel.fromMap(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
           : null,
       payments: data['payments'] != null
           ? _parseList(data['payments'], (item) {
@@ -370,7 +391,9 @@ class PatientModel {
       dischargeDate: data['dischargeDate'] != null
           ? _parseDateTime(data['dischargeDate'])
           : null,
-      maxStayDays: data['maxStayDays'] != null ? _parseInt(data['maxStayDays']) : 60,
+      maxStayDays: data['maxStayDays'] != null
+          ? _parseInt(data['maxStayDays'])
+          : 60,
       extensionApproved: data['extensionApproved'] as bool? ?? false,
       extensionDays: _parseInt(data['extensionDays']),
       extensionReason: data['extensionReason']?.toString(),
@@ -415,7 +438,9 @@ class PatientModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    if (value is double) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    }
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }
@@ -455,6 +480,8 @@ class PatientModel {
     int? floor,
     List<String>? bedIds,
     List<String>? bedLabels,
+    String? photoDataUrl,
+    String? photoFileName,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -506,6 +533,8 @@ class PatientModel {
       floor: floor ?? this.floor,
       bedIds: bedIds ?? this.bedIds,
       bedLabels: bedLabels ?? this.bedLabels,
+      photoDataUrl: photoDataUrl ?? this.photoDataUrl,
+      photoFileName: photoFileName ?? this.photoFileName,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -540,7 +569,8 @@ class PatientModel {
   }
 
   @override
-  String toString() => 'PatientModel(id: $id, fullName: $fullName, status: $status)';
+  String toString() =>
+      'PatientModel(id: $id, fullName: $fullName, status: $status)';
 
   @override
   bool operator ==(Object other) {

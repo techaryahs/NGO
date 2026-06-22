@@ -1,17 +1,36 @@
 PODS:
   - file_picker (0.0.1):
     - FlutterMacOS
-  - Firebase/CoreOnly (12.12.1):
-    - FirebaseCore (~> 12.12.1)
-  - firebase_core (4.7.0):
-    - Firebase/CoreOnly (~> 12.12.0)
+  - Firebase/CoreOnly (12.14.0):
+    - FirebaseCore (~> 12.14.0)
+  - Firebase/Storage (12.14.0):
+    - Firebase/CoreOnly
+    - FirebaseStorage (~> 12.14.0)
+  - firebase_core (4.10.0):
+    - Firebase/CoreOnly (~> 12.14.0)
     - FlutterMacOS
-  - FirebaseCore (12.12.1):
-    - FirebaseCoreInternal (~> 12.12.0)
+  - firebase_storage (13.4.2):
+    - Firebase/CoreOnly (~> 12.14.0)
+    - Firebase/Storage (~> 12.14.0)
+    - firebase_core
+    - FlutterMacOS
+  - FirebaseAppCheckInterop (12.14.0)
+  - FirebaseAuthInterop (12.14.0)
+  - FirebaseCore (12.14.0):
+    - FirebaseCoreInternal (~> 12.14.0)
     - GoogleUtilities/Environment (~> 8.1)
     - GoogleUtilities/Logger (~> 8.1)
-  - FirebaseCoreInternal (12.12.0):
+  - FirebaseCoreExtension (12.14.0):
+    - FirebaseCore (~> 12.14.0)
+  - FirebaseCoreInternal (12.14.0):
     - "GoogleUtilities/NSData+zlib (~> 8.1)"
+  - FirebaseStorage (12.14.0):
+    - FirebaseAppCheckInterop (~> 12.14.0)
+    - FirebaseAuthInterop (~> 12.14.0)
+    - FirebaseCore (~> 12.14.0)
+    - FirebaseCoreExtension (~> 12.14.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GTMSessionFetcher/Core (< 6.0, >= 3.4)
   - FlutterMacOS (1.0.0)
   - GoogleUtilities/Environment (8.1.0):
     - GoogleUtilities/Privacy
@@ -21,6 +40,7 @@ PODS:
   - "GoogleUtilities/NSData+zlib (8.1.0)":
     - GoogleUtilities/Privacy
   - GoogleUtilities/Privacy (8.1.0)
+  - GTMSessionFetcher/Core (5.3.0)
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -30,6 +50,7 @@ PODS:
 DEPENDENCIES:
   - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
   - firebase_core (from `Flutter/ephemeral/.symlinks/plugins/firebase_core/macos`)
+  - firebase_storage (from `Flutter/ephemeral/.symlinks/plugins/firebase_storage/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
   - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
@@ -37,15 +58,22 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - Firebase
+    - FirebaseAppCheckInterop
+    - FirebaseAuthInterop
     - FirebaseCore
+    - FirebaseCoreExtension
     - FirebaseCoreInternal
+    - FirebaseStorage
     - GoogleUtilities
+    - GTMSessionFetcher
 
 EXTERNAL SOURCES:
   file_picker:
     :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
   firebase_core:
     :path: Flutter/ephemeral/.symlinks/plugins/firebase_core/macos
+  firebase_storage:
+    :path: Flutter/ephemeral/.symlinks/plugins/firebase_storage/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   shared_preferences_foundation:
@@ -55,15 +83,21 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
-  Firebase: 14f11e91129d246a8a6166b4c1c2ea61b56806ec
-  firebase_core: 8022171e82601bac2c79cfa04d69977f12595682
-  FirebaseCore: 86241206e656f5c80c995e370e6c975913b9b284
-  FirebaseCoreInternal: 7c12fc3011d889085e765e317d7b9fd1cef97af9
+  Firebase: 7cc10425300768ec86292688af5cb228f0604bde
+  firebase_core: 6c25555337efe4f9288389c14373ddd107790d90
+  firebase_storage: 02e5645d0dfdef624ef52b56cb232874586542b3
+  FirebaseAppCheckInterop: f123c0261a7b46f060e98fc2961651f1ac68f384
+  FirebaseAuthInterop: 63056ef7f9602e79a8f8d756d4cb35f38e2927c3
+  FirebaseCore: 4939b340b9c598dc1f965d68f8fe57e630b65407
+  FirebaseCoreExtension: ee3e3697acea1062288b1900bcdcab4d59ab93b4
+  FirebaseCoreInternal: 090369a5fffd7423cf88006ab4d2ccc2173a8db9
+  FirebaseStorage: 84d86cc0c0451e56e30f235fce26a264f1de13dc
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
+  GTMSessionFetcher: 127211aeec0b1e904fc49f4f6f895dcc535b0ecf
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
 
-PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+PODFILE CHECKSUM: 9dfca038f4d013a383a9fd6213641a9cc32e14db
 
 COCOAPODS: 1.16.2

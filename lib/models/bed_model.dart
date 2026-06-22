@@ -1,3 +1,5 @@
+import '../utils/bed_helper.dart';
+
 /// BedModel — RTDB-compatible data model for individual bed tracking.
 ///
 /// Supports public/general room grouped bed labels:
@@ -45,10 +47,7 @@ class BedModel {
   }
 
   /// Create a new available bed
-  factory BedModel.create({
-    required String roomId,
-    required String bedLabel,
-  }) {
+  factory BedModel.create({required String roomId, required String bedLabel}) {
     return BedModel(
       id: generateId(roomId, bedLabel),
       bedLabel: bedLabel,
@@ -109,12 +108,11 @@ class BedModel {
       id: id ?? this.id,
       bedLabel: bedLabel ?? this.bedLabel,
       status: status ?? this.status,
-      currentPatientId:
-      clearPatientId ? null : (currentPatientId ?? this.currentPatientId),
-      currentStayId:
-      clearStayId ? null : (currentStayId ?? this.currentStayId),
-      lastCleaned:
-      clearLastCleaned ? null : (lastCleaned ?? this.lastCleaned),
+      currentPatientId: clearPatientId
+          ? null
+          : (currentPatientId ?? this.currentPatientId),
+      currentStayId: clearStayId ? null : (currentStayId ?? this.currentStayId),
+      lastCleaned: clearLastCleaned ? null : (lastCleaned ?? this.lastCleaned),
     );
   }
 
@@ -139,7 +137,18 @@ class BedModel {
   /// - "2" => Bed 3/4
   /// - "3" => Bed 5/6
   /// - etc.
-  static String formatBedLabel(String rawLabel, String roomType) {
+  static String formatBedLabel(
+    String rawLabel,
+    String roomType, {
+    String? roomIdentifier,
+  }) {
+    if (roomIdentifier != null && roomIdentifier.trim().isNotEmpty) {
+      return BedHelper.getBedDisplayName(
+        rawLabel,
+        roomIdentifier: roomIdentifier,
+      );
+    }
+
     // Only convert labels for public/general rooms.
     if (roomType != 'general' && roomType != 'public') {
       return rawLabel;

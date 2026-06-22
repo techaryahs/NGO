@@ -193,7 +193,7 @@ class PatientFormDropdown extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          initialValue: (value != null && items.contains(value)) ? value : null,
           hint: Text(
             hint,
             style: TextStyle(
@@ -335,6 +335,7 @@ class PatientBedSelection extends StatelessWidget {
   final List<BedModel> beds;
   final List<BedModel> selectedBeds;
   final bool isPrivateRoom;
+  final String? roomIdentifier;
   final ValueChanged<List<BedModel>>? onChanged;
 
   const PatientBedSelection({
@@ -343,6 +344,7 @@ class PatientBedSelection extends StatelessWidget {
     required this.beds,
     required this.selectedBeds,
     this.isPrivateRoom = false,
+    this.roomIdentifier,
     this.onChanged,
   });
 
@@ -403,73 +405,83 @@ class PatientBedSelection extends StatelessWidget {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: (isPrivateRoom
-                    ? beds
-                    : beds.fold<List<BedModel>>([], (result, bed) {
-                  final displayName =
-                  BedHelper.getBedDisplayName(bed.bedLabel);
+                children:
+                    (isPrivateRoom
+                            ? beds
+                            : beds.fold<List<BedModel>>([], (result, bed) {
+                                final displayName = BedHelper.getBedDisplayName(
+                                  bed.bedLabel,
+                                  roomIdentifier: roomIdentifier,
+                                );
 
-                  final alreadyExists = result.any(
-                        (existing) =>
-                    BedHelper.getBedDisplayName(existing.bedLabel) ==
-                        displayName,
-                  );
+                                final alreadyExists = result.any(
+                                  (existing) =>
+                                      BedHelper.getBedDisplayName(
+                                        existing.bedLabel,
+                                        roomIdentifier: roomIdentifier,
+                                      ) ==
+                                      displayName,
+                                );
 
-                  if (!alreadyExists) {
-                    result.add(bed);
-                  }
+                                if (!alreadyExists) {
+                                  result.add(bed);
+                                }
 
-                  return result;
-                })).map((bed) {
-                  final isSelected = selectedBeds.isNotEmpty &&
-                      selectedBeds.first.id == bed.id;
-                  return FilterChip(
-                    label: Text(
-                      BedHelper.getBedDisplayName(
-                        bed.bedLabel.toString().trim(),
-                      ),
-                    ),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      if (isPrivateRoom) {
-                        // Private room = only one room booking
-                        if (selected) {
-                          onChanged?.call([bed]);
-                        } else {
-                          onChanged?.call([]);
-                        }
-                        return;
-                      }
+                                return result;
+                              }))
+                        .map((bed) {
+                          final isSelected =
+                              selectedBeds.isNotEmpty &&
+                              selectedBeds.first.id == bed.id;
+                          return FilterChip(
+                            label: Text(
+                              BedHelper.getBedDisplayName(
+                                bed.bedLabel.toString().trim(),
+                                roomIdentifier: roomIdentifier,
+                              ),
+                            ),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              if (isPrivateRoom) {
+                                // Private room = only one room booking
+                                if (selected) {
+                                  onChanged?.call([bed]);
+                                } else {
+                                  onChanged?.call([]);
+                                }
+                                return;
+                              }
 
-                      // General/Public room = only ONE grouped bed allowed
-                      if (selected) {
-                        onChanged?.call([bed]);
-                      } else {
-                        onChanged?.call([]);
-                      }
-                    },
-                    backgroundColor: const Color(0xFFF4F9F0),
-                    selectedColor: const Color(0xFF3B6D11),
-                    checkmarkColor: Colors.white,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected
-                          ? Colors.white
-                          : const Color(0xFF27500A),
-                    ),
-                    side: BorderSide(
-                      color: isSelected
-                          ? const Color(0xFF3B6D11)
-                          : const Color(0xFFC0DD97),
-                      width: 1,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  );
-                }).toList(),
+                              // General/Public room = only ONE grouped bed allowed
+                              if (selected) {
+                                onChanged?.call([bed]);
+                              } else {
+                                onChanged?.call([]);
+                              }
+                            },
+                            backgroundColor: const Color(0xFFF4F9F0),
+                            selectedColor: const Color(0xFF3B6D11),
+                            checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: isSelected
+                                  ? Colors.white
+                                  : const Color(0xFF27500A),
+                            ),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? const Color(0xFF3B6D11)
+                                  : const Color(0xFFC0DD97),
+                              width: 1,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          );
+                        })
+                        .toList(),
               ),
               const SizedBox(height: 8),
               Container(
@@ -507,7 +519,6 @@ class PatientBedSelection extends StatelessWidget {
     );
   }
 }
-
 
 // -- Shared Header & Footer ------------------------------------------------------------
 
@@ -554,9 +565,19 @@ class PatientDialogHeader extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF27500A)),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF27500A),
+                  ),
                 ),
-                Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF639922))),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF639922),
+                  ),
+                ),
               ],
             ),
           ),
@@ -608,15 +629,29 @@ class PatientDialogFooter extends StatelessWidget {
           ElevatedButton.icon(
             onPressed: onSave,
             icon: isLoading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEAF3DE))))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFEAF3DE),
+                      ),
+                    ),
+                  )
                 : const Icon(Icons.check_rounded, size: 16),
-            label: Text(isLoading ? 'Processing...' : submitLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            label: Text(
+              isLoading ? 'Processing...' : submitLabel,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF3B6D11),
               foregroundColor: const Color(0xFFEAF3DE),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],

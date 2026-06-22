@@ -29,7 +29,9 @@ class RoomCard extends StatelessWidget {
     if (room.status == 'maintenance' || room.status == 'unavailable') {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Cannot assign patient: Room is in ${room.status} state"),
+          content: Text(
+            "Cannot assign patient: Room is in ${room.status} state",
+          ),
           backgroundColor: Colors.orange.shade700,
         ),
       );
@@ -95,10 +97,7 @@ class RoomCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: borderColor,
-          width: 1.5,
-        ),
+        border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.02),
@@ -120,7 +119,9 @@ class RoomCard extends StatelessWidget {
                   child: Row(
                     children: [
                       Icon(
-                        room.isPrivate ? Icons.hotel_rounded : Icons.bed_rounded,
+                        room.isPrivate
+                            ? Icons.hotel_rounded
+                            : Icons.bed_rounded,
                         color: const Color(0xFF27500A),
                         size: 20,
                       ),
@@ -140,7 +141,10 @@ class RoomCard extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: statusBgColor,
                     borderRadius: BorderRadius.circular(6),
@@ -162,10 +166,16 @@ class RoomCard extends StatelessWidget {
             Row(
               children: [
                 _buildBadge(
-                  icon: room.isPrivate ? Icons.lock_outline : Icons.people_outline,
+                  icon: room.isPrivate
+                      ? Icons.lock_outline
+                      : Icons.people_outline,
                   label: room.isPrivate ? "Private" : "General",
-                  bgColor: room.isPrivate ? const Color(0xFFEAF3DE) : const Color(0xFFE3F2FD),
-                  textColor: room.isPrivate ? const Color(0xFF3B6D11) : const Color(0xFF1976D2),
+                  bgColor: room.isPrivate
+                      ? const Color(0xFFEAF3DE)
+                      : const Color(0xFFE3F2FD),
+                  textColor: room.isPrivate
+                      ? const Color(0xFF3B6D11)
+                      : const Color(0xFF1976D2),
                 ),
                 const SizedBox(width: 8),
                 _buildBadge(
@@ -206,7 +216,11 @@ class RoomCard extends StatelessWidget {
                 if (room.expectedVacancyDate != null)
                   Row(
                     children: [
-                      const Icon(Icons.calendar_today_outlined, size: 10, color: Color(0xFF97C459)),
+                      const Icon(
+                        Icons.calendar_today_outlined,
+                        size: 10,
+                        color: Color(0xFF97C459),
+                      ),
                       const SizedBox(width: 3),
                       Text(
                         "Vacancy: ${room.expectedVacancyDate!.day}/${room.expectedVacancyDate!.month}",
@@ -250,7 +264,10 @@ class RoomCard extends StatelessWidget {
                     label: "Assign",
                     onTap: () => _showAssignPatient(context),
                     color: const Color(0xFF0F6E56),
-                    isDisabled: room.isFull || room.status == 'maintenance' || room.status == 'unavailable',
+                    isDisabled:
+                        room.isFull ||
+                        room.status == 'maintenance' ||
+                        room.status == 'unavailable',
                   ),
                 ),
               ],
@@ -336,22 +353,23 @@ class RoomCard extends StatelessWidget {
 
   Widget _buildAttendantsVisualization() {
     final List<Widget> chips = [];
-    
+
     // Occupied attendant slots (Red)
     for (int i = 0; i < room.currentAttendants; i++) {
-      chips.add(_buildBedChipWidget(
-        label: "Attendant ${i + 1}",
-        status: 'occupied',
-      ));
+      chips.add(
+        _buildBedChipWidget(label: "Attendant ${i + 1}", status: 'occupied'),
+      );
     }
-    
+
     // Available attendant slots (Green)
     final remainingSlots = room.maxAttendants - room.currentAttendants;
     for (int i = 0; i < remainingSlots; i++) {
-      chips.add(_buildBedChipWidget(
-        label: "Slot ${room.currentAttendants + i + 1}",
-        status: 'available',
-      ));
+      chips.add(
+        _buildBedChipWidget(
+          label: "Slot ${room.currentAttendants + i + 1}",
+          status: 'available',
+        ),
+      );
     }
 
     if (chips.isEmpty) {
@@ -361,11 +379,7 @@ class RoomCard extends StatelessWidget {
       );
     }
 
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: chips,
-    );
+    return Wrap(spacing: 4, runSpacing: 4, children: chips);
   }
 
   Widget _buildBedsVisualization() {
@@ -378,7 +392,11 @@ class RoomCard extends StatelessWidget {
 
     final Map<String, BedModel> uniqueBeds = {};
     for (final bed in room.beds) {
-      final label = BedModel.formatBedLabel(bed.bedLabel, room.roomType);
+      final label = BedModel.formatBedLabel(
+        bed.bedLabel,
+        room.roomType,
+        roomIdentifier: room.roomIdentifier,
+      );
       final existing = uniqueBeds[label];
       if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
         uniqueBeds[label] = bed;
@@ -391,17 +409,17 @@ class RoomCard extends StatelessWidget {
       runSpacing: 4,
       children: displayBeds.map((bed) {
         return _buildBedChipWidget(
-          label: BedHelper.getBedDisplayName(bed.bedLabel),
+          label: BedHelper.getBedDisplayName(
+            bed.bedLabel,
+            roomIdentifier: room.roomIdentifier,
+          ),
           status: bed.status,
         );
       }).toList(),
     );
   }
 
-  Widget _buildBedChipWidget({
-    required String label,
-    required String status,
-  }) {
+  Widget _buildBedChipWidget({required String label, required String status}) {
     Color chipColor;
     Color borderCol;
     Color textCol;

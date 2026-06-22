@@ -7,6 +7,7 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
   final BedModel? selectedBed;
   final Function(BedModel) onBedSelected;
   final String roomType;
+  final String roomIdentifier;
 
   const CreateStayBedSelectionGrid({
     super.key,
@@ -14,13 +15,18 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
     required this.selectedBed,
     required this.onBedSelected,
     required this.roomType,
+    required this.roomIdentifier,
   });
 
   @override
   Widget build(BuildContext context) {
     final Map<String, BedModel> uniqueBeds = {};
     for (final bed in beds) {
-      final label = BedModel.formatBedLabel(bed.bedLabel, roomType);
+      final label = BedModel.formatBedLabel(
+        bed.bedLabel,
+        roomType,
+        roomIdentifier: roomIdentifier,
+      );
       final existing = uniqueBeds[label];
       if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
         uniqueBeds[label] = bed;
@@ -32,8 +38,18 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: displayBeds.map((bed) {
-        final isSelected = selectedBed != null && 
-            BedModel.formatBedLabel(selectedBed!.bedLabel, roomType) == BedModel.formatBedLabel(bed.bedLabel, roomType);
+        final isSelected =
+            selectedBed != null &&
+            BedModel.formatBedLabel(
+                  selectedBed!.bedLabel,
+                  roomType,
+                  roomIdentifier: roomIdentifier,
+                ) ==
+                BedModel.formatBedLabel(
+                  bed.bedLabel,
+                  roomType,
+                  roomIdentifier: roomIdentifier,
+                );
         final isAvailable = bed.isAvailable;
 
         Color bgColor;
@@ -74,7 +90,11 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  BedModel.formatBedLabel(bed.bedLabel, roomType),
+                  BedModel.formatBedLabel(
+                    bed.bedLabel,
+                    roomType,
+                    roomIdentifier: roomIdentifier,
+                  ),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,

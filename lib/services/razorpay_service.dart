@@ -90,14 +90,13 @@ class RazorpayService {
       'description': description,
       'customer': {
         'name': patientName,
-        'contact': contactNumber.startsWith('+') ? contactNumber : '+91$contactNumber',
+        'contact': contactNumber.startsWith('+')
+            ? contactNumber
+            : '+91$contactNumber',
       },
       'notify': {'sms': true},
       'reminder_enable': false,
-      'notes': {
-        'patient': patientName,
-        ...?notes,
-      },
+      'notes': {'patient': patientName, ...?notes},
     });
 
     final response = await http.post(
@@ -126,7 +125,9 @@ class RazorpayService {
   /// Polls a payment link by [linkId] and returns its current [RazorpayPaymentStatus].
   ///
   /// Call this repeatedly (e.g. every 5 seconds) to detect when payment is complete.
-  static Future<RazorpayPaymentStatus> getPaymentLinkStatus(String linkId) async {
+  static Future<RazorpayPaymentStatus> getPaymentLinkStatus(
+    String linkId,
+  ) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/payment_links/$linkId'),
       headers: _authHeaders,

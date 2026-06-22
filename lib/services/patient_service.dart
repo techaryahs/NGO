@@ -2,7 +2,6 @@ import 'dart:async';
 import '../models/patient_model.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
-import 'room_service.dart';
 
 /// Service layer for all patient-related RTDB operations.
 ///
@@ -16,7 +15,7 @@ class PatientService {
   final String _patientsPath = 'patients';
 
   PatientService({required FirebaseRTDBRestService rtdbService})
-      : _rtdb = rtdbService;
+    : _rtdb = rtdbService;
 
   // ===========================================================================
   // STREAMS — Real-time listeners (polling-based)
@@ -40,38 +39,30 @@ class PatientService {
   //     }
   //     return patients;
   //   });
-    
+
   // }
   Stream<List<PatientModel>> getPatientsStream() {
-  return _rtdb
-      .stream(_patientsPath)
-      .map((data) {
-        final List<PatientModel> patients = [];
+    return _rtdb.stream(_patientsPath).map((data) {
+      final List<PatientModel> patients = [];
 
-        if (data != null && data is Map) {
-          final mapData = Map<String, dynamic>.from(data);
+      if (data != null && data is Map) {
+        final mapData = Map<String, dynamic>.from(data);
 
-          mapData.forEach((key, value) {
-            if (value is Map) {
-              patients.add(
-                PatientModel.fromMap(
-                  key,
-                  Map<String, dynamic>.from(value),
-                ),
-              );
-            }
-          });
+        mapData.forEach((key, value) {
+          if (value is Map) {
+            patients.add(
+              PatientModel.fromMap(key, Map<String, dynamic>.from(value)),
+            );
+          }
+        });
 
-          // Sort by admission date descending
-          patients.sort(
-            (a, b) => b.admissionDate.compareTo(a.admissionDate),
-          );
-        }
+        // Sort by admission date descending
+        patients.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
+      }
 
-        return patients;
-      })
-      .asBroadcastStream(); // 🔥 THIS LINE FIXES YOUR ERROR
-}
+      return patients;
+    }).asBroadcastStream(); // 🔥 THIS LINE FIXES YOUR ERROR
+  }
 
   /// Stream of patients filtered by [status] ('active', 'discharged', etc).
   ///
@@ -79,7 +70,9 @@ class PatientService {
   Stream<List<PatientModel>> getPatientsByStatus(String status) {
     return getPatientsStream().map((patients) {
       if (status == 'active') {
-        return patients.where((p) => p.status == 'active' || p.status == 'Paid').toList();
+        return patients
+            .where((p) => p.status == 'active' || p.status == 'Paid')
+            .toList();
       }
       return patients.where((p) => p.status == status).toList();
     });
@@ -104,7 +97,11 @@ class PatientService {
   Stream<List<PatientModel>> getPatientsByRoom(String roomId) {
     return getPatientsStream().map((patients) {
       return patients
-          .where((p) => p.roomId == roomId && (p.status == 'active' || p.status == 'Paid'))
+          .where(
+            (p) =>
+                p.roomId == roomId &&
+                (p.status == 'active' || p.status == 'Paid'),
+          )
           .toList();
     });
   }
@@ -113,7 +110,11 @@ class PatientService {
   Stream<List<PatientModel>> getPatientsByFloor(int floor) {
     return getPatientsStream().map((patients) {
       return patients
-          .where((p) => p.floor == floor && (p.status == 'active' || p.status == 'Paid'))
+          .where(
+            (p) =>
+                p.floor == floor &&
+                (p.status == 'active' || p.status == 'Paid'),
+          )
           .toList();
     });
   }
@@ -128,10 +129,7 @@ class PatientService {
     try {
       final data = await _rtdb.get('$_patientsPath/$patientId');
       if (data != null && data is Map) {
-        return PatientModel.fromMap(
-          patientId,
-          Map<String, dynamic>.from(data),
-        );
+        return PatientModel.fromMap(patientId, Map<String, dynamic>.from(data));
       }
       return null;
     } catch (e) {
@@ -163,6 +161,8 @@ class PatientService {
     int? floor,
     List<String>? bedIds,
     List<String>? bedLabels,
+    String? photoDataUrl,
+    String? photoFileName,
     String? notes,
     required String createdBy,
     // New fields
@@ -173,6 +173,7 @@ class PatientService {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    String? status,
     bool isAdvancePeriod = true,
     double advanceBilledAmount = 0.0,
     double attendanceCharges = 0.0,
@@ -187,7 +188,7 @@ class PatientService {
 
       // Generate temporary ID for the model
       final tempId = 'temp_${now.millisecondsSinceEpoch}';
-      
+
       final patient = PatientModel(
         id: tempId,
         fullName: fullName,
@@ -202,14 +203,20 @@ class PatientService {
         allergies: allergies,
         bloodType: bloodType,
         admissionDate: admissionDate,
-        status: (payments != null && payments.isNotEmpty) ? 'Paid' : 'active',
+        status:
+            status ??
+            ((payments != null && payments.isNotEmpty) ? 'Paid' : 'active'),
         paymentPending: (payments == null || payments.isEmpty),
-        paymentStatus: (payments != null && payments.isNotEmpty) ? 'Paid' : 'Unpaid',
+        paymentStatus: (payments != null && payments.isNotEmpty)
+            ? 'Paid'
+            : 'Unpaid',
         roomId: roomId,
         roomNumber: roomNumber,
         floor: floor,
         bedIds: bedIds,
         bedLabels: bedLabels,
+        photoDataUrl: photoDataUrl,
+        photoFileName: photoFileName,
         notes: notes,
         createdAt: now,
         updatedAt: now,
@@ -232,10 +239,10 @@ class PatientService {
 
       // Push to generate unique key
       final patientId = await _rtdb.push(_patientsPath, patient.toMap());
-      
+
       // Update the ID field in the database
       await _rtdb.patch('$_patientsPath/$patientId', {'id': patientId});
-      
+
       // Also record any initial payments in the global history
       if (payments != null && payments.isNotEmpty) {
         for (final payment in payments) {
@@ -245,7 +252,7 @@ class PatientService {
           await _rtdb.push('payments', globalPaymentData);
         }
       }
-      
+
       return patientId;
     } catch (e) {
       throw Exception('Failed to add patient: $e');
@@ -271,7 +278,7 @@ class PatientService {
       final globalPaymentData = payment.toMap();
       globalPaymentData['patientId'] = patientId;
       globalPaymentData['patientName'] = patient.fullName;
-      
+
       await _rtdb.push('payments', globalPaymentData);
     } catch (e) {
       throw Exception('Failed to record payment: $e');
@@ -287,7 +294,9 @@ class PatientService {
   /// Automatically updates `updatedAt`, recalculates `searchKey` if
   /// `fullName` changes, and recalculates `age` if `dateOfBirth` changes.
   Future<void> updatePatient(
-      String patientId, Map<String, dynamic> updates) async {
+    String patientId,
+    Map<String, dynamic> updates,
+  ) async {
     try {
       updates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
 
@@ -319,7 +328,11 @@ class PatientService {
 
   /// Assigns a patient to a room.
   Future<void> assignToRoom(
-      String patientId, String roomId, String roomNumber, int floor) async {
+    String patientId,
+    String roomId,
+    String roomNumber,
+    int floor,
+  ) async {
     try {
       await updatePatient(patientId, {
         'roomId': roomId,
@@ -357,17 +370,17 @@ class PatientService {
       // Get patient to find their room/bed
       final patient = await getPatient(patientId);
       if (patient == null) throw Exception('Patient not found');
-      
+
       // Find active stay for this patient
       final roomService = ServiceLocator().roomService;
       final stays = await roomService.getStaysByPatientStream(patientId).first;
       final activeStay = stays.where((s) => s.status == 'active').firstOrNull;
-      
+
       // Complete the stay (this releases the bed)
       if (activeStay != null) {
         await roomService.completeStay(activeStay.id);
       }
-      
+
       // Update patient status
       await updatePatient(patientId, {
         'status': 'discharged',
@@ -386,9 +399,7 @@ class PatientService {
   /// Reactivates a discharged patient.
   Future<void> reactivatePatient(String patientId) async {
     try {
-      await updatePatient(patientId, {
-        'status': 'active',
-      });
+      await updatePatient(patientId, {'status': 'active'});
     } catch (e) {
       throw Exception('Failed to reactivate patient: $e');
     }
@@ -413,7 +424,7 @@ class PatientService {
 
   /// Fetches aggregate statistics across all patients.
   ///
-  /// Returns a map with keys: `total`, `active`, `discharged`,
+  /// Returns a map with keys: `total`, `active`, `inactive`, `discharged`,
   /// `withRoom`, `withoutRoom`.
   Future<Map<String, int>> getPatientStats() async {
     try {
@@ -421,6 +432,7 @@ class PatientService {
 
       int total = 0;
       int active = 0;
+      int inactive = 0;
       int discharged = 0;
       int withRoom = 0;
 
@@ -434,8 +446,10 @@ class PatientService {
             final status = patientData['status'] ?? 'active';
 
             if (status == 'active' || status == 'Paid') active++;
+            if (status.toString().toLowerCase() == 'inactive') inactive++;
             if (status == 'discharged') discharged++;
-            if (patientData['roomId'] != null && (status == 'active' || status == 'Paid')) {
+            if (patientData['roomId'] != null &&
+                (status == 'active' || status == 'Paid')) {
               withRoom++;
             }
           }
@@ -445,6 +459,7 @@ class PatientService {
       return {
         'total': total,
         'active': active,
+        'inactive': inactive,
         'discharged': discharged,
         'withRoom': withRoom,
         'withoutRoom': active - withRoom,
@@ -461,6 +476,7 @@ class PatientService {
     return _rtdb.stream(_patientsPath).map((data) {
       int total = 0;
       int active = 0;
+      int inactive = 0;
       int discharged = 0;
       int withRoom = 0;
 
@@ -474,8 +490,10 @@ class PatientService {
             final status = patientData['status'] ?? 'active';
 
             if (status == 'active' || status == 'Paid') active++;
+            if (status.toString().toLowerCase() == 'inactive') inactive++;
             if (status == 'discharged') discharged++;
-            if (patientData['roomId'] != null && (status == 'active' || status == 'Paid')) {
+            if (patientData['roomId'] != null &&
+                (status == 'active' || status == 'Paid')) {
               withRoom++;
             }
           }
@@ -485,6 +503,7 @@ class PatientService {
       return {
         'total': total,
         'active': active,
+        'inactive': inactive,
         'discharged': discharged,
         'withRoom': withRoom,
         'withoutRoom': active - withRoom,

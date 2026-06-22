@@ -2,23 +2,27 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 /// Room Configuration Model - Loads from room_config.json
-/// 
+///
 /// Defines the hospital's room structure:
 /// - Floor 1 (Ground): 1A (Private), 1B-D (General)
 /// - Floor 2 (First): 2A-B (Private), 2C-E (General)
 class RoomConfig {
   final List<FloorConfig> floors;
   final Map<String, int> defaultBedCounts;
+  final Map<String, List<String>> defaultBedLabels;
 
   RoomConfig({
     required this.floors,
     required this.defaultBedCounts,
+    required this.defaultBedLabels,
   });
 
   /// Load room configuration from JSON asset
   static Future<RoomConfig> load() async {
     try {
-      final jsonString = await rootBundle.loadString('lib/data/room_config.json');
+      final jsonString = await rootBundle.loadString(
+        'lib/data/room_config.json',
+      );
       final jsonData = json.decode(jsonString);
       return RoomConfig.fromJson(jsonData);
     } catch (e) {
@@ -32,10 +36,17 @@ class RoomConfig {
         .toList();
 
     final bedCounts = Map<String, int>.from(json['default_bed_counts']);
+    final rawBedLabels = Map<String, dynamic>.from(
+      json['default_bed_labels'] ?? {},
+    );
+    final bedLabels = rawBedLabels.map(
+      (room, labels) => MapEntry(room, List<String>.from(labels as List)),
+    );
 
     return RoomConfig(
       floors: floors,
       defaultBedCounts: bedCounts,
+      defaultBedLabels: bedLabels,
     );
   }
 
@@ -68,6 +79,11 @@ class RoomConfig {
     return defaultBedCounts[roomIdentifier] ?? 4;
   }
 
+  /// Get default bed labels for a room identifier.
+  List<String> getDefaultBedLabels(String roomIdentifier) {
+    return List<String>.from(defaultBedLabels[roomIdentifier] ?? const []);
+  }
+
   /// Validate if a room identifier is valid for the given floor and type
   bool isValidRoom({
     required String roomIdentifier,
@@ -87,6 +103,7 @@ class RoomConfig {
     return {
       'floors': floors.map((f) => f.toJson()).toList(),
       'default_bed_counts': defaultBedCounts,
+      'default_bed_labels': defaultBedLabels,
     };
   }
 }

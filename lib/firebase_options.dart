@@ -50,23 +50,25 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDi2bpyheX-UDQlgymxGO8taTF6iyJ262g',
+    apiKey: 'AIzaSyCLamxvGAMLVVICWrbdD_paDVmQCZpZJCg',
     appId: '1:920135500112:ios:c23f1c8915caa07c2f2c55',
     messagingSenderId: '920135500112',
-    projectId: 'ngov-org',
-    databaseURL: 'https://ngov-org-default-rtdb.firebaseio.com',
-    storageBucket: 'ngov-org.firebasestorage.app',
+    projectId: 'ngo-management-system-d8c06',
+    databaseURL:
+        'https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'ngo-management-system-d8c06.firebasestorage.app',
     iosBundleId: 'com.example.ngo',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyAQkdCF-Og883BuJcg-UTyM5RUXSaTlDeg',
+    apiKey: 'AIzaSyCLamxvGAMLVVICWrbdD_paDVmQCZpZJCg',
     appId: '1:920135500112:web:7e1312a89809b48a2f2c55',
     messagingSenderId: '920135500112',
-    projectId: 'ngov-org',
-    authDomain: 'ngov-org.firebaseapp.com',
-    databaseURL: 'https://ngov-org-default-rtdb.firebaseio.com',
-    storageBucket: 'ngov-org.firebasestorage.app',
+    projectId: 'ngo-management-system-d8c06',
+    authDomain: 'ngo-management-system-d8c06.firebaseapp.com',
+    databaseURL:
+        'https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'ngo-management-system-d8c06.firebasestorage.app',
     measurementId: 'G-67SZ7ZHM4K',
   );
 }

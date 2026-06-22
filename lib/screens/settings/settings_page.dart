@@ -38,8 +38,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (settings.isNotEmpty) {
       if (settings['notifications'] != null) {
-        pendingPaymentAlerts = settings['notifications']['pendingPayment'] ?? true;
-        patientStayExpiryAlert = settings['notifications']['stayExpiry'] ?? true;
+        pendingPaymentAlerts =
+            settings['notifications']['pendingPayment'] ?? true;
+        patientStayExpiryAlert =
+            settings['notifications']['stayExpiry'] ?? true;
         lowInventoryAlerts = settings['notifications']['lowInventory'] ?? true;
       }
       if (settings['security'] != null) {
@@ -61,18 +63,25 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade800 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade800
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
 
-  Future<void> _updateNotification(String key, bool value, void Function() localUpdate) async {
+  Future<void> _updateNotification(
+    String key,
+    bool value,
+    void Function() localUpdate,
+  ) async {
     setState(() => isSaving = true);
-    final success = await ServiceLocator().settingsService.updateNotificationSetting(key, value);
+    final success = await ServiceLocator().settingsService
+        .updateNotificationSetting(key, value);
     setState(() => isSaving = false);
-    
+
     if (success) {
       localUpdate();
       _showSnackBar("Notification setting updated");
@@ -81,11 +90,16 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _updateSecurity(String key, bool value, void Function() localUpdate) async {
+  Future<void> _updateSecurity(
+    String key,
+    bool value,
+    void Function() localUpdate,
+  ) async {
     setState(() => isSaving = true);
-    final success = await ServiceLocator().settingsService.updateSecuritySetting(key, value);
+    final success = await ServiceLocator().settingsService
+        .updateSecuritySetting(key, value);
     setState(() => isSaving = false);
-    
+
     if (success) {
       localUpdate();
       _showSnackBar("Security setting updated");
@@ -96,9 +110,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _updateBackup(bool value) async {
     setState(() => isSaving = true);
-    final success = await ServiceLocator().settingsService.updateAutoBackupSetting(value);
+    final success = await ServiceLocator().settingsService
+        .updateAutoBackupSetting(value);
     setState(() => isSaving = false);
-    
+
     if (success) {
       setState(() => autoDailyBackup = value);
       _showSnackBar("Backup setting updated");
@@ -111,7 +126,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => isSaving = true);
     final result = await ServiceLocator().settingsService.triggerManualBackup();
     setState(() => isSaving = false);
-    
+
     if (result['success']) {
       setState(() => lastBackupTime = result['timestamp']);
       _showSnackBar("Backup completed successfully");
@@ -134,8 +149,13 @@ class _SettingsPageState extends State<SettingsPage> {
           builder: (context, setDialogState) {
             return AlertDialog(
               backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text("Change Password", style: TextStyle(color: Color(0xFF27500A))),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text(
+                "Change Password",
+                style: TextStyle(color: Color(0xFF27500A)),
+              ),
               content: Form(
                 key: formKey,
                 child: Column(
@@ -146,7 +166,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       obscureText: true,
                       decoration: InputDecoration(
                         labelText: "Current Password",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       validator: (v) => v!.isEmpty ? "Required" : null,
                     ),
@@ -156,9 +178,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       obscureText: true,
                       decoration: InputDecoration(
                         labelText: "New Password",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                      validator: (v) => v!.length < 6 ? "Must be at least 6 characters" : null,
+                      validator: (v) => v!.length < 6
+                          ? "Must be at least 6 characters"
+                          : null,
                     ),
                   ],
                 ),
@@ -166,7 +192,10 @@ class _SettingsPageState extends State<SettingsPage> {
               actions: [
                 TextButton(
                   onPressed: isProcessing ? null : () => Navigator.pop(context),
-                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                  child: const Text(
+                    "Cancel",
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
                 ElevatedButton(
                   onPressed: isProcessing
@@ -174,40 +203,131 @@ class _SettingsPageState extends State<SettingsPage> {
                       : () async {
                           if (formKey.currentState!.validate()) {
                             setDialogState(() => isProcessing = true);
-                            
+
                             final authService = ServiceLocator().authService;
                             // 1. Reauthenticate
-                            final reauthResult = await authService.reauthenticate(password: currentPasswordCtrl.text);
-                            
+                            final reauthResult = await authService
+                                .reauthenticate(
+                                  password: currentPasswordCtrl.text,
+                                );
+
                             if (reauthResult['success']) {
                               // 2. Change Password
-                              final changeResult = await authService.changePassword(newPassword: newPasswordCtrl.text);
+                              final changeResult = await authService
+                                  .changePassword(
+                                    newPassword: newPasswordCtrl.text,
+                                  );
                               if (changeResult['success']) {
                                 Navigator.pop(context);
                                 _showSnackBar("Password changed successfully!");
                               } else {
                                 setDialogState(() => isProcessing = false);
-                                _showSnackBar(changeResult['message'], isError: true);
+                                _showSnackBar(
+                                  changeResult['message'],
+                                  isError: true,
+                                );
                               }
                             } else {
                               setDialogState(() => isProcessing = false);
-                              _showSnackBar(reauthResult['message'], isError: true);
+                              _showSnackBar(
+                                reauthResult['message'],
+                                isError: true,
+                              );
                             }
                           }
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF639922),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: isProcessing
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text("Update", style: TextStyle(color: Colors.white)),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          "Update",
+                          style: TextStyle(color: Colors.white),
+                        ),
                 ),
               ],
             );
-          }
+          },
         );
-      }
+      },
+    );
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          "About Aryahs World Infotech",
+          style: TextStyle(
+            color: Color(0xFF27500A),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: const SizedBox(
+          width: 600,
+          child: SingleChildScrollView(
+            child: Text('''
+Aryahs World Infotech (OPC) Pvt. Ltd.
+
+Transforming Ideas Into Digital Solutions
+
+Aryahs World Infotech is a technology-driven software development company dedicated to building innovative, scalable, and impactful digital solutions for businesses, startups, educational institutions, healthcare organizations, and social welfare initiatives.
+
+MISSION
+To empower businesses and organizations through innovative technology solutions that drive growth, efficiency, and digital transformation.
+
+VISION
+To become a globally recognized technology company known for innovation, quality, and excellence in software development, artificial intelligence, and digital transformation services.
+
+OUR EXPERTISE
+• Custom Software Development
+• Web Development
+• Mobile App Development
+• Artificial Intelligence & Machine Learning
+• Cloud & Enterprise Solutions
+• NGO & Social Impact Platforms
+
+WHY CHOOSE US
+✔ Experienced Development Team
+✔ Innovative Technology Solutions
+✔ Client-Centric Approach
+✔ Secure & Scalable Applications
+✔ AI-Powered Development Expertise
+✔ Timely Project Delivery
+✔ Long-Term Technical Support
+
+ABOUT THIS NGO PLATFORM
+This NGO Management System has been developed by Aryahs World Infotech (OPC) Pvt. Ltd. to help NGOs streamline operations, manage beneficiaries, coordinate volunteers, and enhance transparency in social welfare programs.
+
+CONTACT
+Email: info@aryahsworld.com
+Website: www.aryahsworld.com
+Phone: +91 9619901999
+
+"Innovating Today, Empowering Tomorrow."
+            ''', style: TextStyle(height: 1.5, fontSize: 14)),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF639922)),
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -222,7 +342,74 @@ class _SettingsPageState extends State<SettingsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Close", style: TextStyle(color: Color(0xFF639922))),
+            child: const Text(
+              "Close",
+              style: TextStyle(color: Color(0xFF639922)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTermsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          "Terms & Conditions",
+          style: TextStyle(
+            color: Color(0xFF27500A),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: const SizedBox(
+          width: 600,
+          child: SingleChildScrollView(
+            child: Text('''
+TERMS AND CONDITIONS
+
+1. ACCEPTANCE OF TERMS
+By using this NGO Management System, you agree to comply with and be bound by these Terms and Conditions.
+
+2. USE OF SYSTEM
+This platform is intended solely for authorized staff to manage patient records, attendance, billing, and related operations of the organization.
+
+3. DATA PRIVACY
+All patient and attendant information stored in this system is confidential. Users must not share, export, or disclose this data to unauthorized parties.
+
+4. USER RESPONSIBILITY
+Users are responsible for maintaining the confidentiality of their login credentials and for all activities performed under their account.
+
+5. ACCURACY OF INFORMATION
+Users must ensure that all data entered (patient details, attendance, billing) is accurate and updated in a timely manner.
+
+6. BILLING & PAYMENTS
+All billing calculations are generated based on configured rates and attendance records. Any disputes regarding billing must be raised with the administration promptly.
+
+7. SYSTEM AVAILABILITY
+While we strive for continuous availability, the platform may occasionally be unavailable due to maintenance or technical issues.
+
+8. LIMITATION OF LIABILITY
+Aryahs World Infotech (OPC) Pvt. Ltd. is not liable for any data loss, billing errors, or operational disruptions arising from misuse of the system.
+
+9. CHANGES TO TERMS
+These terms may be updated periodically. Continued use of the system constitutes acceptance of any changes.
+
+10. CONTACT
+For questions regarding these terms, contact: info@aryahsworld.com
+
+Last updated: 2026
+            ''', style: TextStyle(height: 1.5, fontSize: 14)),
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF639922),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close", style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -234,23 +421,26 @@ class _SettingsPageState extends State<SettingsPage> {
       baseColor: Colors.grey.shade300,
       highlightColor: Colors.grey.shade100,
       child: ListView(
-        children: List.generate(3, (index) => Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(width: 100, height: 16, color: Colors.white),
-              const SizedBox(height: 8),
-              Container(
-                height: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+        children: List.generate(
+          3,
+          (index) => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 100, height: 16, color: Colors.white),
+                const SizedBox(height: 8),
+                Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        )),
+        ),
       ),
     );
   }
@@ -371,6 +561,25 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 16),
+
+                        _SettingsSection(
+                          title: "About",
+                          items: [
+                            _SettingsItem(
+                              icon: Icons.business_rounded,
+                              title: "About This Platform",
+                              subtitle: "NGO Management System details",
+                              onTap: _showAboutDialog,
+                            ),
+                            _SettingsItem(
+                              icon: Icons.description_outlined,
+                              title: "Terms & Conditions",
+                              subtitle: "Usage terms and policies",
+                              onTap: _showTermsDialog,
+                            ),
+                          ],
+                        ),
                       ],
                     ),
             ),
@@ -385,10 +594,7 @@ class _SettingsSection extends StatelessWidget {
   final String title;
   final List<Widget> items;
 
-  const _SettingsSection({
-    required this.title,
-    required this.items,
-  });
+  const _SettingsSection({required this.title, required this.items});
 
   @override
   Widget build(BuildContext context) {
