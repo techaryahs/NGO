@@ -2,9 +2,6 @@ import 'dart:async';
 import '../models/patient_model.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
-// import 'dart:typed_data';
-// import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 /// Service layer for all patient-related RTDB operations.
 ///
@@ -176,6 +173,7 @@ class PatientService {
     String? receiptNumber,
     String? modeOfPayment,
     String? utiNumber,
+    String? status,
     bool isAdvancePeriod = true,
     double advanceBilledAmount = 0.0,
     double attendanceCharges = 0.0,
@@ -205,7 +203,9 @@ class PatientService {
         allergies: allergies,
         bloodType: bloodType,
         admissionDate: admissionDate,
-        status: (payments != null && payments.isNotEmpty) ? 'Paid' : 'active',
+        status:
+            status ??
+            ((payments != null && payments.isNotEmpty) ? 'Paid' : 'active'),
         paymentPending: (payments == null || payments.isEmpty),
         paymentStatus: (payments != null && payments.isNotEmpty)
             ? 'Paid'
@@ -424,7 +424,7 @@ class PatientService {
 
   /// Fetches aggregate statistics across all patients.
   ///
-  /// Returns a map with keys: `total`, `active`, `discharged`,
+  /// Returns a map with keys: `total`, `active`, `inactive`, `discharged`,
   /// `withRoom`, `withoutRoom`.
   Future<Map<String, int>> getPatientStats() async {
     try {
@@ -432,6 +432,7 @@ class PatientService {
 
       int total = 0;
       int active = 0;
+      int inactive = 0;
       int discharged = 0;
       int withRoom = 0;
 
@@ -445,6 +446,7 @@ class PatientService {
             final status = patientData['status'] ?? 'active';
 
             if (status == 'active' || status == 'Paid') active++;
+            if (status.toString().toLowerCase() == 'inactive') inactive++;
             if (status == 'discharged') discharged++;
             if (patientData['roomId'] != null &&
                 (status == 'active' || status == 'Paid')) {
@@ -457,6 +459,7 @@ class PatientService {
       return {
         'total': total,
         'active': active,
+        'inactive': inactive,
         'discharged': discharged,
         'withRoom': withRoom,
         'withoutRoom': active - withRoom,
@@ -473,6 +476,7 @@ class PatientService {
     return _rtdb.stream(_patientsPath).map((data) {
       int total = 0;
       int active = 0;
+      int inactive = 0;
       int discharged = 0;
       int withRoom = 0;
 
@@ -486,6 +490,7 @@ class PatientService {
             final status = patientData['status'] ?? 'active';
 
             if (status == 'active' || status == 'Paid') active++;
+            if (status.toString().toLowerCase() == 'inactive') inactive++;
             if (status == 'discharged') discharged++;
             if (patientData['roomId'] != null &&
                 (status == 'active' || status == 'Paid')) {
@@ -498,6 +503,7 @@ class PatientService {
       return {
         'total': total,
         'active': active,
+        'inactive': inactive,
         'discharged': discharged,
         'withRoom': withRoom,
         'withoutRoom': active - withRoom,

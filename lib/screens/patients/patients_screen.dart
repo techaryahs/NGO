@@ -8,7 +8,6 @@ import 'patient_profile_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({super.key});
@@ -20,7 +19,7 @@ class PatientsScreen extends StatefulWidget {
 class _PatientsScreenState extends State<PatientsScreen> {
   final _searchController = TextEditingController();
 
-  String _selectedFilter = 'all'; // 'all', 'active', 'discharged'
+  String _selectedFilter = 'all'; // 'all', 'active', 'inactive', 'discharged'
   String _searchQuery = '';
 
   @override
@@ -93,6 +92,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
     if (_selectedFilter == 'active') {
       return ServiceLocator().patientService.getPatientsByStatus('active');
+    } else if (_selectedFilter == 'inactive') {
+      return ServiceLocator().patientService.getPatientsByStatus('inactive');
     } else if (_selectedFilter == 'discharged') {
       return ServiceLocator().patientService.getPatientsByStatus('discharged');
     }
@@ -261,6 +262,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
               receiptNumber: receiptNo.isNotEmpty ? receiptNo : null,
               modeOfPayment: modeOfPayment.isNotEmpty ? modeOfPayment : null,
               utiNumber: utiNo.isNotEmpty ? utiNo : null,
+              status: 'inactive',
               notes: notesList.isNotEmpty ? notesList.join('\n') : null,
             );
             addedCount++;
@@ -488,6 +490,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       label: 'Active',
                       isSelected: _selectedFilter == 'active',
                       onTap: () => setState(() => _selectedFilter = 'active'),
+                    ),
+                    _FilterChip(
+                      label: 'Inactive',
+                      isSelected: _selectedFilter == 'inactive',
+                      onTap: () => setState(() => _selectedFilter = 'inactive'),
                     ),
                     _FilterChip(
                       label: 'Discharged',

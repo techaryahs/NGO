@@ -487,6 +487,11 @@ class _StatusBadge extends StatelessWidget {
         textColor = const Color(0xFF3B6D11);
         label = 'Paid';
         break;
+      case 'inactive':
+        bgColor = const Color(0xFFFFF3E0);
+        textColor = const Color(0xFFE65100);
+        label = 'Inactive';
+        break;
       case 'discharged':
         bgColor = const Color(0xFFE8E8E8);
         textColor = const Color(0xFF757575);
