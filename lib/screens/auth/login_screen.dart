@@ -61,9 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError
-            ? Colors.red.shade700
-            : const Color(0xFF3B6D11),
+        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -94,29 +92,17 @@ class _LoginScreenState extends State<LoginScreen> {
           Positioned(
             top: -60,
             left: -60,
-            child: _LeafBlob(
-              size: 220,
-              color: const Color(0xFF3B6D11),
-              rotation: 0.5,
-            ),
+            child: _LeafBlob(size: 220, color: const Color(0xFF3B6D11), rotation: 0.5),
           ),
           Positioned(
             bottom: -40,
             right: -40,
-            child: _LeafBlob(
-              size: 160,
-              color: const Color(0xFF0F6E56),
-              rotation: -0.35,
-            ),
+            child: _LeafBlob(size: 160, color: const Color(0xFF0F6E56), rotation: -0.35),
           ),
           Positioned(
             bottom: 120,
             left: 20,
-            child: _LeafBlob(
-              size: 90,
-              color: const Color(0xFF639922),
-              rotation: 1.0,
-            ),
+            child: _LeafBlob(size: 90, color: const Color(0xFF639922), rotation: 1.0),
           ),
 
           // Main content
@@ -138,11 +124,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Logo
+                      // Logo icon
                       Container(
                         width: 64,
                         height: 64,
-                        clipBehavior: Clip.antiAlias,
                         decoration: BoxDecoration(
                           color: const Color(0xFFEAF3DE),
                           shape: BoxShape.circle,
@@ -151,16 +136,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             width: 1.5,
                           ),
                         ),
-                        child: Image.asset(
-                          'assets/images/logo.jpeg',
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(
-                              Icons.eco_rounded,
-                              color: Color(0xFF3B6D11),
-                              size: 30,
-                            );
-                          },
+                        child: const Icon(
+                          Icons.eco_rounded,
+                          color: Color(0xFF3B6D11),
+                          size: 30,
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -210,9 +189,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: const Color(0xFF639922),
                             size: 20,
                           ),
-                          onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
-                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
                         ),
                       ),
 
@@ -252,16 +230,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(
-                                  Icons.arrow_forward_rounded,
-                                  size: 18,
-                                ),
+                              : const Icon(Icons.arrow_forward_rounded, size: 18),
                           label: Text(
                             _isLoading ? "Signing in..." : "Sign in",
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF3B6D11),
@@ -281,10 +253,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           const Text(
                             "Don't have an account? ",
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF639922),
-                            ),
+                            style: TextStyle(fontSize: 13, color: Color(0xFF639922)),
                           ),
                           TextButton(
                             onPressed: () {
@@ -373,28 +342,19 @@ class _NatureInputField extends StatelessWidget {
           style: const TextStyle(fontSize: 14, color: Color(0xFF27500A)),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(
-              color: const Color(0xFF97C459).withOpacity(0.8),
-              fontSize: 14,
-            ),
+            hintStyle: TextStyle(color: const Color(0xFF97C459).withOpacity(0.8), fontSize: 14),
             prefixIcon: Icon(icon, color: const Color(0xFF639922), size: 20),
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 14,
-            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: Color(0xFF639922),
-                width: 1.5,
-              ),
+              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
             ),
           ),
         ),
@@ -410,11 +370,7 @@ class _LeafBlob extends StatelessWidget {
   final Color color;
   final double rotation;
 
-  const _LeafBlob({
-    required this.size,
-    required this.color,
-    required this.rotation,
-  });
+  const _LeafBlob({required this.size, required this.color, required this.rotation});
 
   @override
   Widget build(BuildContext context) {
