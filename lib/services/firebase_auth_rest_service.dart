@@ -11,11 +11,18 @@ class FirebaseAuthRestService {
   final String apiKey;
 
   // Auth endpoints
-  static const String _signUpUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp';
-  static const String _signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
-  static const String _refreshTokenUrl = 'https://securetoken.googleapis.com/v1/token';
-  static const String _getUserDataUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
-  static const String _updateAccountUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update';
+  static const String _signUpUrl =
+      'https://identitytoolkit.googleapis.com/v1/accounts:signUp';
+  static const String _signInUrl =
+      'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
+  static const String _refreshTokenUrl =
+      'https://securetoken.googleapis.com/v1/token';
+  static const String _getUserDataUrl =
+      'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
+  static const String _updateAccountUrl =
+      'https://identitytoolkit.googleapis.com/v1/accounts:update';
+  static const String _sendOobCodeUrl =
+      'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode';
 
   // Storage keys
   static const String _keyIdToken = 'firebase_id_token';
@@ -107,10 +114,7 @@ class FirebaseAuthRestService {
         _currentAuthState = currentUser;
         _authStateController.add(currentUser);
 
-        return AuthResult(
-          success: true,
-          user: currentUser,
-        );
+        return AuthResult(success: true, user: currentUser);
       } else {
         final error = json.decode(response.body);
         return AuthResult(
@@ -160,10 +164,7 @@ class FirebaseAuthRestService {
         _currentAuthState = currentUser;
         _authStateController.add(currentUser);
 
-        return AuthResult(
-          success: true,
-          user: currentUser,
-        );
+        return AuthResult(success: true, user: currentUser);
       } else {
         final error = json.decode(response.body);
         return AuthResult(
@@ -183,22 +184,21 @@ class FirebaseAuthRestService {
   // PASSWORD MANAGEMENT
   // ===========================================================================
 
-  Future<AuthResult> reauthenticate({
-    required String password,
-  }) async {
+  Future<AuthResult> reauthenticate({required String password}) async {
     if (_email == null) {
       return AuthResult(success: false, message: 'No user signed in.');
     }
     return signIn(email: _email!, password: password);
   }
 
-  Future<AuthResult> changePassword({
-    required String newPassword,
-  }) async {
+  Future<AuthResult> changePassword({required String newPassword}) async {
     try {
       final token = await getIdToken();
       if (token == null) {
-        return AuthResult(success: false, message: 'User is not authenticated.');
+        return AuthResult(
+          success: false,
+          message: 'User is not authenticated.',
+        );
       }
 
       final url = '$_updateAccountUrl?key=$apiKey';
@@ -223,6 +223,33 @@ class FirebaseAuthRestService {
           expiresIn: int.parse(data['expiresIn']),
         );
         return AuthResult(success: true, user: currentUser);
+      } else {
+        final error = json.decode(response.body);
+        return AuthResult(
+          success: false,
+          message: _parseErrorMessage(error['error']['message']),
+        );
+      }
+    } catch (e) {
+      return AuthResult(
+        success: false,
+        message: 'An error occurred. Please try again.',
+      );
+    }
+  }
+
+  Future<AuthResult> sendPasswordResetEmail({required String email}) async {
+    try {
+      final url = '$_sendOobCodeUrl?key=$apiKey';
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'requestType': 'PASSWORD_RESET', 'email': email}),
+      );
+
+      if (response.statusCode == 200) {
+        return AuthResult(success: true, message: 'Password reset email sent.');
       } else {
         final error = json.decode(response.body);
         return AuthResult(
@@ -391,9 +418,5 @@ class AuthResult {
   final AuthUser? user;
   final String? message;
 
-  AuthResult({
-    required this.success,
-    this.user,
-    this.message,
-  });
+  AuthResult({required this.success, this.user, this.message});
 }

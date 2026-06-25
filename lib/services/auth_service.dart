@@ -8,8 +8,8 @@ class AuthService {
   AuthService({
     required FirebaseAuthRestService authService,
     required FirebaseRTDBRestService rtdbService,
-  })  : _auth = authService,
-        _rtdb = rtdbService;
+  }) : _auth = authService,
+       _rtdb = rtdbService;
 
   AuthUser? get currentUser => _auth.currentUser;
   Stream<AuthUser?> get authStateChanges => _auth.authStateChanges;
@@ -23,10 +23,7 @@ class AuthService {
     required String role, // 'admin', 'staff', 'volunteer'
   }) async {
     try {
-      final result = await _auth.signUp(
-        email: email,
-        password: password,
-      );
+      final result = await _auth.signUp(email: email, password: password);
 
       if (!result.success) {
         return {'success': false, 'message': result.message};
@@ -44,7 +41,10 @@ class AuthService {
 
       return {'success': true, 'user': result.user};
     } catch (e) {
-      return {'success': false, 'message': 'An error occurred. Please try again.'};
+      return {
+        'success': false,
+        'message': 'An error occurred. Please try again.',
+      };
     }
   }
 
@@ -54,10 +54,7 @@ class AuthService {
     required String password,
   }) async {
     try {
-      final result = await _auth.signIn(
-        email: email,
-        password: password,
-      );
+      final result = await _auth.signIn(email: email, password: password);
 
       if (!result.success) {
         return {'success': false, 'message': result.message};
@@ -65,7 +62,10 @@ class AuthService {
 
       return {'success': true, 'user': result.user};
     } catch (e) {
-      return {'success': false, 'message': 'An error occurred. Please try again.'};
+      return {
+        'success': false,
+        'message': 'An error occurred. Please try again.',
+      };
     }
   }
 
@@ -82,7 +82,10 @@ class AuthService {
 
       return {'success': true, 'user': result.user};
     } catch (e) {
-      return {'success': false, 'message': 'An error occurred. Please try again.'};
+      return {
+        'success': false,
+        'message': 'An error occurred. Please try again.',
+      };
     }
   }
 
@@ -99,7 +102,29 @@ class AuthService {
 
       return {'success': true, 'user': result.user};
     } catch (e) {
-      return {'success': false, 'message': 'An error occurred. Please try again.'};
+      return {
+        'success': false,
+        'message': 'An error occurred. Please try again.',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> sendPasswordResetEmail({
+    required String email,
+  }) async {
+    try {
+      final result = await _auth.sendPasswordResetEmail(email: email);
+
+      if (!result.success) {
+        return {'success': false, 'message': result.message};
+      }
+
+      return {'success': true, 'message': result.message};
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'An error occurred. Please try again.',
+      };
     }
   }
 
@@ -140,17 +165,13 @@ class AuthService {
 
       List<Map<String, dynamic>> admins = [];
 
-      Map<String, dynamic> users =
-      Map<String, dynamic>.from(data);
+      Map<String, dynamic> users = Map<String, dynamic>.from(data);
 
       users.forEach((uid, userData) {
         final user = Map<String, dynamic>.from(userData);
 
         if (user['role'] == 'admin') {
-          admins.add({
-            'uid': uid,
-            ...user,
-          });
+          admins.add({'uid': uid, ...user});
         }
       });
 

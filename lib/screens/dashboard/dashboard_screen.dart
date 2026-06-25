@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../models/patient_model.dart';
+import '../../models/room_model.dart';
 import '../../services/service_locator.dart';
 import '../../models/stay_model.dart';
-import '../../services/room_service.dart';
 import '../../utils/bed_helper.dart';
 import '../../models/notification_model.dart';
 import '../../utils/responsive_layout.dart';
@@ -14,6 +15,12 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  bool _shouldCountPatient(PatientModel patient) {
+    final status = patient.status.toLowerCase();
+    final notes = patient.notes?.toLowerCase() ?? '';
+    return status != 'inactive' && !notes.contains('imported from excel');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -37,10 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 4),
                   const Text(
                     "Real-time analytics and census tracking",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF639922),
-                    ),
+                    style: TextStyle(fontSize: 14, color: Color(0xFF639922)),
                   ),
                   const SizedBox(height: 24),
                   _buildPrimaryStatsRow(),
@@ -85,20 +89,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildPrimaryStatsRow() {
     return StreamBuilder<Map<String, dynamic>>(
       stream: RoomService.combineLatest2(
-        ServiceLocator().patientService.getPatientStatsStream(),
-        ServiceLocator().roomService.getFullCensusStream(),
-        (Map<String, int> patientStats, Map<String, dynamic> census) {
+        ServiceLocator().patientService.getPatientsStream(),
+        ServiceLocator().roomService.getRoomsStream(),
+        (List<PatientModel> patients, List<RoomModel> rooms) {
+          final countedPatients = patients.where(_shouldCountPatient).toList();
+          final attendeeCount = countedPatients.fold<int>(
+            0,
+            (sum, patient) => sum + (patient.attendants?.length ?? 0),
+          );
+          final vacantBeds = rooms.fold<int>(
+            0,
+            (sum, room) => sum + room.actualAvailableBeds,
+          );
+
           return {
-            'activePatients': patientStats['active'] ?? 0,
-            'totalInHouse': census['totalInHouse'] ?? 0,
-            'vacantBeds': census['vacantBeds'] ?? 0,
-            'totalPatients': patientStats['total'] ?? 0,
+            'patients': countedPatients.length,
+            'totalPeople': countedPatients.length + attendeeCount,
+            'vacantBeds': vacantBeds,
+            'totalPatients': countedPatients.length,
           };
         },
       ),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+          );
         }
 
         final data = snapshot.data!;
@@ -107,24 +123,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           runSpacing: 16,
           children: [
             _StatCard(
-              label: "Active Patients",
-              value: data['activePatients'].toString(),
+              label: "Patients",
+              value: data['patients'].toString(),
               icon: Icons.person_rounded,
               color: const Color(0xFF3B6D11),
             ),
-             _StatCard(
-              label: "Total In-House",
-              value: data['totalInHouse'].toString(),
+            _StatCard(
+              label: "Total People",
+              value: data['totalPeople'].toString(),
               icon: Icons.groups_rounded,
               color: const Color(0xFF0F6E56),
             ),
-             _StatCard(
+            _StatCard(
               label: "Available Beds",
               value: data['vacantBeds'].toString(),
               icon: Icons.bed_rounded,
               color: const Color(0xFF1976D2),
             ),
-             _StatCard(
+            _StatCard(
               label: "Total Registered",
               value: data['totalPatients'].toString(),
               icon: Icons.assignment_ind_rounded,
@@ -141,7 +157,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stream: ServiceLocator().notificationService.getNotificationsStream(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();
-        
+
         final notifications = snapshot.data!;
         if (notifications.isEmpty) return const SizedBox.shrink();
 
@@ -151,13 +167,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFD32F2F).withOpacity(0.3), width: 1),
+            border: Border.all(
+              color: const Color(0xFFD32F2F).withValues(alpha: 0.3),
+              width: 1,
+            ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFD32F2F).withOpacity(0.05),
+                color: const Color(0xFFD32F2F).withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
-              )
+              ),
             ],
           ),
           child: Column(
@@ -165,7 +184,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Row(
                 children: const [
-                  Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 24),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color(0xFFD32F2F),
+                    size: 24,
+                  ),
                   SizedBox(width: 10),
                   Text(
                     "Action Needed",
@@ -184,16 +207,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 itemCount: notifications.length > 3 ? 3 : notifications.length,
                 itemBuilder: (context, index) {
                   final notification = notifications[index];
-                  final isPayment = notification.type == NotificationType.paymentPending;
-                  
+                  final isPayment =
+                      notification.type == NotificationType.paymentPending;
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12.0),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          isPayment ? Icons.payment_rounded : Icons.calendar_today_rounded,
-                          color: isPayment ? const Color(0xFFD32F2F) : const Color(0xFFF57C00),
+                          isPayment
+                              ? Icons.payment_rounded
+                              : Icons.calendar_today_rounded,
+                          color: isPayment
+                              ? const Color(0xFFD32F2F)
+                              : const Color(0xFFF57C00),
                           size: 18,
                         ),
                         const SizedBox(width: 12),
@@ -210,7 +238,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               Text(
                                 notification.message,
-                                style: const TextStyle(fontSize: 13, color: Color(0xFF639922)),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF639922),
+                                ),
                               ),
                             ],
                           ),
@@ -232,7 +263,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       fontStyle: FontStyle.italic,
                     ),
                   ),
-                )
+                ),
             ],
           ),
         );
@@ -253,7 +284,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5)),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+              ),
             ),
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -276,13 +309,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(
                   padding: EdgeInsets.all(24.0),
-                  child: Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11))),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+                  ),
                 );
               }
 
               final allStays = snapshot.data ?? [];
 
-// Remove duplicate patients
+              // Remove duplicate patients
               final uniqueMap = <String, StayModel>{};
 
               for (final stay in allStays) {
@@ -310,17 +345,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final stay = stays[index];
                   // Format Date securely without intl
                   final date = stay.admissionDate;
-                  final dateStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-                  
+                  final dateStr =
+                      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       border: Border(
                         bottom: BorderSide(
-                           color: index == (stays.length > 5 ? 4 : stays.length - 1)
+                          color:
+                              index == (stays.length > 5 ? 4 : stays.length - 1)
                               ? Colors.transparent
                               : const Color(0xFFC0DD97),
-                           width: 0.5,
+                          width: 0.5,
                         ),
                       ),
                     ),
@@ -333,8 +373,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               backgroundColor: const Color(0xFFEAF3DE),
                               radius: 18,
                               child: Text(
-                                stay.patientName.isNotEmpty ? stay.patientName[0].toUpperCase() : '?',
-                                style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF3B6D11)),
+                                stay.patientName.isNotEmpty
+                                    ? stay.patientName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF3B6D11),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -343,21 +388,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               children: [
                                 Text(
                                   stay.patientName,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF27500A)),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF27500A),
+                                  ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   "Admitted: $dateStr",
-                                  style: const TextStyle(fontSize: 12, color: Color(0xFF639922)),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF639922),
+                                  ),
                                 ),
                               ],
                             ),
                           ],
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF3B6D11).withOpacity(0.1),
+                            color: const Color(
+                              0xFF3B6D11,
+                            ).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -393,10 +449,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-           Container(
+          Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5)),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+              ),
             ),
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -409,7 +467,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     color: Color(0xFF27500A),
                   ),
                 ),
-                Icon(Icons.meeting_room_rounded, color: Color(0xFF639922), size: 20),
+                Icon(
+                  Icons.meeting_room_rounded,
+                  color: Color(0xFF639922),
+                  size: 20,
+                ),
               ],
             ),
           ),
@@ -417,9 +479,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             stream: ServiceLocator().roomService.getRoomStatsStream(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                 return const Padding(
+                return const Padding(
                   padding: EdgeInsets.all(24.0),
-                  child: Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11))),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+                  ),
                 );
               }
 
@@ -428,15 +492,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   children: [
-                    _MiniStatRow("Total Rooms", stats['totalRooms'].toString(), Icons.domain_rounded),
-                    const Divider(color: Color(0xFFC0DD97), height: 24, thickness: 0.5),
-                    _MiniStatRow("Occupied Rooms", stats['occupiedRooms'].toString(), Icons.door_front_door_rounded, color: const Color(0xFFF57C00)),
+                    _MiniStatRow(
+                      "Total Rooms",
+                      stats['totalRooms'].toString(),
+                      Icons.domain_rounded,
+                    ),
+                    const Divider(
+                      color: Color(0xFFC0DD97),
+                      height: 24,
+                      thickness: 0.5,
+                    ),
+                    _MiniStatRow(
+                      "Occupied Rooms",
+                      stats['occupiedRooms'].toString(),
+                      Icons.door_front_door_rounded,
+                      color: const Color(0xFFF57C00),
+                    ),
                     const SizedBox(height: 12),
-                    _MiniStatRow("Available Rooms", stats['availableRooms'].toString(), Icons.meeting_room_outlined, color: const Color(0xFF3B6D11)),
-                    const Divider(color: Color(0xFFC0DD97), height: 24, thickness: 0.5),
-                    _MiniStatRow("Total Beds", stats['totalBeds'].toString(), Icons.bed_rounded),
+                    _MiniStatRow(
+                      "Available Rooms",
+                      stats['availableRooms'].toString(),
+                      Icons.meeting_room_outlined,
+                      color: const Color(0xFF3B6D11),
+                    ),
+                    const Divider(
+                      color: Color(0xFFC0DD97),
+                      height: 24,
+                      thickness: 0.5,
+                    ),
+                    _MiniStatRow(
+                      "Total Beds",
+                      stats['totalBeds'].toString(),
+                      Icons.bed_rounded,
+                    ),
                     const SizedBox(height: 12),
-                    _MiniStatRow("Occupied Beds", stats['occupiedBeds'].toString(), Icons.single_bed_rounded, color: const Color(0xFFD32F2F)),
+                    _MiniStatRow(
+                      "Occupied Beds",
+                      stats['occupiedBeds'].toString(),
+                      Icons.single_bed_rounded,
+                      color: const Color(0xFFD32F2F),
+                    ),
                   ],
                 ),
               );
@@ -464,10 +559,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minWidth: 220,
-        minHeight: 120,
-      ),
+      constraints: const BoxConstraints(minWidth: 220, minHeight: 120),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -476,10 +568,10 @@ class _StatCard extends StatelessWidget {
           border: Border.all(color: const Color(0xFFC0DD97), width: 1),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.05),
+              color: color.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
-            )
+            ),
           ],
         ),
         child: Row(
@@ -488,7 +580,7 @@ class _StatCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 28),
@@ -533,7 +625,12 @@ class _MiniStatRow extends StatelessWidget {
   final IconData icon;
   final Color color;
 
-  const _MiniStatRow(this.label, this.value, this.icon, {this.color = const Color(0xFF27500A)});
+  const _MiniStatRow(
+    this.label,
+    this.value,
+    this.icon, {
+    this.color = const Color(0xFF27500A),
+  });
 
   @override
   Widget build(BuildContext context) {

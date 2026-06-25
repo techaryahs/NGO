@@ -13,8 +13,11 @@ extension RoomServiceStats on RoomService {
       final generalRooms = rooms.where((r) => r.isGeneral).length;
       final occupiedRooms = rooms.where((r) => r.status == 'occupied').length;
       final availableRooms = rooms.where((r) => r.status == 'available').length;
-      final totalBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualTotalBeds);
-      final occupiedBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+      final totalBeds = rooms.fold(0, (sum, r) => sum + r.actualTotalBeds);
+      final occupiedBeds = rooms.fold(
+        0,
+        (sum, r) => sum + r.actualOccupiedBeds,
+      );
 
       return {
         'totalRooms': totalRooms,
@@ -32,7 +35,9 @@ extension RoomServiceStats on RoomService {
   Stream<Map<String, int>> getCensusSummaryStream() {
     return getActiveStaysStream().map((stays) {
       final totalPatients = stays.length;
-      final totalAttendants = stays.where((s) => s.roomType == 'private').fold(0, (sum, s) => sum + s.attendantCount);
+      final totalAttendants = stays
+          .where((s) => s.roomType == 'private')
+          .fold(0, (sum, s) => sum + s.attendantCount);
       final totalInHouse = totalPatients + totalAttendants;
 
       return {
@@ -44,9 +49,16 @@ extension RoomServiceStats on RoomService {
   }
 
   Stream<Map<String, dynamic>> getFullCensusStream() {
-    return RoomService.combineLatest2(getCensusSummaryStream(), getRoomsStream(), (census, rooms) {
-      final vacantBeds = rooms.where((r) => r.isGeneral).fold(0, (sum, r) => sum + r.actualAvailableBeds);
-      return {...census, 'vacantBeds': vacantBeds};
-    });
+    return RoomService.combineLatest2(
+      getCensusSummaryStream(),
+      getRoomsStream(),
+      (census, rooms) {
+        final vacantBeds = rooms.fold(
+          0,
+          (sum, r) => sum + r.actualAvailableBeds,
+        );
+        return {...census, 'vacantBeds': vacantBeds};
+      },
+    );
   }
 }
