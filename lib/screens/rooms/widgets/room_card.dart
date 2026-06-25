@@ -192,9 +192,18 @@ class RoomCard extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 physics: const ClampingScrollPhysics(),
-                child: room.isPrivate
-                    ? _buildAttendantsVisualization()
-                    : _buildBedsVisualization(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    room.isPrivate
+                        ? _buildAttendantsVisualization()
+                        : _buildBedsVisualization(),
+                    if (BedHelper.isLobbyRoom(room.roomIdentifier)) ...[
+                      const SizedBox(height: 6),
+                      _buildLobbyVisualization(),
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -398,7 +407,7 @@ class RoomCard extends StatelessWidget {
         roomIdentifier: room.roomIdentifier,
       );
       final existing = uniqueBeds[label];
-      if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
+      if (existing == null || (existing.isAvailable && !bed.isAvailable)) {
         uniqueBeds[label] = bed;
       }
     }
@@ -416,6 +425,47 @@ class RoomCard extends StatelessWidget {
           status: bed.status,
         );
       }).toList(),
+    );
+  }
+
+  Widget _buildLobbyVisualization() {
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        _buildLobbyChip(label: 'Lobby 1'),
+        _buildLobbyChip(label: 'Lobby 2'),
+      ],
+    );
+  }
+
+  Widget _buildLobbyChip({required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF90CAF9), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.weekend_outlined,
+            size: 10,
+            color: Color(0xFF1976D2),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1976D2),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

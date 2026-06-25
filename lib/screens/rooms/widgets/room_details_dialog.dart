@@ -15,6 +15,7 @@ class RoomDetailsDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final roomService = ServiceLocator().roomService;
+    final isLobbyRoom = BedHelper.isLobbyRoom(room.roomIdentifier);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -104,10 +105,9 @@ class RoomDetailsDialog extends StatelessWidget {
                           Expanded(
                             child: _InfoItem(
                               label: "Status",
-                              value: room.derivedOccupancyStatus
-                                  .toUpperCase()
-                                  .replaceAll('_', ' '),
+                              value: _formatStatus(room.derivedOccupancyStatus),
                               icon: Icons.info_outline_rounded,
+                              isStatus: true,
                             ),
                           ),
                           if (room.isPrivate)
@@ -126,6 +126,14 @@ class RoomDetailsDialog extends StatelessWidget {
                                 value:
                                     "${room.actualOccupiedBeds}/${room.actualTotalBeds}",
                                 icon: Icons.bed_outlined,
+                              ),
+                            ),
+                          if (isLobbyRoom)
+                            const Expanded(
+                              child: _InfoItem(
+                                label: "Lobbies",
+                                value: "2",
+                                icon: Icons.weekend_outlined,
                               ),
                             ),
                           Expanded(
@@ -155,6 +163,26 @@ class RoomDetailsDialog extends StatelessWidget {
                         beds: room.beds,
                         roomType: room.roomType,
                         roomIdentifier: room.roomIdentifier,
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (isLobbyRoom) ...[
+                      const Text(
+                        "Lobbies",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF27500A),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _LobbyStatusCard(label: 'Lobby 1', status: 'lobby'),
+                          _LobbyStatusCard(label: 'Lobby 2', status: 'lobby'),
+                        ],
                       ),
                       const SizedBox(height: 20),
                     ],
@@ -269,6 +297,17 @@ class RoomDetailsDialog extends StatelessWidget {
       ),
     );
   }
+
+  String _formatStatus(String status) {
+    return status
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map(
+          (part) =>
+              '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}',
+        )
+        .join(' ');
+  }
 }
 
 /// Bed Status Grid - Shows all beds with their status
@@ -293,7 +332,7 @@ class _BedStatusGrid extends StatelessWidget {
         roomIdentifier: roomIdentifier,
       );
       final existing = uniqueBeds[label];
-      if (existing == null || (!existing.isAvailable && bed.isAvailable)) {
+      if (existing == null || (existing.isAvailable && !bed.isAvailable)) {
         uniqueBeds[label] = bed;
       }
     }
@@ -311,6 +350,71 @@ class _BedStatusGrid extends StatelessWidget {
             ),
           )
           .toList(),
+    );
+  }
+}
+
+class _LobbyStatusCard extends StatelessWidget {
+  final String label;
+  final String status;
+
+  const _LobbyStatusCard({required this.label, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOccupied = status == 'occupied';
+    final isLobby = status == 'lobby';
+    final bgColor = isLobby
+        ? const Color(0xFFE3F2FD)
+        : isOccupied
+        ? const Color(0xFFFFE5E7)
+        : const Color(0xFFE8F5E0);
+    final textColor = isLobby
+        ? const Color(0xFF1976D2)
+        : isOccupied
+        ? const Color(0xFFD32F2F)
+        : const Color(0xFF3B6D11);
+    final borderColor = isLobby
+        ? const Color(0xFF90CAF9)
+        : isOccupied
+        ? const Color(0xFFE8B4B8)
+        : const Color(0xFFC0DD97);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.weekend_outlined, size: 15, color: textColor),
+          const SizedBox(width: 5),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              Text(
+                isLobby ? 'LOBBY' : status.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: textColor.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -400,11 +504,13 @@ class _InfoItem extends StatelessWidget {
   final String label;
   final String value;
   final IconData icon;
+  final bool isStatus;
 
   const _InfoItem({
     required this.label,
     required this.value,
     required this.icon,
+    this.isStatus = false,
   });
 
   @override
@@ -413,14 +519,37 @@ class _InfoItem extends StatelessWidget {
       children: [
         Icon(icon, size: 20, color: const Color(0xFF639922)),
         const SizedBox(height: 6),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF27500A),
+        if (isStatus)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF3DE),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF27500A),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          )
+        else
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF27500A),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
         Text(
           label,
           style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
@@ -543,8 +672,8 @@ class _StayCard extends StatelessWidget {
                           Text(
                             BedHelper.getBedDisplayName(
                               (stay.bedNumber ??
-                                  stay.bedId?.split('_').last ??
-                                  'N/A')
+                                      stay.bedId?.split('_').last ??
+                                      'N/A')
                                   .toString(),
                               roomIdentifier: stay.roomNumber,
                             ),

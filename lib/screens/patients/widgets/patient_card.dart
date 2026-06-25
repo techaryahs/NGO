@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import '../../../models/patient_model.dart';
-import '../../../utils/bed_helper.dart';
 
 class PatientCard extends StatelessWidget {
   final PatientModel patient;
@@ -28,6 +27,15 @@ class PatientCard extends StatelessWidget {
     final isActive =
         patient.status == 'active' || patient.status.toLowerCase() == 'paid';
     final photoBytes = _decodePhoto(patient.photoDataUrl);
+    final attendeeNames =
+        patient.attendants
+            ?.map((attendant) => attendant.name.trim())
+            .where((name) => name.isNotEmpty)
+            .toList() ??
+        [];
+    final attendeeText = attendeeNames.isEmpty
+        ? 'Attendees: Not Provided'
+        : 'Attendees: ${attendeeNames.join(', ')}';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -129,44 +137,8 @@ class PatientCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          _InfoChip(
-                            icon: Icons.cake_outlined,
-                            label: '${patient.age} years',
-                          ),
-                          _InfoChip(
-                            icon: Icons.phone_outlined,
-                            label: patient.contactNumber,
-                          ),
-                          if (patient.roomNumber != null)
-                            _InfoChip(
-                              icon: Icons.meeting_room_outlined,
-                              label: 'Room ${patient.roomNumber}',
-                              color: const Color(0xFF3B6D11),
-                            ),
-                          if (patient.bedLabels != null &&
-                              patient.bedLabels!.isNotEmpty)
-                            _InfoChip(
-                              icon: Icons.bed_outlined,
-                              label: patient.bedLabels!
-                                  .map(
-                                    (bed) => BedHelper.getBedDisplayName(
-                                      bed.toString().trim(),
-                                      roomIdentifier: patient.roomNumber,
-                                    ),
-                                  )
-                                  .toSet()
-                                  .join(", "),
-                              color: const Color(0xFF3B6D11),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
                       Text(
-                        patient.medicalCondition,
+                        attendeeText,
                         style: const TextStyle(
                           fontSize: 13,
                           color: Color(0xFF639922),
@@ -297,28 +269,6 @@ class _StatusBadge extends StatelessWidget {
           color: textColor,
         ),
       ),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? color;
-
-  const _InfoChip({required this.icon, required this.label, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final chipColor = color ?? const Color(0xFF639922);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: chipColor.withOpacity(0.7)),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: chipColor)),
-      ],
     );
   }
 }

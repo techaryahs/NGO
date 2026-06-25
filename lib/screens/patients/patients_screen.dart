@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../models/patient_model.dart';
 import '../../services/service_locator.dart';
+import '../../models/room_model.dart';
+import '../../utils/bed_helper.dart';
 import 'widgets/patient_card.dart';
 import 'widgets/add_patient_dialog.dart';
 import 'widgets/payment_dialog.dart';
 import 'patient_profile_screen.dart';
+import 'utils/patient_info_download.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
+import 'package:intl/intl.dart';
 import 'dart:io';
 
 class PatientsScreen extends StatefulWidget {
@@ -139,6 +143,250 @@ class _PatientsScreenState extends State<PatientsScreen> {
     return filtered;
   }
 
+  bool _shouldCountInPatientStats(PatientModel patient) {
+    final status = patient.status.toLowerCase();
+    final notes = patient.notes?.toLowerCase() ?? '';
+    return status != 'inactive' && !notes.contains('imported from excel');
+  }
+
+  bool _isActivePatient(PatientModel patient) {
+    final status = patient.status.toLowerCase();
+    return status == 'active' || status == 'paid';
+  }
+
+  bool _matchesDownloadStatus(PatientModel patient, String statusFilter) {
+    final status = patient.status.toLowerCase();
+    if (statusFilter == 'active') return _isActivePatient(patient);
+    return status == statusFilter;
+  }
+
+  String _downloadStatusLabel(String statusFilter) {
+    switch (statusFilter) {
+      case 'active':
+        return 'Active';
+      case 'inactive':
+        return 'Inactive';
+      case 'discharged':
+        return 'Discharged';
+      default:
+        return 'Patients';
+    }
+  }
+
+  String _displayPatientStatus(PatientModel patient) {
+    final status = patient.status.toLowerCase();
+    if (status == 'active' || status == 'paid') return 'Active';
+    if (status == 'inactive') return 'Inactive';
+    if (status == 'discharged') return 'Discharged';
+    return patient.status;
+  }
+
+  String _formatPatientDate(DateTime? date) {
+    if (date == null || date.millisecondsSinceEpoch == 0) return '';
+    return DateFormat('dd/MM/yyyy').format(date);
+  }
+
+  String _formatAssignedBeds(PatientModel patient) {
+    final beds = patient.bedLabels;
+    if (beds == null || beds.isEmpty) return '';
+
+    return beds
+        .map(
+          (bed) => BedHelper.getBedDisplayName(
+            bed.toString().trim(),
+            roomIdentifier: patient.roomNumber,
+          ),
+        )
+        .toSet()
+        .join(', ');
+  }
+
+  Future<void> _downloadPatientsInfoByStatus(
+    List<PatientModel> patients,
+    String statusFilter,
+  ) async {
+    final statusLabel = _downloadStatusLabel(statusFilter);
+    final selectedPatients =
+        patients
+            .where((patient) => _matchesDownloadStatus(patient, statusFilter))
+            .toList()
+          ..sort((a, b) => a.fullName.compareTo(b.fullName));
+
+    if (selectedPatients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No ${statusLabel.toLowerCase()} patients to download'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final currencyFmt = NumberFormat.currency(
+        symbol: 'Rs ',
+        decimalDigits: 0,
+      );
+      final excel = Excel.createExcel();
+
+      if (excel.tables.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      final patientSheet = excel['$statusLabel Patients'];
+      patientSheet.appendRow([
+        TextCellValue('Sr No'),
+        TextCellValue('Patient Name'),
+        TextCellValue('Patient ID'),
+        TextCellValue('Registration Number'),
+        TextCellValue('Status'),
+        TextCellValue('Age'),
+        TextCellValue('Gender'),
+        TextCellValue('Date of Birth'),
+        TextCellValue('Contact Number'),
+        TextCellValue('Emergency Contact Name'),
+        TextCellValue('Emergency Contact Number'),
+        TextCellValue('Medical Condition'),
+        TextCellValue('Room Number'),
+        TextCellValue('Floor'),
+        TextCellValue('Assigned Beds'),
+        TextCellValue('Admission Date'),
+        TextCellValue('Aadhaar Number'),
+        TextCellValue('PAN Card Number'),
+        TextCellValue('Notes'),
+        TextCellValue('Total Amount'),
+        TextCellValue('Paid Amount'),
+        TextCellValue('Pending Amount'),
+        TextCellValue('Payment Status'),
+        TextCellValue('Attendants'),
+      ]);
+
+      for (int i = 0; i < selectedPatients.length; i++) {
+        final patient = selectedPatients[i];
+        final attendants = patient.attendants ?? [];
+        final totalAmount =
+            (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+
+        patientSheet.appendRow([
+          TextCellValue('${i + 1}'),
+          TextCellValue(patient.fullName),
+          TextCellValue(patient.id),
+          TextCellValue(patient.registrationNumber ?? ''),
+          TextCellValue(_displayPatientStatus(patient)),
+          TextCellValue('${patient.age} Years'),
+          TextCellValue(patient.gender),
+          TextCellValue(_formatPatientDate(patient.dateOfBirth)),
+          TextCellValue(patient.contactNumber),
+          TextCellValue(patient.emergencyContactName),
+          TextCellValue(patient.emergencyContact),
+          TextCellValue(patient.medicalCondition),
+          TextCellValue(patient.roomNumber ?? ''),
+          TextCellValue(patient.floor?.toString() ?? ''),
+          TextCellValue(_formatAssignedBeds(patient)),
+          TextCellValue(_formatPatientDate(patient.admissionDate)),
+          TextCellValue(patient.aadhaarCardNumber ?? ''),
+          TextCellValue(patient.panCardNumber ?? ''),
+          TextCellValue(patient.notes ?? ''),
+          TextCellValue(currencyFmt.format(totalAmount)),
+          TextCellValue(currencyFmt.format(patient.totalPaidAmount ?? 0)),
+          TextCellValue(currencyFmt.format(patient.currentDueAmount ?? 0)),
+          TextCellValue(patient.paymentStatus ?? 'Pending'),
+          TextCellValue(
+            attendants.isEmpty
+                ? 'N/A'
+                : attendants.map((attendant) => attendant.name).join(', '),
+          ),
+        ]);
+      }
+
+      final attendantsSheet = excel['Attendants'];
+      attendantsSheet.appendRow([
+        TextCellValue('Patient Name'),
+        TextCellValue('Patient ID'),
+        TextCellValue('Sr No'),
+        TextCellValue('Name'),
+        TextCellValue('Age'),
+        TextCellValue('Relation'),
+        TextCellValue('Aadhaar Number'),
+      ]);
+
+      for (final patient in selectedPatients) {
+        final attendants = patient.attendants ?? [];
+        if (attendants.isEmpty) {
+          attendantsSheet.appendRow([
+            TextCellValue(patient.fullName),
+            TextCellValue(patient.id),
+            TextCellValue(''),
+            TextCellValue('N/A'),
+            TextCellValue(''),
+            TextCellValue(''),
+            TextCellValue(''),
+          ]);
+          continue;
+        }
+
+        for (int i = 0; i < attendants.length; i++) {
+          final attendant = attendants[i];
+          attendantsSheet.appendRow([
+            TextCellValue(patient.fullName),
+            TextCellValue(patient.id),
+            TextCellValue('${i + 1}'),
+            TextCellValue(attendant.name),
+            TextCellValue(
+              attendant.age != null && attendant.age!.trim().isNotEmpty
+                  ? attendant.age!
+                  : 'N/A',
+            ),
+            TextCellValue(
+              attendant.relation != null &&
+                      attendant.relation!.trim().isNotEmpty
+                  ? attendant.relation!
+                  : 'N/A',
+            ),
+            TextCellValue(attendant.aadhaarNumber ?? ''),
+          ]);
+        }
+      }
+
+      excel.setDefaultSheet('$statusLabel Patients');
+      final bytes = excel.save();
+
+      if (bytes == null) {
+        throw Exception('Could not create Excel file');
+      }
+
+      final dateStamp = DateFormat('yyyy_MM_dd').format(DateTime.now());
+      final savedLocation = await savePatientInfoWorkbook(
+        bytes: bytes,
+        fileName: '${statusFilter}_patients_$dateStamp',
+      );
+
+      if (savedLocation == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Download cancelled')));
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$statusLabel patient info downloaded successfully'),
+          backgroundColor: Color(0xFF3B6D11),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed: $e'),
+          backgroundColor: const Color(0xFFD32F2F),
+        ),
+      );
+    }
+  }
+
   Future<void> _importFromExcel() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -148,6 +396,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
       );
 
       if (result != null) {
+        if (!mounted) return;
         setState(() {
           // You could add a loading state here
         });
@@ -181,7 +430,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
           // Skip header rows by finding where the actual data starts.
           // Usually data row starts when column 0 is a number (Registration No)
           for (var row in rows) {
-            String? regNo = row.length > 0 ? row[0]?.value?.toString() : null;
+            String? regNo = row.isNotEmpty ? row[0]?.value?.toString() : null;
             if (regNo == null ||
                 regNo.isEmpty ||
                 regNo.toLowerCase().contains("registration") ||
@@ -244,6 +493,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
             List<String> notesList = [];
             if (address.isNotEmpty) notesList.add('Address: $address');
             if (amtRecd.isNotEmpty) notesList.add('Amt Recd: $amtRecd');
+            notesList.add('Imported from Excel');
 
             await ServiceLocator().patientService.addPatient(
               fullName: name,
@@ -301,118 +551,249 @@ class _PatientsScreenState extends State<PatientsScreen> {
             stream: ServiceLocator().patientService.getPatientsStream(),
             builder: (context, snapshot) {
               final allPatients = snapshot.data ?? [];
-              final activeCount = allPatients
-                  .where(
-                    (p) =>
-                        p.status == 'active' ||
-                        p.status.toLowerCase() == 'paid',
-                  )
-                  .length;
-              final dischargedCount = allPatients
-                  .where((p) => p.status == 'discharged')
-                  .length;
-              final withRoomCount = allPatients
-                  .where(
-                    (p) =>
-                        p.roomId != null &&
-                        (p.status == 'active' ||
-                            p.status.toLowerCase() == 'paid'),
-                  )
-                  .length;
+              final countedPatients = allPatients
+                  .where(_shouldCountInPatientStats)
+                  .toList();
+              final patientCount = countedPatients.length;
+              final attendeeCount = countedPatients.fold<int>(
+                0,
+                (sum, patient) => sum + (patient.attendants?.length ?? 0),
+              );
+              final totalPeopleCount = patientCount + attendeeCount;
 
-              return Container(
-                padding: const EdgeInsets.all(20),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFAFDF7),
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              return StreamBuilder<List<RoomModel>>(
+                stream: ServiceLocator().roomService.getRoomsStream(),
+                builder: (context, roomsSnapshot) {
+                  final rooms = roomsSnapshot.data ?? [];
+                  final totalBeds = rooms.fold<int>(
+                    0,
+                    (sum, room) => sum + room.actualTotalBeds,
+                  );
+                  final availableBeds = rooms.fold<int>(
+                    0,
+                    (sum, room) => sum + room.actualAvailableBeds,
+                  );
+                  final occupiedBeds = rooms.fold<int>(
+                    0,
+                    (sum, room) => sum + room.actualOccupiedBeds,
+                  );
+
+                  return Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFAFDF7),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Color(0xFFC0DD97),
+                          width: 0.5,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          "Patient Management",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF27500A),
-                          ),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                "Patient Management",
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF27500A),
+                                ),
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: _importFromExcel,
+                              icon: const Icon(
+                                Icons.upload_file_rounded,
+                                size: 18,
+                              ),
+                              label: const Text("Import Excel"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF3B6D11),
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: const BorderSide(
+                                    color: Color(0xFF3B6D11),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Download patient info',
+                                      padding: EdgeInsets.zero,
+                                      offset: const Offset(0, 8),
+                                      color: Colors.white,
+                                      elevation: 6,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        side: const BorderSide(
+                                          color: Color(0xFFC0DD97),
+                                        ),
+                                      ),
+                                      onSelected: (status) =>
+                                          _downloadPatientsInfoByStatus(
+                                            allPatients,
+                                            status,
+                                          ),
+                                      itemBuilder: (context) => const [
+                                        PopupMenuItem(
+                                          value: 'active',
+                                          child: _DownloadMenuItem(
+                                            icon: Icons.person_rounded,
+                                            label: 'Active Patients',
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'inactive',
+                                          child: _DownloadMenuItem(
+                                            icon: Icons.person_off_outlined,
+                                            label: 'Inactive Patients',
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'discharged',
+                                          child: _DownloadMenuItem(
+                                            icon: Icons.logout_rounded,
+                                            label: 'Discharged Patients',
+                                          ),
+                                        ),
+                                      ],
+                                      child: Container(
+                                        width: 154,
+                                        height: 44,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFF3B6D11),
+                                          ),
+                                        ),
+                                        child: const Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.download_outlined,
+                                              size: 18,
+                                              color: Color(0xFF3B6D11),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'Download',
+                                              style: TextStyle(
+                                                color: Color(0xFF3B6D11),
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            SizedBox(width: 4),
+                                            Icon(
+                                              Icons.keyboard_arrow_down_rounded,
+                                              size: 18,
+                                              color: Color(0xFF3B6D11),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    ElevatedButton.icon(
+                                      onPressed: _showAddPatientDialog,
+                                      icon: const Icon(
+                                        Icons.add_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text("Add Patient"),
+                                      style: ElevatedButton.styleFrom(
+                                        fixedSize: const Size(154, 44),
+                                        backgroundColor: const Color(
+                                          0xFF3B6D11,
+                                        ),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        ElevatedButton.icon(
-                          onPressed: _importFromExcel,
-                          icon: const Icon(Icons.upload_file_rounded, size: 18),
-                          label: const Text("Import Excel"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: const Color(0xFF3B6D11),
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            _StatCard(
+                              label: "Total People",
+                              value: totalPeopleCount.toString(),
+                              icon: Icons.groups_2_outlined,
+                              color: const Color(0xFF3B6D11),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side: const BorderSide(color: Color(0xFF3B6D11)),
+                            _StatCard(
+                              label: "Patients",
+                              value: patientCount.toString(),
+                              icon: Icons.person_rounded,
+                              color: const Color(0xFF639922),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          onPressed: _showAddPatientDialog,
-                          icon: const Icon(Icons.add_rounded, size: 18),
-                          label: const Text("Add Patient"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF3B6D11),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
+                            _StatCard(
+                              label: "Attendees",
+                              value: attendeeCount.toString(),
+                              icon: Icons.people_outline_rounded,
+                              color: const Color(0xFF0F6E56),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                            _StatCard(
+                              label: "Beds",
+                              value: totalBeds.toString(),
+                              icon: Icons.bed_outlined,
+                              color: const Color(0xFF3B6D11),
                             ),
-                          ),
+                            _StatCard(
+                              label: "Occupied",
+                              value: occupiedBeds.toString(),
+                              icon: Icons.bed_rounded,
+                              color: const Color(0xFFD66A1F),
+                            ),
+                            _StatCard(
+                              label: "Available",
+                              value: availableBeds.toString(),
+                              icon: Icons.event_available_outlined,
+                              color: const Color(0xFF757575),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        _StatCard(
-                          label: "Total Patients",
-                          value: allPatients.length.toString(),
-                          icon: Icons.people_outline_rounded,
-                          color: const Color(0xFF3B6D11),
-                        ),
-                        _StatCard(
-                          label: "Active",
-                          value: activeCount.toString(),
-                          icon: Icons.person_rounded,
-                          color: const Color(0xFF639922),
-                        ),
-                        _StatCard(
-                          label: "With Room",
-                          value: withRoomCount.toString(),
-                          icon: Icons.meeting_room_outlined,
-                          color: const Color(0xFF0F6E56),
-                        ),
-                        _StatCard(
-                          label: "Discharged",
-                          value: dischargedCount.toString(),
-                          icon: Icons.logout_rounded,
-                          color: const Color(0xFF757575),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                  );
+                },
               );
             },
           ),
@@ -436,7 +817,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     decoration: InputDecoration(
                       hintText: 'Search patients by name...',
                       hintStyle: TextStyle(
-                        color: const Color(0xFF639922).withOpacity(0.5),
+                        color: const Color(0xFF639922).withValues(alpha: 0.5),
                       ),
                       prefixIcon: const Icon(
                         Icons.search_rounded,
@@ -538,7 +919,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     ),
                   );
                 }
-
                 final patients = _filterPatients(snapshot.data ?? []);
 
                 if (patients.isEmpty) {
@@ -549,7 +929,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                         Icon(
                           Icons.person_outline_rounded,
                           size: 64,
-                          color: const Color(0xFF639922).withOpacity(0.3),
+                          color: const Color(0xFF639922).withValues(alpha: 0.3),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -558,7 +938,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
                               : 'No patients yet',
                           style: TextStyle(
                             fontSize: 16,
-                            color: const Color(0xFF639922).withOpacity(0.6),
+                            color: const Color(
+                              0xFF639922,
+                            ).withValues(alpha: 0.6),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -692,9 +1074,9 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 160, maxWidth: 220),
+      constraints: const BoxConstraints(minWidth: 160, maxWidth: 180),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           color: const Color(0xFFF4F9F0),
           borderRadius: BorderRadius.circular(12),
@@ -703,14 +1085,14 @@ class _StatCard extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(icon, color: color, size: 20),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -718,7 +1100,7 @@ class _StatCard extends StatelessWidget {
                   Text(
                     value,
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 23,
                       fontWeight: FontWeight.w700,
                       color: color,
                     ),
@@ -729,12 +1111,49 @@ class _StatCard extends StatelessWidget {
                       fontSize: 12,
                       color: Color(0xFF639922),
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DownloadMenuItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _DownloadMenuItem({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 190,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF3B6D11)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF27500A),
+              ),
+            ),
+          ),
+          const Icon(
+            Icons.table_chart_outlined,
+            size: 17,
+            color: Color(0xFF639922),
+          ),
+        ],
       ),
     );
   }

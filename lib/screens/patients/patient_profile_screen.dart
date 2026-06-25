@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/patient_model.dart';
@@ -9,6 +10,7 @@ import '../../../services/service_locator.dart';
 import 'widgets/edit_patient_dialog.dart';
 import 'widgets/payment_dialog.dart';
 import '../../utils/bed_helper.dart';
+import 'utils/patient_info_download.dart';
 
 class PatientProfileScreen extends StatefulWidget {
   final PatientModel patient;
@@ -102,6 +104,267 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
           ),
         );
       }
+    }
+  }
+
+  Future<void> _downloadPatientInfo(PatientModel patient) async {
+    print("INSIDE DOWNLOAD FUNCTION");
+
+    try {
+      print("STEP 1");
+
+      final dateFmt = DateFormat('dd/MM/yyyy');
+      final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
+
+      print("STEP 2");
+
+      final attendants = patient.attendants ?? [];
+
+      final bedLabels =
+          patient.bedLabels != null && patient.bedLabels!.isNotEmpty
+          ? patient.bedLabels!
+                .map(
+                  (bed) => BedHelper.getBedDisplayName(
+                    bed.toString().trim(),
+                    roomIdentifier: patient.roomNumber,
+                  ),
+                )
+                .toSet()
+                .join(', ')
+          : '';
+
+      final totalAmount =
+          (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+
+      print("STEP 3 - Creating Excel");
+
+      final excel = Excel.createExcel();
+
+      if (excel.tables.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      //
+      // =========================
+      // PATIENT DETAILS SHEET
+      // =========================
+      //
+      final patientSheet = excel['Patient Details'];
+
+      patientSheet.appendRow([TextCellValue('Field'), TextCellValue('Value')]);
+
+      patientSheet.appendRow([
+        TextCellValue('Patient Name'),
+        TextCellValue(patient.fullName),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Patient ID'),
+        TextCellValue(patient.id),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Registration Number'),
+        TextCellValue(patient.registrationNumber ?? ''),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Status'),
+        TextCellValue(patient.status),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Age'),
+        TextCellValue('${patient.age} Years'),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Gender'),
+        TextCellValue(patient.gender),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Date of Birth'),
+        TextCellValue(dateFmt.format(patient.dateOfBirth)),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Contact Number'),
+        TextCellValue(patient.contactNumber),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Emergency Contact Name'),
+        TextCellValue(patient.emergencyContactName),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Emergency Contact Number'),
+        TextCellValue(patient.emergencyContact),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Medical Condition'),
+        TextCellValue(patient.medicalCondition),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Room Number'),
+        TextCellValue(patient.roomNumber ?? ''),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Floor'),
+        TextCellValue(patient.floor?.toString() ?? ''),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Assigned Beds'),
+        TextCellValue(bedLabels),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Admission Date'),
+        TextCellValue(dateFmt.format(patient.admissionDate)),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Aadhaar Number'),
+        TextCellValue(patient.aadhaarCardNumber ?? ''),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('PAN Card Number'),
+        TextCellValue(patient.panCardNumber ?? ''),
+      ]);
+
+      patientSheet.appendRow([
+        TextCellValue('Notes'),
+        TextCellValue(patient.notes ?? ''),
+      ]);
+
+      //
+      // =========================
+      // BILLING DETAILS SHEET
+      // =========================
+      //
+      final billingSheet = excel['Billing Details'];
+
+      billingSheet.appendRow([TextCellValue('Field'), TextCellValue('Value')]);
+
+      billingSheet.appendRow([
+        TextCellValue('Total Amount'),
+        TextCellValue(currencyFmt.format(totalAmount)),
+      ]);
+
+      billingSheet.appendRow([
+        TextCellValue('Paid Amount'),
+        TextCellValue(currencyFmt.format(patient.totalPaidAmount ?? 0)),
+      ]);
+
+      billingSheet.appendRow([
+        TextCellValue('Pending Amount'),
+        TextCellValue(currencyFmt.format(patient.currentDueAmount ?? 0)),
+      ]);
+
+      billingSheet.appendRow([
+        TextCellValue('Payment Status'),
+        TextCellValue(patient.paymentStatus ?? 'Pending'),
+      ]);
+
+      //
+      // =========================
+      // ATTENDANTS SHEET
+      // =========================
+      //
+      final attendantsSheet = excel['Attendants'];
+
+      attendantsSheet.appendRow([
+        TextCellValue('Sr No'),
+        TextCellValue('Name'),
+        TextCellValue('Age'),
+        TextCellValue('Relation'),
+      ]);
+
+      for (int i = 0; i < attendants.length; i++) {
+        final attendant = attendants[i];
+
+        attendantsSheet.appendRow([
+          TextCellValue('${i + 1}'),
+          TextCellValue(attendant.name),
+          TextCellValue(
+            attendant.age != null ? attendant.age.toString() : 'N/A',
+          ),
+          TextCellValue(
+            attendant.relation != null && attendant.relation!.trim().isNotEmpty
+                ? attendant.relation!
+                : 'N/A',
+          ),
+        ]);
+      }
+
+      excel.setDefaultSheet('Patient Details');
+
+      print("STEP 4 - Before Save");
+
+      final bytes = excel.save();
+
+      print("STEP 5 - After Save");
+
+      if (bytes == null) {
+        throw Exception('Could not create Excel file');
+      }
+
+      print("STEP 6 - Bytes length: ${bytes.length}");
+
+      final safeName = patient.fullName
+          .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
+          .replaceAll(RegExp(r'^_+|_+$'), '')
+          .toLowerCase();
+
+      print("STEP 7 - Opening Save Dialog");
+
+      final savedLocation = await savePatientInfoWorkbook(
+        bytes: bytes,
+        fileName: 'patient_${safeName.isEmpty ? patient.id : safeName}',
+      );
+
+      print("STEP 8 - Dialog Returned");
+      print(savedLocation);
+
+      if (savedLocation == null) {
+        print("STEP 9 - User Cancelled");
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Download cancelled')));
+        }
+        return;
+      }
+
+      print("STEP 10 - Success");
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Patient info downloaded successfully'),
+          backgroundColor: Color(0xFF3B6D11),
+        ),
+      );
+    } catch (e, st) {
+      print("DOWNLOAD ERROR: $e");
+      print(st);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed: $e'),
+          backgroundColor: const Color(0xFFD32F2F),
+        ),
+      );
     }
   }
 
@@ -231,6 +494,35 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         // Action buttons row
                         Row(
                           children: [
+                            ElevatedButton.icon(
+                              // onPressed: () =>
+                              //     _downloadPatientInfo(currentPatient),
+                              onPressed: () {
+                                print("DOWNLOAD BUTTON CLICKED");
+                                _downloadPatientInfo(currentPatient);
+                              },
+                              icon: const Icon(
+                                Icons.download_outlined,
+                                size: 16,
+                              ),
+                              label: const Text('Download Excel'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF3B6D11),
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: const BorderSide(
+                                    color: Color(0xFF3B6D11),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
                             if (isActive) ...[
                               // Discharge Patient
                               OutlinedButton.icon(

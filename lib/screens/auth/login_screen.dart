@@ -57,11 +57,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _showForgotPasswordDialog() async {
+    final result = await showDialog<_PasswordResetDialogResult>(
+      context: context,
+      builder: (_) =>
+          _PasswordResetDialog(initialEmail: emailController.text.trim()),
+    );
+
+    if (!mounted || result == null) return;
+    _showSnackBar(result.message, isError: !result.success);
+  }
+
   void _showSnackBar(String message, {required bool isError}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -92,17 +105,29 @@ class _LoginScreenState extends State<LoginScreen> {
           Positioned(
             top: -60,
             left: -60,
-            child: _LeafBlob(size: 220, color: const Color(0xFF3B6D11), rotation: 0.5),
+            child: _LeafBlob(
+              size: 220,
+              color: const Color(0xFF3B6D11),
+              rotation: 0.5,
+            ),
           ),
           Positioned(
             bottom: -40,
             right: -40,
-            child: _LeafBlob(size: 160, color: const Color(0xFF0F6E56), rotation: -0.35),
+            child: _LeafBlob(
+              size: 160,
+              color: const Color(0xFF0F6E56),
+              rotation: -0.35,
+            ),
           ),
           Positioned(
             bottom: 120,
             left: 20,
-            child: _LeafBlob(size: 90, color: const Color(0xFF639922), rotation: 1.0),
+            child: _LeafBlob(
+              size: 90,
+              color: const Color(0xFF639922),
+              rotation: 1.0,
+            ),
           ),
 
           // Main content
@@ -189,8 +214,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: const Color(0xFF639922),
                             size: 20,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscurePassword = !_obscurePassword),
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
                         ),
                       ),
 
@@ -198,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {},
+                          onPressed: _showForgotPasswordDialog,
                           style: TextButton.styleFrom(
                             foregroundColor: const Color(0xFF639922),
                             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -230,10 +256,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.arrow_forward_rounded, size: 18),
+                              : const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  size: 18,
+                                ),
                           label: Text(
                             _isLoading ? "Signing in..." : "Sign in",
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF3B6D11),
@@ -253,7 +285,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           const Text(
                             "Don't have an account? ",
-                            style: TextStyle(fontSize: 13, color: Color(0xFF639922)),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF639922),
+                            ),
                           ),
                           TextButton(
                             onPressed: () {
@@ -342,21 +377,148 @@ class _NatureInputField extends StatelessWidget {
           style: const TextStyle(fontSize: 14, color: Color(0xFF27500A)),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: const Color(0xFF97C459).withOpacity(0.8), fontSize: 14),
+            hintStyle: TextStyle(
+              color: const Color(0xFF97C459).withOpacity(0.8),
+              fontSize: 14,
+            ),
             prefixIcon: Icon(icon, color: const Color(0xFF639922), size: 20),
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 14,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF639922),
+                width: 1.5,
+              ),
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PasswordResetDialogResult {
+  final bool success;
+  final String message;
+
+  const _PasswordResetDialogResult({
+    required this.success,
+    required this.message,
+  });
+}
+
+class _PasswordResetDialog extends StatefulWidget {
+  final String initialEmail;
+
+  const _PasswordResetDialog({required this.initialEmail});
+
+  @override
+  State<_PasswordResetDialog> createState() => _PasswordResetDialogState();
+}
+
+class _PasswordResetDialogState extends State<_PasswordResetDialog> {
+  late final TextEditingController _emailController;
+  bool _isSending = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendResetEmail() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      setState(() => _errorText = 'Please enter your email address');
+      return;
+    }
+
+    setState(() {
+      _isSending = true;
+      _errorText = null;
+    });
+
+    final result = await ServiceLocator().authService.sendPasswordResetEmail(
+      email: email,
+    );
+
+    if (!mounted) return;
+
+    setState(() => _isSending = false);
+
+    if (result['success'] == true) {
+      Navigator.of(context).pop(
+        const _PasswordResetDialogResult(
+          success: true,
+          message: 'Password reset email sent. Please check your inbox.',
+        ),
+      );
+      return;
+    }
+
+    setState(() => _errorText = result['message'].toString());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset Password'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Enter your account email. Firebase will send a secure reset link.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emailController,
+            enabled: !_isSending,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: 'Email address',
+              prefixIcon: const Icon(Icons.email_outlined),
+              border: const OutlineInputBorder(),
+              errorText: _errorText,
+            ),
+            onSubmitted: (_) {
+              if (!_isSending) _sendResetEmail();
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSending ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: _isSending ? null : _sendResetEmail,
+          icon: _isSending
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.mark_email_read_outlined),
+          label: Text(_isSending ? 'Sending...' : 'Send Reset Link'),
         ),
       ],
     );
@@ -370,7 +532,11 @@ class _LeafBlob extends StatelessWidget {
   final Color color;
   final double rotation;
 
-  const _LeafBlob({required this.size, required this.color, required this.rotation});
+  const _LeafBlob({
+    required this.size,
+    required this.color,
+    required this.rotation,
+  });
 
   @override
   Widget build(BuildContext context) {

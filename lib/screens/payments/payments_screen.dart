@@ -14,20 +14,40 @@ class PaymentsScreen extends StatefulWidget {
 class _PaymentsScreenState extends State<PaymentsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final Stream<List<PatientModel>> _patientsStream;
+  late final Stream<List<Map<String, dynamic>>> _paymentsStream;
+  final _searchController = TextEditingController();
   String _searchQuery = "";
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabChanged);
+    _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    _paymentsStream = ServiceLocator().paymentService.getAllPaymentsStream();
     // Trigger auto-calculation of attendance billing on dashboard load
     ServiceLocator().paymentService.recalculateAllActivePatientsBilling();
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (_tabController.indexIsChanging) {
+      _clearSearch();
+    }
+  }
+
+  void _clearSearch() {
+    if (_searchQuery.isEmpty && _searchController.text.isEmpty) return;
+    _searchController.clear();
+    setState(() => _searchQuery = "");
   }
 
   void _showQRDialog(BuildContext context) {
@@ -171,7 +191,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
 
   Widget _buildPatientBillingTab() {
     return StreamBuilder<List<PatientModel>>(
-      stream: ServiceLocator().patientService.getPatientsStream(),
+      stream: _patientsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -182,9 +202,19 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             .where((p) => p.status == 'active' || p.status == 'Paid')
             .toList();
 
+        final query = _searchQuery.trim().toLowerCase();
         final filtered = activePatients.where((p) {
-          if (_searchQuery.isEmpty) return true;
-          return p.fullName.toLowerCase().contains(_searchQuery.toLowerCase());
+          if (query.isEmpty) return true;
+          final fields = [
+            p.fullName,
+            p.contactNumber,
+            p.roomNumber ?? '',
+            p.paymentStatus ?? '',
+            p.registrationNumber ?? '',
+            p.currentDueAmount?.toString() ?? '',
+            p.totalPaidAmount?.toString() ?? '',
+          ].map((value) => value.toLowerCase());
+          return fields.any((value) => value.contains(query));
         }).toList();
 
         final totalDue = activePatients.fold<double>(
@@ -248,22 +278,34 @@ class _PaymentsScreenState extends State<PaymentsScreen>
 
   Widget _buildLedgerTab() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: ServiceLocator().paymentService.getAllPaymentsStream(),
+      stream: _paymentsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
         final payments = snapshot.data ?? [];
+        final query = _searchQuery.trim().toLowerCase();
         final filtered = payments.where((p) {
-          if (_searchQuery.isEmpty) return true;
-          final name = p['patientName']?.toString().toLowerCase() ?? "";
-          final method = p['method']?.toString().toLowerCase() ?? "";
-          final receipt = p['receiptNumber']?.toString().toLowerCase() ?? "";
-          final query = _searchQuery.toLowerCase();
-          return name.contains(query) ||
-              method.contains(query) ||
-              receipt.contains(query);
+          if (query.isEmpty) return true;
+          final dateValue = p['date'];
+          final dateText = dateValue is int
+              ? DateFormat(
+                  'dd MMM yyyy hh:mm a',
+                ).format(DateTime.fromMillisecondsSinceEpoch(dateValue))
+              : '';
+          final fields = [
+            p['patientName'],
+            p['method'],
+            p['receiptNumber'],
+            p['transactionId'],
+            p['checkNumber'],
+            p['bankName'],
+            p['notes'],
+            p['amount'],
+            dateText,
+          ].map((value) => value?.toString().toLowerCase() ?? '');
+          return fields.any((value) => value.contains(query));
         }).toList();
 
         final total = payments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
@@ -344,21 +386,48 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   }
 
   Widget _buildFilters(String hint) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
-        ),
-      ),
+    return SizedBox(
+      width: double.infinity,
       child: TextField(
-        onChanged: (v) => setState(() => _searchQuery = v),
+        controller: _searchController,
+        onChanged: (value) {
+          setState(() => _searchQuery = value);
+        },
         decoration: InputDecoration(
           hintText: hint,
-          border: InputBorder.none,
-          icon: const Icon(Icons.search, color: Color(0xFF3B6D11)),
+          hintStyle: TextStyle(
+            color: const Color(0xFF639922).withValues(alpha: 0.5),
+          ),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: Color(0xFF639922),
+          ),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  tooltip: 'Clear search',
+                  icon: const Icon(Icons.clear_rounded),
+                  color: const Color(0xFF639922),
+                  onPressed: _clearSearch,
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFC0DD97)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFC0DD97)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFF3B6D11), width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
         ),
       ),
     );

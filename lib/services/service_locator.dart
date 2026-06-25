@@ -12,7 +12,7 @@ import 'settings_service.dart';
 export 'room_service.dart'; // Ensure extension methods are visible everywhere ServiceLocator is used
 
 /// Service Locator for dependency injection
-/// 
+///
 /// Provides singleton instances of services throughout the app.
 class ServiceLocator {
   static final ServiceLocator _instance = ServiceLocator._internal();
@@ -39,7 +39,7 @@ class ServiceLocator {
   }) {
     // Initialize auth service first
     _authRestService = FirebaseAuthRestService(apiKey: apiKey);
-    
+
     // Initialize RTDB service with auth token callback
     _rtdbService = FirebaseRTDBRestService(
       projectId: projectId,
@@ -49,7 +49,7 @@ class ServiceLocator {
         return token;
       },
     );
-    
+
     // Initialize other services
     _authService = AuthService(
       authService: _authRestService!,
@@ -57,17 +57,23 @@ class ServiceLocator {
     );
     _patientService = PatientService(rtdbService: _rtdbService!);
     _roomService = RoomService(rtdbService: _rtdbService!);
-    _inventoryExpenseService = InventoryExpenseService(rtdbService: _rtdbService!);
+    _inventoryExpenseService = InventoryExpenseService(
+      rtdbService: _rtdbService!,
+    );
     _sponsorshipService = SponsorshipService(rtdbService: _rtdbService!);
     _paymentService = PaymentService(_rtdbService!);
-    _notificationService = NotificationService(patientService: _patientService!);
+    _notificationService = NotificationService(
+      patientService: _patientService!,
+    );
     _settingsService = SettingsService(_rtdbService!);
   }
 
   /// Get Auth REST service instance
   FirebaseAuthRestService get authRestService {
     if (_authRestService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _authRestService!;
   }
@@ -75,7 +81,9 @@ class ServiceLocator {
   /// Get RTDB REST service instance
   FirebaseRTDBRestService get rtdbService {
     if (_rtdbService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _rtdbService!;
   }
@@ -83,7 +91,9 @@ class ServiceLocator {
   /// Get Auth service instance
   AuthService get authService {
     if (_authService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _authService!;
   }
@@ -91,7 +101,9 @@ class ServiceLocator {
   /// Get Patient service instance
   PatientService get patientService {
     if (_patientService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _patientService!;
   }
@@ -99,7 +111,9 @@ class ServiceLocator {
   /// Get Room service instance
   RoomService get roomService {
     if (_roomService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _roomService!;
   }
@@ -107,7 +121,9 @@ class ServiceLocator {
   /// Get Inventory & Expense service instance
   InventoryExpenseService get inventoryExpenseService {
     if (_inventoryExpenseService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _inventoryExpenseService!;
   }
@@ -115,7 +131,9 @@ class ServiceLocator {
   /// Get Sponsorship service instance
   SponsorshipService get sponsorshipService {
     if (_sponsorshipService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _sponsorshipService!;
   }
@@ -123,7 +141,9 @@ class ServiceLocator {
   /// Get Payment service instance
   PaymentService get paymentService {
     if (_paymentService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _paymentService!;
   }
@@ -131,7 +151,9 @@ class ServiceLocator {
   /// Get Notification service instance
   NotificationService get notificationService {
     if (_notificationService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _notificationService!;
   }
@@ -139,7 +161,9 @@ class ServiceLocator {
   /// Get Settings service instance
   SettingsService get settingsService {
     if (_settingsService == null) {
-      throw Exception('ServiceLocator not initialized. Call initialize() first.');
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
     }
     return _settingsService!;
   }

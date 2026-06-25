@@ -7,7 +7,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
-
   ServiceLocator().initialize(
     projectId: firebaseOptions.projectId,
     apiKey: firebaseOptions.apiKey,

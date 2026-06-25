@@ -1,10 +1,12 @@
 class BedHelper {
+  static const _lobbyRooms = {'1B', '1D', '2B', '2E'};
+
+  static bool isLobbyRoom(String? roomIdentifier) {
+    return _lobbyRooms.contains(roomIdentifier?.trim().toUpperCase());
+  }
+
   static const _roomBedLabels = {
-    '1A': {
-      'bed1': 'Bed 1/2',
-      '1': 'Bed 1/2',
-      '2': 'Bed 1/2',
-    },
+    '1A': {'bed1': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
     '1B': {
       'bed1': 'Bed 3/4',
       'bed2': 'Bed 3/4',
@@ -53,16 +55,8 @@ class BedHelper {
       '11': 'Bed 22/23',
       '12': 'Bed 22/23',
     },
-    '2A': {
-      'bed1': 'Bed 1/2',
-      '1': 'Bed 1/2',
-      '2': 'Bed 1/2',
-    },
-    '2B': {
-      'bed1': 'Bed 3/4',
-      '1': 'Bed 3/4',
-      '2': 'Bed 3/4',
-    },
+    '2A': {'bed1': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
+    '2B': {'bed1': 'Bed 3/4', '1': 'Bed 3/4', '2': 'Bed 3/4'},
     '2C': {
       'bed1': 'Bed 5/6',
       'bed2': 'Bed 5/6',
@@ -130,6 +124,12 @@ class BedHelper {
 
   static String getBedDisplayName(String bedId, {String? roomIdentifier}) {
     final raw = bedId.trim().toLowerCase();
+
+    if (raw.startsWith('lobby')) {
+      final number = RegExp(r'\d+').firstMatch(raw)?.group(0);
+      return number == null ? 'Lobby' : 'Lobby $number';
+    }
+
     final roomLabels = _roomBedLabels[roomIdentifier?.trim().toUpperCase()];
 
     if (roomLabels != null && roomLabels.containsKey(raw)) {
@@ -140,9 +140,9 @@ class BedHelper {
       final directLabel = roomLabels.entries
           .where(
             (entry) =>
-        entry.value.toLowerCase() == raw ||
-            entry.value.toLowerCase() == 'bed $raw',
-      )
+                entry.value.toLowerCase() == raw ||
+                entry.value.toLowerCase() == 'bed $raw',
+          )
           .map((entry) => entry.value)
           .firstOrNull;
       if (directLabel != null) return directLabel;
