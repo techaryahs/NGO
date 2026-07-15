@@ -614,13 +614,24 @@ class _PatientsScreenState extends State<PatientsScreen> {
                 'notes': notesList.join('\n'),
                 'payments': <PaymentModel>[],
                 'totalAmount': 0.0,
+                'hasExplicitTotalAmount': columnIndexes.containsKey(
+                  'totalAmount',
+                ),
               },
             );
             (importedPatient['payments'] as List<PaymentModel>).addAll(
               payments ?? [],
             );
-            importedPatient['totalAmount'] =
-                (importedPatient['totalAmount'] as double) + totalAmount;
+            final hasExplicitTotalAmount =
+                importedPatient['hasExplicitTotalAmount'] as bool;
+            // A repeated Total Amount is the patient's single overall bill;
+            // only receipt/paid amounts are additive. With an Amount-only
+            // sheet, each row is both a payment and a separate bill amount.
+            importedPatient['totalAmount'] = hasExplicitTotalAmount
+                ? (importedPatient['totalAmount'] as double) > totalAmount
+                      ? importedPatient['totalAmount']
+                      : totalAmount
+                : (importedPatient['totalAmount'] as double) + totalAmount;
           }
         }
 
@@ -628,6 +639,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
           final patientPayments =
               importedPatient['payments'] as List<PaymentModel>;
           final totalAmount = importedPatient['totalAmount'] as double;
+          final hasExplicitTotalAmount =
+              importedPatient['hasExplicitTotalAmount'] as bool;
           final paidAmount = patientPayments.fold<double>(
             0,
             (sum, payment) => sum + payment.amount,
@@ -654,7 +667,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
               });
             }).toList();
 
-            if (newPayments.isEmpty) {
+            if (newPayments.isEmpty && !hasExplicitTotalAmount) {
               continue;
             }
 
@@ -684,11 +697,12 @@ class _PatientsScreenState extends State<PatientsScreen> {
               0,
               (sum, payment) => sum + payment.totalAmount,
             );
-            final combinedBillAmount =
-                (existingBill > recordedExistingBill
-                    ? existingBill
-                    : recordedExistingBill) +
-                addedBillAmount;
+            final currentBillAmount = existingBill > recordedExistingBill
+                ? existingBill
+                : recordedExistingBill;
+            final combinedBillAmount = hasExplicitTotalAmount
+                ? totalAmount
+                : currentBillAmount + addedBillAmount;
             final combinedDueAmount = (combinedBillAmount - combinedPaidAmount)
                 .clamp(0, double.infinity)
                 .toDouble();
