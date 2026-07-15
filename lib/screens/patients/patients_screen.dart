@@ -43,6 +43,25 @@ class _PatientsScreenState extends State<PatientsScreen> {
     );
   }
 
+  /// Returns the date stored in an Excel cell, supporting both Excel date cells
+  /// and the date text formats used by older import sheets.
+  DateTime? _parseExcelDate(CellValue? value) {
+    if (value is DateCellValue) return value.asDateTimeLocal();
+    if (value is DateTimeCellValue) return value.asDateTimeLocal();
+
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+
+    for (final format in ['dd.MM.yyyy', 'dd/MM/yyyy', 'dd-MM-yyyy']) {
+      try {
+        return DateFormat(format).parseStrict(text);
+      } catch (_) {
+        // Try the next format.
+      }
+    }
+    return DateTime.tryParse(text);
+  }
+
   void _showPatientDetails(PatientModel patient) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -143,10 +162,14 @@ class _PatientsScreenState extends State<PatientsScreen> {
     return filtered;
   }
 
+  // bool _shouldCountInPatientStats(PatientModel patient) {
+  //   final status = patient.status.toLowerCase();
+  //   final notes = patient.notes?.toLowerCase() ?? '';
+  //   return status != 'inactive' && !notes.contains('imported from excel');
+  // }
   bool _shouldCountInPatientStats(PatientModel patient) {
     final status = patient.status.toLowerCase();
-    final notes = patient.notes?.toLowerCase() ?? '';
-    return status != 'inactive' && !notes.contains('imported from excel');
+    return status == 'active' || status == 'paid';
   }
 
   bool _isActivePatient(PatientModel patient) {
@@ -419,110 +442,315 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
         var excel = Excel.decodeBytes(bytes);
         int addedCount = 0;
+        final importedPatients = <String, Map<String, dynamic>>{};
 
         final currentUser = ServiceLocator().authRestService.currentUser;
         if (currentUser == null) {
           throw Exception('User not authenticated');
         }
+        final existingPatients = await ServiceLocator().patientService
+            .getPatientsStream()
+            .first;
+        final existingPatientsByRegistration = <String, PatientModel>{
+          for (final patient in existingPatients)
+            if ((patient.registrationNumber ?? '').trim().isNotEmpty)
+              patient.registrationNumber!.trim(): patient,
+        };
 
         for (var table in excel.tables.keys) {
           var rows = excel.tables[table]?.rows ?? [];
-          // Skip header rows by finding where the actual data starts.
-          // Usually data row starts when column 0 is a number (Registration No)
+          final columnIndexes = <String, int>{};
+
           for (var row in rows) {
-            String? regNo = row.isNotEmpty ? row[0]?.value?.toString() : null;
-            if (regNo == null ||
-                regNo.isEmpty ||
-                regNo.toLowerCase().contains("registration") ||
-                regNo.toLowerCase().contains("gistration")) {
-              continue; // Skip header or empty rows
-            }
+            final headerValues = row
+                .map(
+                  (cell) => (cell?.value?.toString() ?? '')
+                      .toLowerCase()
+                      .replaceAll(RegExp(r'[^a-z0-9]'), ''),
+                )
+                .toList();
+            final isHeader = headerValues.any(
+              (value) =>
+                  value.contains('registration') ||
+                  value == 'regno' ||
+                  value == 'name' ||
+                  value.contains('nameofpatient'),
+            );
 
-            // Map columns based on the image format
-            // Col 0: Registration No
-            // Col 1: Date of Receipt
-            // Col 2: Name of Patient
-            // Col 3: Address
-            // Col 4: PAN
-            // Col 5: Adhar
-            // Col 6: Amt Recd
-            // Col 7: Receipt No.
-            // Col 8: Mode of Payment
-            // Col 9: UTI No.
-
-            String dateStr = row.length > 1
-                ? (row[1]?.value?.toString() ?? '')
-                : '';
-            DateTime regDate = DateTime.now();
-            if (dateStr.isNotEmpty) {
-              // Try parsing dd.MM.yyyy
-              final parts = dateStr.split('.');
-              if (parts.length == 3) {
-                final day = int.tryParse(parts[0]) ?? 1;
-                final month = int.tryParse(parts[1]) ?? 1;
-                final year = int.tryParse(parts[2]) ?? 2000;
-                regDate = DateTime(year, month, day);
+            if (isHeader) {
+              for (var index = 0; index < headerValues.length; index++) {
+                final value = headerValues[index];
+                if (value.contains('registration') || value == 'regno') {
+                  columnIndexes['registration'] = index;
+                } else if (value == 'date' || value.contains('dateofreceipt')) {
+                  columnIndexes['date'] = index;
+                } else if (value == 'name' || value.contains('nameofpatient')) {
+                  columnIndexes['name'] = index;
+                } else if (value.contains('address')) {
+                  columnIndexes['address'] = index;
+                } else if (value.contains('pan')) {
+                  columnIndexes['pan'] = index;
+                } else if (value.contains('aadhar') ||
+                    value.contains('aadhaar') ||
+                    value.contains('adhar')) {
+                  columnIndexes['aadhaar'] = index;
+                } else if (value.contains('receipt') ||
+                    value.contains('reciept')) {
+                  columnIndexes['receipt'] = index;
+                } else if (value.contains('transaction') ||
+                    value.contains('uti')) {
+                  columnIndexes['transaction'] = index;
+                } else if (value == 'total' || value.contains('totalamount')) {
+                  columnIndexes['totalAmount'] = index;
+                } else if (value == 'paid' ||
+                    value.contains('paidamount') ||
+                    value.contains('amountpaid')) {
+                  columnIndexes['paidAmount'] = index;
+                } else if (value.contains('amount') ||
+                    value.contains('amtrecd')) {
+                  columnIndexes['amount'] = index;
+                } else if (value.contains('modeofpayment')) {
+                  columnIndexes['paymentMode'] = index;
+                }
               }
+              continue;
             }
 
-            String name = row.length > 2
-                ? (row[2]?.value?.toString() ?? 'Unknown')
-                : 'Unknown';
-            String address = row.length > 3
-                ? (row[3]?.value?.toString() ?? '')
-                : '';
-            String pan = row.length > 4
-                ? (row[4]?.value?.toString() ?? '')
-                : '';
-            String adhar = row.length > 5
-                ? (row[5]?.value?.toString() ?? '')
-                : '';
-            String amtRecd = row.length > 6
-                ? (row[6]?.value?.toString() ?? '')
-                : '';
-            String receiptNo = row.length > 7
-                ? (row[7]?.value?.toString() ?? '')
-                : '';
-            String modeOfPayment = row.length > 8
-                ? (row[8]?.value?.toString() ?? '')
-                : '';
-            String utiNo = row.length > 9
-                ? (row[9]?.value?.toString() ?? '')
-                : '';
+            String valueFor(String field, int legacyIndex) {
+              final index = columnIndexes[field] ?? legacyIndex;
+              if (index < 0 || index >= row.length) return '';
+              return row[index]?.value?.toString().trim() ?? '';
+            }
+
+            final regNo = valueFor('registration', 0);
+            final patientName = valueFor('name', 2);
+
+            // Skip empty rows
+            if (regNo.isEmpty && patientName.isEmpty) {
+              continue;
+            }
+
+            // Skip rows without a patient name
+            if (patientName.isEmpty) {
+              continue;
+            }
+
+            final dateIndex = columnIndexes['date'] ?? 1;
+            final regDate = dateIndex < row.length
+                ? _parseExcelDate(row[dateIndex]?.value) ?? DateTime.now()
+                : DateTime.now();
+
+            String name = patientName;
+            String address = valueFor('address', 3);
+            String pan = valueFor('pan', 4);
+            String adhar = valueFor('aadhaar', 5);
+            final paidAmountText = columnIndexes.containsKey('paidAmount')
+                ? valueFor('paidAmount', -1)
+                : valueFor('amount', 6);
+            final totalAmountText = columnIndexes.containsKey('totalAmount')
+                ? valueFor('totalAmount', -1)
+                : paidAmountText;
+            double parseAmount(String value) =>
+                double.tryParse(
+                  value.replaceAll(',', '').replaceAll('₹', '').trim(),
+                ) ??
+                0.0;
+            final paidAmount = parseAmount(paidAmountText);
+            final totalAmount = parseAmount(totalAmountText);
+            final dueAmount = (totalAmount - paidAmount)
+                .clamp(0, double.infinity)
+                .toDouble();
+            String receiptNo = valueFor('receipt', 7);
+            String modeOfPayment = columnIndexes.containsKey('paymentMode')
+                ? valueFor('paymentMode', -1)
+                : (columnIndexes.isEmpty ? valueFor('paymentMode', 8) : '');
+            String utiNo = valueFor('transaction', 9);
 
             List<String> notesList = [];
-            if (address.isNotEmpty) notesList.add('Address: $address');
-            if (amtRecd.isNotEmpty) notesList.add('Amt Recd: $amtRecd');
+
+            if (address.isNotEmpty) {
+              notesList.add('Address: $address');
+            }
+
             notesList.add('Imported from Excel');
 
-            await ServiceLocator().patientService.addPatient(
-              fullName: name,
-              dateOfBirth: DateTime.now(), // Default since not provided
-              gender: 'unknown',
-              contactNumber: 'Not Provided',
-              emergencyContact: 'Not Provided',
-              emergencyContactName: 'Not Provided',
-              medicalCondition: 'Not Provided',
-              admissionDate: regDate,
-              createdBy: currentUser.uid,
-              registrationNumber: regNo,
-              registrationDate: regDate,
-              panCardNumber: pan.isNotEmpty ? pan : null,
-              aadhaarCardNumber: adhar.isNotEmpty ? adhar : null,
-              receiptNumber: receiptNo.isNotEmpty ? receiptNo : null,
-              modeOfPayment: modeOfPayment.isNotEmpty ? modeOfPayment : null,
-              utiNumber: utiNo.isNotEmpty ? utiNo : null,
-              status: 'inactive',
-              notes: notesList.isNotEmpty ? notesList.join('\n') : null,
+            List<PaymentModel>? payments;
+
+            if (paidAmount > 0) {
+              payments = [
+                PaymentModel(
+                  id: 'payment_${DateTime.now().millisecondsSinceEpoch}',
+                  amount: paidAmount,
+                  totalAmount: totalAmount,
+                  paidAmount: paidAmount,
+                  pendingAmount: dueAmount,
+                  paymentStatus: dueAmount > 0 ? 'Partial' : 'Paid',
+                  method: modeOfPayment.isNotEmpty ? modeOfPayment : 'Cash',
+                  date: regDate,
+                  receiptNumber: receiptNo.isNotEmpty ? receiptNo : null,
+                  transactionId: utiNo.isNotEmpty ? utiNo : null,
+                  notes: 'Imported from Excel',
+                ),
+              ];
+            }
+
+            // A registration number identifies one patient.  A sheet may
+            // contain several receipt rows for that same patient, so collect
+            // all payments before creating the patient record.
+            final patientKey = regNo.isNotEmpty
+                ? regNo
+                : '${name.toLowerCase()}|${adhar.trim()}';
+            final importedPatient = importedPatients.putIfAbsent(
+              patientKey,
+              () => {
+                'fullName': name,
+                'admissionDate': regDate,
+                'registrationNumber': regNo,
+                'pan': pan,
+                'aadhaar': adhar,
+                'receiptNumber': receiptNo,
+                'modeOfPayment': modeOfPayment,
+                'transactionNumber': utiNo,
+                'notes': notesList.join('\n'),
+                'payments': <PaymentModel>[],
+                'totalAmount': 0.0,
+              },
             );
-            addedCount++;
+            (importedPatient['payments'] as List<PaymentModel>).addAll(
+              payments ?? [],
+            );
+            importedPatient['totalAmount'] =
+                (importedPatient['totalAmount'] as double) + totalAmount;
           }
+        }
+
+        for (final importedPatient in importedPatients.values) {
+          final patientPayments =
+              importedPatient['payments'] as List<PaymentModel>;
+          final totalAmount = importedPatient['totalAmount'] as double;
+          final paidAmount = patientPayments.fold<double>(
+            0,
+            (sum, payment) => sum + payment.amount,
+          );
+          final registrationNumber =
+              importedPatient['registrationNumber'] as String;
+          final existingPatient =
+              existingPatientsByRegistration[registrationNumber.trim()];
+
+          if (existingPatient != null) {
+            final existingPayments = existingPatient.payments ?? [];
+            final newPayments = patientPayments.where((newPayment) {
+              return !existingPayments.any((existingPayment) {
+                final hasReceiptNumbers =
+                    (newPayment.receiptNumber ?? '').isNotEmpty &&
+                    (existingPayment.receiptNumber ?? '').isNotEmpty;
+                if (hasReceiptNumbers) {
+                  return newPayment.receiptNumber ==
+                      existingPayment.receiptNumber;
+                }
+                return (newPayment.transactionId ?? '').isNotEmpty &&
+                    newPayment.transactionId == existingPayment.transactionId &&
+                    newPayment.amount == existingPayment.amount;
+              });
+            }).toList();
+
+            if (newPayments.isEmpty) {
+              continue;
+            }
+
+            for (final payment in newPayments) {
+              await ServiceLocator().patientService.recordPayment(
+                existingPatient.id,
+                payment,
+              );
+            }
+
+            final existingPaidAmount = existingPayments.fold<double>(
+              0,
+              (sum, payment) => sum + payment.amount,
+            );
+            final existingBill =
+                existingPatient.advanceBilledAmount +
+                existingPatient.attendanceCharges;
+            final recordedExistingBill =
+                existingPaidAmount + (existingPatient.currentDueAmount ?? 0);
+            final combinedPaidAmount =
+                existingPaidAmount +
+                newPayments.fold<double>(
+                  0,
+                  (sum, payment) => sum + payment.amount,
+                );
+            final addedBillAmount = newPayments.fold<double>(
+              0,
+              (sum, payment) => sum + payment.totalAmount,
+            );
+            final combinedBillAmount =
+                (existingBill > recordedExistingBill
+                    ? existingBill
+                    : recordedExistingBill) +
+                addedBillAmount;
+            final combinedDueAmount = (combinedBillAmount - combinedPaidAmount)
+                .clamp(0, double.infinity)
+                .toDouble();
+
+            await ServiceLocator().patientService
+                .updatePatient(existingPatient.id, {
+                  'totalPaidAmount': combinedPaidAmount,
+                  'currentDueAmount': combinedDueAmount,
+                  'paymentPending': combinedDueAmount > 0,
+                  'paymentStatus': combinedDueAmount > 0 ? 'Partial' : 'Paid',
+                  'status': combinedDueAmount > 0 ? 'active' : 'Paid',
+                  'advanceBilledAmount':
+                      combinedBillAmount - existingPatient.attendanceCharges,
+                });
+            addedCount++;
+            continue;
+          }
+
+          await ServiceLocator().patientService.addPatient(
+            fullName: importedPatient['fullName'] as String,
+            dateOfBirth: DateTime.now(), // Default since not provided
+            gender: 'unknown',
+            contactNumber: 'Not Provided',
+            emergencyContact: 'Not Provided',
+            emergencyContactName: 'Not Provided',
+            medicalCondition: 'Not Provided',
+            admissionDate: importedPatient['admissionDate'] as DateTime,
+            createdBy: currentUser.uid,
+            registrationNumber: registrationNumber,
+            registrationDate: importedPatient['admissionDate'] as DateTime,
+            panCardNumber: (importedPatient['pan'] as String).isNotEmpty
+                ? importedPatient['pan'] as String
+                : null,
+            aadhaarCardNumber: (importedPatient['aadhaar'] as String).isNotEmpty
+                ? importedPatient['aadhaar'] as String
+                : null,
+            receiptNumber:
+                (importedPatient['receiptNumber'] as String).isNotEmpty
+                ? importedPatient['receiptNumber'] as String
+                : null,
+            modeOfPayment:
+                (importedPatient['modeOfPayment'] as String).isNotEmpty
+                ? importedPatient['modeOfPayment'] as String
+                : null,
+            utiNumber:
+                (importedPatient['transactionNumber'] as String).isNotEmpty
+                ? importedPatient['transactionNumber'] as String
+                : null,
+            status: paidAmount > 0 && totalAmount <= paidAmount
+                ? 'Paid'
+                : 'active',
+            notes: importedPatient['notes'] as String,
+            payments: patientPayments,
+            initialTotalAmount: totalAmount,
+          );
+          addedCount++;
         }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Successfully imported $addedCount patients!'),
+              content: Text('Successfully processed $addedCount patients!'),
               backgroundColor: const Color(0xFF3B6D11),
             ),
           );

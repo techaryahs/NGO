@@ -12,6 +12,16 @@ import 'widgets/payment_dialog.dart';
 import '../../utils/bed_helper.dart';
 import 'utils/patient_info_download.dart';
 
+double _patientPaymentTotal(PatientModel patient) {
+  final paymentHistoryTotal = (patient.payments ?? []).fold<double>(
+    0,
+    (total, payment) => total + payment.amount,
+  );
+  return paymentHistoryTotal > 0
+      ? paymentHistoryTotal
+      : (patient.totalPaidAmount ?? 0);
+}
+
 class PatientProfileScreen extends StatefulWidget {
   final PatientModel patient;
   const PatientProfileScreen({super.key, required this.patient});
@@ -78,7 +88,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
       bedsCount: currentPatient.bedIds?.length ?? 1,
       attendantsCount: currentPatient.attendants?.length ?? 0,
       roomIdentifier: currentPatient.roomNumber,
-      alreadyPaid: currentPatient.totalPaidAmount ?? 0.0,
+      alreadyPaid: _patientPaymentTotal(currentPatient),
       showPayLater: false,
       totalBillOverride:
           currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
@@ -1046,8 +1056,8 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildFinancialSummary() {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    double total =
-        (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+    final paidAmount = _patientPaymentTotal(patient);
+    final total = paidAmount + (patient.currentDueAmount ?? 0);
     return _Section(
       label: "Financial Summary",
       child: Column(
@@ -1060,7 +1070,7 @@ class _OverviewTab extends StatelessWidget {
             ),
             _InfoField(
               label: "Paid Amount",
-              value: currencyFmt.format(patient.totalPaidAmount ?? 0),
+              value: currencyFmt.format(paidAmount),
               icon: Icons.check_circle_outline,
             ),
           ),
@@ -1437,9 +1447,23 @@ class _PaymentHistoryTab extends StatelessWidget {
         }
 
         final allPayments = snapshot.data ?? [];
-        final patientPayments = allPayments
+        final globalPatientPayments = allPayments
             .where((p) => p['patientId'] == patient.id)
             .toList();
+        // Keep the patient record and global ledger in sync for display.
+        // Older imports may exist only on the patient, while later payments
+        // are in the global collection.  Combine them without duplicating the
+        // same payment ID so no history entry disappears.
+        final globalPaymentIds = globalPatientPayments
+            .map((payment) => payment['id']?.toString())
+            .whereType<String>()
+            .toSet();
+        final patientPayments = [
+          ...globalPatientPayments,
+          ...(patient.payments ?? [])
+              .where((payment) => !globalPaymentIds.contains(payment.id))
+              .map((payment) => payment.toMap()),
+        ];
 
         if (patientPayments.isEmpty) {
           return Center(
@@ -1551,6 +1575,9 @@ class _PaymentHistoryTab extends StatelessWidget {
                   );
                   final method = payment['method']?.toString() ?? "CASH";
                   final amount = (payment['amount'] ?? 0).toDouble();
+                  final isExcelImport = (payment['notes']?.toString() ?? '')
+                      .toLowerCase()
+                      .contains('imported from excel');
 
                   return Container(
                     padding: const EdgeInsets.all(16),
@@ -1595,7 +1622,11 @@ class _PaymentHistoryTab extends StatelessWidget {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                DateFormat('dd MMM yyyy, hh:mm a').format(date),
+                                DateFormat(
+                                  isExcelImport
+                                      ? 'dd MMM yyyy'
+                                      : 'dd MMM yyyy, hh:mm a',
+                                ).format(date),
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -1611,6 +1642,19 @@ class _PaymentHistoryTab extends StatelessWidget {
                                     fontSize: 12,
                                     color: Colors.grey.shade600,
                                     fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                              if (payment['transactionId'] != null &&
+                                  payment['transactionId']
+                                      .toString()
+                                      .isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Transaction No.: ${payment['transactionId']}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
                                   ),
                                 ),
                               ],

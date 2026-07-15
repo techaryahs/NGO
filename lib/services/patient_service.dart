@@ -181,10 +181,28 @@ class PatientService {
     int totalAbsentDays = 0,
     List<AttendantModel>? attendants,
     List<PaymentModel>? payments,
+    double? initialTotalAmount,
   }) async {
     try {
       final now = DateTime.now();
       final age = PatientModel.calculateAge(dateOfBirth);
+      final initialPaidAmount = (payments ?? []).fold<double>(
+        0,
+        (total, payment) => total + payment.amount,
+      );
+      final totalAmount =
+          initialTotalAmount ??
+          (advanceBilledAmount + attendanceCharges > 0
+              ? advanceBilledAmount + attendanceCharges
+              : initialPaidAmount);
+      final initialDueAmount = (totalAmount - initialPaidAmount)
+          .clamp(0, double.infinity)
+          .toDouble();
+      final initialPaymentStatus = initialPaidAmount <= 0
+          ? 'Unpaid'
+          : initialDueAmount > 0
+          ? 'Partial'
+          : 'Paid';
 
       // Generate temporary ID for the model
       final tempId = 'temp_${now.millisecondsSinceEpoch}';
@@ -203,13 +221,11 @@ class PatientService {
         allergies: allergies,
         bloodType: bloodType,
         admissionDate: admissionDate,
-        status:
-            status ??
-            ((payments != null && payments.isNotEmpty) ? 'Paid' : 'active'),
-        paymentPending: (payments == null || payments.isEmpty),
-        paymentStatus: (payments != null && payments.isNotEmpty)
-            ? 'Paid'
-            : 'Unpaid',
+        status: status ?? (initialPaymentStatus == 'Paid' ? 'Paid' : 'active'),
+        paymentPending: initialDueAmount > 0,
+        paymentStatus: initialPaymentStatus,
+        totalPaidAmount: initialPaidAmount,
+        currentDueAmount: initialDueAmount,
         roomId: roomId,
         roomNumber: roomNumber,
         floor: floor,
@@ -229,7 +245,9 @@ class PatientService {
         modeOfPayment: modeOfPayment,
         utiNumber: utiNumber,
         isAdvancePeriod: isAdvancePeriod,
-        advanceBilledAmount: advanceBilledAmount,
+        // Imported totals are also the initial billed amount.  The Payments
+        // dashboard reads this field when calculating its Bill and Due cards.
+        advanceBilledAmount: initialTotalAmount ?? advanceBilledAmount,
         attendanceCharges: attendanceCharges,
         totalPresentDays: totalPresentDays,
         totalAbsentDays: totalAbsentDays,

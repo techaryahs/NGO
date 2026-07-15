@@ -15,10 +15,14 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  // bool _shouldCountPatient(PatientModel patient) {
+  //   final status = patient.status.toLowerCase();
+  //   final notes = patient.notes?.toLowerCase() ?? '';
+  //   return status != 'inactive' && !notes.contains('imported from excel');
+  // }
   bool _shouldCountPatient(PatientModel patient) {
     final status = patient.status.toLowerCase();
-    final notes = patient.notes?.toLowerCase() ?? '';
-    return status != 'inactive' && !notes.contains('imported from excel');
+    return status == 'active' || status == 'paid';
   }
 
   @override
