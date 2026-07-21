@@ -497,7 +497,15 @@ class _PatientBillingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final totalBill = patient.advanceBilledAmount + patient.attendanceCharges;
+    final configuredBill =
+        patient.advanceBilledAmount + patient.attendanceCharges;
+    final recordedBill =
+        (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+    // Legacy imports may not have a billing value.  In that case, derive the
+    // bill from the recorded payment so the dashboard does not show Bill: ₹0.
+    final totalBill = configuredBill > recordedBill
+        ? configuredBill
+        : recordedBill;
 
     return Container(
       padding: const EdgeInsets.all(16),

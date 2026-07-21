@@ -67,6 +67,10 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "payments": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
     "sponsorships": {
       ".read": "auth != null",
       ".write": "auth != null"
