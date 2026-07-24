@@ -84,13 +84,14 @@ class _PatientPaymentDialog extends StatefulWidget {
 class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   _PaymentStep _step = _PaymentStep.selectMethod;
   PaymentMethod _selectedMethod = PaymentMethod.cash;
-  
+
   // Forms
   final _receiptController = TextEditingController();
   final _checkNoController = TextEditingController();
   final _bankNameController = TextEditingController();
   final _notesController = TextEditingController();
   final _amountPayingNowController = TextEditingController();
+  final _totalAmountController = TextEditingController();
 
   // Online / Razorpay
   bool _isCreatingLink = false;
@@ -101,28 +102,33 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   static const int _maxPolls = 72;
 
   // ── Amounts ────────────────────────────────────────────────────────────────
-  double get _grandTotal => widget.totalBillOverride ?? PricingHelper.calculateAdvanceAmount(_isPrivateRoom, widget.attendantsCount);
+  double get _calculatedTotal =>
+      widget.totalBillOverride ??
+      PricingHelper.calculateAdvanceAmount(
+        _isPrivateRoom,
+        widget.attendantsCount,
+      );
+  double get _grandTotal =>
+      double.tryParse(_totalAmountController.text.trim()) ?? _calculatedTotal;
   double get _pendingTotal {
     double p = _grandTotal - widget.alreadyPaid;
     return p < 0 ? 0 : p;
   }
-  
+
   double get _currentPayingAmount {
     if (_amountPayingNowController.text.trim().isEmpty) return _pendingTotal;
-    return double.tryParse(_amountPayingNowController.text.trim()) ?? _pendingTotal;
+    return double.tryParse(_amountPayingNowController.text.trim()) ??
+        _pendingTotal;
   }
 
   int get _amountInPaise => (_currentPayingAmount * 100).round();
   bool get _isPrivateRoom =>
       (widget.roomIdentifier ?? '').toUpperCase().endsWith('A') ||
-          (widget.roomIdentifier ?? '').toUpperCase().endsWith('B');
+      (widget.roomIdentifier ?? '').toUpperCase().endsWith('B');
 
   String _fmt(double v) {
     if (v >= 1000) {
-      return '₹${v.toStringAsFixed(0).replaceAllMapped(
-            RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'),
-            (m) => '${m[1]},',
-          )}';
+      return '₹${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'), (m) => '${m[1]},')}';
     }
     return '₹${v.toStringAsFixed(0)}';
   }
@@ -130,7 +136,14 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   @override
   void initState() {
     super.initState();
+    _totalAmountController.text = _calculatedTotal.toStringAsFixed(0);
     _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
+    _amountPayingNowController.addListener(_refreshAmounts);
+    _totalAmountController.addListener(_refreshAmounts);
+  }
+
+  void _refreshAmounts() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -141,6 +154,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     _bankNameController.dispose();
     _notesController.dispose();
     _amountPayingNowController.dispose();
+    _totalAmountController.dispose();
     super.dispose();
   }
 
@@ -150,7 +164,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       setState(() => _error = 'Payment amount exceeds outstanding balance.');
       return;
     }
-    
+
     setState(() {
       _isCreatingLink = true;
       _error = null;
@@ -236,17 +250,26 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       paymentStatus: status,
       method: methodName ?? _selectedMethod.name.toUpperCase(),
       date: DateTime.now(),
-      receiptNumber: _receiptController.text.trim().isEmpty ? null : _receiptController.text.trim(),
-      checkNumber: _checkNoController.text.trim().isEmpty ? null : _checkNoController.text.trim(),
-      bankName: _bankNameController.text.trim().isEmpty ? null : _bankNameController.text.trim(),
+      receiptNumber: _receiptController.text.trim().isEmpty
+          ? null
+          : _receiptController.text.trim(),
+      checkNumber: _checkNoController.text.trim().isEmpty
+          ? null
+          : _checkNoController.text.trim(),
+      bankName: _bankNameController.text.trim().isEmpty
+          ? null
+          : _bankNameController.text.trim(),
       transactionId: transactionId,
-      notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      notes: _notesController.text.trim().isEmpty
+          ? null
+          : _notesController.text.trim(),
     );
 
     setState(() => _step = _PaymentStep.done);
 
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.of(context).pop(PaymentDialogResult(payment: payment));
+      if (mounted)
+        Navigator.of(context).pop(PaymentDialogResult(payment: payment));
     });
   }
 
@@ -256,7 +279,10 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       return;
     }
     if (_selectedMethod == PaymentMethod.online) {
-      _onPaymentSuccess(transactionId: 'MANUAL_ONLINE', methodName: 'Online (QR Code)');
+      _onPaymentSuccess(
+        transactionId: 'MANUAL_ONLINE',
+        methodName: 'Online (QR Code)',
+      );
     } else if (_selectedMethod == PaymentMethod.cash) {
       if (_receiptController.text.trim().isEmpty) {
         setState(() => _error = 'Please enter receipt number');
@@ -317,14 +343,18 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         patientName: widget.patientName,
         grandTotal: _grandTotal,
         alreadyPaid: widget.alreadyPaid,
-        pendingTotal: _pendingTotal,
+        pendingTotal: (_grandTotal - widget.alreadyPaid - _currentPayingAmount)
+            .clamp(0, double.infinity)
+            .toDouble(),
         amountPayingNowController: _amountPayingNowController,
+        totalAmountController: _totalAmountController,
         fmt: _fmt,
         selectedMethod: _selectedMethod,
         error: _error,
         onMethodChanged: (m) => setState(() => _selectedMethod = m),
         showPayLater: widget.showPayLater,
-        onPayLater: () => Navigator.of(context).pop(PaymentDialogResult(payLater: true)),
+        onPayLater: () =>
+            Navigator.of(context).pop(PaymentDialogResult(payLater: true)),
         onProceed: () {
           if (_selectedMethod == PaymentMethod.online) {
             _startOnlinePayment();
@@ -373,17 +403,40 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: isDone ? const Color(0xFF3B6D11) : const Color(0xFFF8FBF4),
-        border: Border(bottom: BorderSide(color: isDone ? Colors.transparent : const Color(0xFFEAF3DE))),
+        border: Border(
+          bottom: BorderSide(
+            color: isDone ? Colors.transparent : const Color(0xFFEAF3DE),
+          ),
+        ),
       ),
       child: Row(
         children: [
-          Icon(isDone ? Icons.check_circle_rounded : Icons.payments_rounded, color: isDone ? Colors.white : const Color(0xFF3B6D11), size: 28),
+          Icon(
+            isDone ? Icons.check_circle_rounded : Icons.payments_rounded,
+            color: isDone ? Colors.white : const Color(0xFF3B6D11),
+            size: 28,
+          ),
           const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(isDone ? 'Payment Confirmed' : 'Payment Collection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: isDone ? Colors.white : const Color(0xFF27500A))),
-              Text(isDone ? 'The transaction has been recorded' : 'Select a payment method to proceed', style: TextStyle(fontSize: 12, color: isDone ? Colors.white70 : const Color(0xFF639922))),
+              Text(
+                isDone ? 'Payment Confirmed' : 'Payment Collection',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: isDone ? Colors.white : const Color(0xFF27500A),
+                ),
+              ),
+              Text(
+                isDone
+                    ? 'The transaction has been recorded'
+                    : 'Select a payment method to proceed',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDone ? Colors.white70 : const Color(0xFF639922),
+                ),
+              ),
             ],
           ),
         ],
@@ -398,6 +451,7 @@ class _SelectMethodBody extends StatelessWidget {
   final double alreadyPaid;
   final double pendingTotal;
   final TextEditingController amountPayingNowController;
+  final TextEditingController totalAmountController;
   final String Function(double) fmt;
   final PaymentMethod selectedMethod;
   final String? error;
@@ -413,6 +467,7 @@ class _SelectMethodBody extends StatelessWidget {
     required this.alreadyPaid,
     required this.pendingTotal,
     required this.amountPayingNowController,
+    required this.totalAmountController,
     required this.fmt,
     required this.selectedMethod,
     this.error,
@@ -430,13 +485,30 @@ class _SelectMethodBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InfoTile(label: 'Patient', value: patientName, icon: Icons.person_outline),
+          _InfoTile(
+            label: 'Patient',
+            value: patientName,
+            icon: Icons.person_outline,
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _InfoTile(label: 'Total Amount', value: fmt(grandTotal), icon: Icons.currency_rupee, isBold: true)),
+              Expanded(
+                child: _TextField(
+                  label: 'Total Amount',
+                  controller: totalAmountController,
+                  icon: Icons.currency_rupee,
+                  keyboardType: TextInputType.number,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _InfoTile(label: 'Already Paid', value: fmt(alreadyPaid), icon: Icons.verified_rounded)),
+              Expanded(
+                child: _InfoTile(
+                  label: 'Already Paid',
+                  value: fmt(alreadyPaid),
+                  icon: Icons.verified_rounded,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -447,7 +519,9 @@ class _SelectMethodBody extends StatelessWidget {
                   label: 'Pending Amount',
                   value: fmt(pendingTotal),
                   icon: Icons.pending_actions_rounded,
-                  valueColor: pendingTotal > 0 ? Colors.red : const Color(0xFF27500A),
+                  valueColor: pendingTotal > 0
+                      ? Colors.red
+                      : const Color(0xFF27500A),
                 ),
               ),
             ],
@@ -460,22 +534,60 @@ class _SelectMethodBody extends StatelessWidget {
             keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 24),
-          const Text('SELECT PAYMENT METHOD', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF639922), letterSpacing: 1)),
+          const Text(
+            'SELECT PAYMENT METHOD',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF639922),
+              letterSpacing: 1,
+            ),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _MethodCard(method: PaymentMethod.cash, selected: selectedMethod == PaymentMethod.cash, label: 'Cash', icon: Icons.money_rounded, onTap: () => onMethodChanged(PaymentMethod.cash)),
+              _MethodCard(
+                method: PaymentMethod.cash,
+                selected: selectedMethod == PaymentMethod.cash,
+                label: 'Cash',
+                icon: Icons.money_rounded,
+                onTap: () => onMethodChanged(PaymentMethod.cash),
+              ),
               const SizedBox(width: 12),
-              _MethodCard(method: PaymentMethod.check, selected: selectedMethod == PaymentMethod.check, label: 'Check', icon: Icons.account_balance_wallet_rounded, onTap: () => onMethodChanged(PaymentMethod.check)),
+              _MethodCard(
+                method: PaymentMethod.check,
+                selected: selectedMethod == PaymentMethod.check,
+                label: 'Check',
+                icon: Icons.account_balance_wallet_rounded,
+                onTap: () => onMethodChanged(PaymentMethod.check),
+              ),
               const SizedBox(width: 12),
-              _MethodCard(method: PaymentMethod.online, selected: selectedMethod == PaymentMethod.online, label: 'Online / QR', icon: Icons.qr_code_rounded, onTap: () => onMethodChanged(PaymentMethod.online)),
+              _MethodCard(
+                method: PaymentMethod.online,
+                selected: selectedMethod == PaymentMethod.online,
+                label: 'Online / QR',
+                icon: Icons.qr_code_rounded,
+                onTap: () => onMethodChanged(PaymentMethod.online),
+              ),
             ],
           ),
-          if (error != null) ...[const SizedBox(height: 16), Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12))],
+          if (error != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              error!,
+              style: const TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 32),
           Row(
             children: [
-              TextButton(onPressed: onCancel, child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+              TextButton(
+                onPressed: onCancel,
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
               if (showPayLater && onPayLater != null) ...[
                 const SizedBox(width: 12),
                 OutlinedButton(
@@ -483,14 +595,39 @@ class _SelectMethodBody extends StatelessWidget {
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFF639922)),
                     foregroundColor: const Color(0xFF639922),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
                   ),
-                  child: const Text('Pay Later', style: TextStyle(fontWeight: FontWeight.w600)),
+                  child: const Text(
+                    'Pay Later',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ],
               const Spacer(),
-              ElevatedButton(onPressed: onProceed, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Continue →', style: TextStyle(fontWeight: FontWeight.w600))),
+              ElevatedButton(
+                onPressed: onProceed,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF3B6D11),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Continue →',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
         ],
@@ -516,7 +653,23 @@ class _ProcessBody extends StatelessWidget {
   final VoidCallback onConfirm;
   final VoidCallback onBack;
 
-  const _ProcessBody({required this.method, required this.patientName, required this.grandTotal, required this.payingAmount, required this.fmt, this.paymentLink, required this.pollCount, this.error, required this.isLoading, required this.receiptController, required this.checkNoController, required this.bankNameController, required this.notesController, required this.onConfirm, required this.onBack});
+  const _ProcessBody({
+    required this.method,
+    required this.patientName,
+    required this.grandTotal,
+    required this.payingAmount,
+    required this.fmt,
+    this.paymentLink,
+    required this.pollCount,
+    this.error,
+    required this.isLoading,
+    required this.receiptController,
+    required this.checkNoController,
+    required this.bankNameController,
+    required this.notesController,
+    required this.onConfirm,
+    required this.onBack,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -525,9 +678,13 @@ class _ProcessBody extends StatelessWidget {
       child: Column(
         children: [
           if (method == PaymentMethod.online) ...[
-            if (isLoading) const Center(child: CircularProgressIndicator())
+            if (isLoading)
+              const Center(child: CircularProgressIndicator())
             else ...[
-              const Text('Scan QR Code to Pay', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const Text(
+                'Scan QR Code to Pay',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(16),
@@ -548,7 +705,10 @@ class _ProcessBody extends StatelessWidget {
                       child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+                          Icon(
+                            Icons.image_not_supported_outlined,
+                            color: Colors.grey,
+                          ),
                           SizedBox(height: 8),
                           Text(
                             'payment_qr.png not found\nin assets/images/',
@@ -562,25 +722,61 @@ class _ProcessBody extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              const Text('OR use the link below', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              if (paymentLink != null) TextButton(onPressed: () => RazorpayService.openInBrowser(paymentLink!.url), child: const Text('Open Razorpay Checkout')),
-              Text('Checking payment status... (#$pollCount)', style: const TextStyle(fontSize: 10, color: Color(0xFF639922))),
+              Text(
+                'Checking payment status... (#$pollCount)',
+                style: const TextStyle(fontSize: 10, color: Color(0xFF639922)),
+              ),
             ],
           ] else if (method == PaymentMethod.cash) ...[
-            _TextField(label: 'Receipt Number', controller: receiptController, icon: Icons.receipt_long_rounded),
+            _TextField(
+              label: 'Receipt Number',
+              controller: receiptController,
+              icon: Icons.receipt_long_rounded,
+            ),
           ] else ...[
-            _TextField(label: 'Check Number', controller: checkNoController, icon: Icons.pin_rounded),
+            _TextField(
+              label: 'Check Number',
+              controller: checkNoController,
+              icon: Icons.pin_rounded,
+            ),
             const SizedBox(height: 12),
-            _TextField(label: 'Bank Name', controller: bankNameController, icon: Icons.account_balance_rounded),
+            _TextField(
+              label: 'Bank Name',
+              controller: bankNameController,
+              icon: Icons.account_balance_rounded,
+            ),
           ],
           const SizedBox(height: 12),
-          _TextField(label: 'Notes (Optional)', controller: notesController, icon: Icons.notes_rounded, maxLines: 2),
+          _TextField(
+            label: 'Notes (Optional)',
+            controller: notesController,
+            icon: Icons.notes_rounded,
+            maxLines: 2,
+          ),
           const SizedBox(height: 24),
           Row(
             children: [
               TextButton(onPressed: onBack, child: const Text('← Back')),
               const Spacer(),
-              ElevatedButton(onPressed: onConfirm, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: Text(method == PaymentMethod.online ? 'Confirm Manually' : 'Save Payment')),
+              ElevatedButton(
+                onPressed: onConfirm,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF3B6D11),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  method == PaymentMethod.online
+                      ? 'Confirm Manually'
+                      : 'Save Payment',
+                ),
+              ),
             ],
           ),
         ],
@@ -594,7 +790,11 @@ class _SuccessBody extends StatelessWidget {
   final double amount;
   final PaymentMethod method;
 
-  const _SuccessBody({required this.fmt, required this.amount, required this.method});
+  const _SuccessBody({
+    required this.fmt,
+    required this.amount,
+    required this.method,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -602,10 +802,27 @@ class _SuccessBody extends StatelessWidget {
       padding: const EdgeInsets.all(40),
       child: Column(
         children: [
-          const Icon(Icons.check_circle_rounded, color: Color(0xFF3B6D11), size: 80),
+          const Icon(
+            Icons.check_circle_rounded,
+            color: Color(0xFF3B6D11),
+            size: 80,
+          ),
           const SizedBox(height: 24),
-          Text(fmt(amount), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Color(0xFF27500A))),
-          const Text('Payment Recorded Successfully', style: TextStyle(color: Color(0xFF639922), fontWeight: FontWeight.w500)),
+          Text(
+            fmt(amount),
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF27500A),
+            ),
+          ),
+          const Text(
+            'Payment Recorded Successfully',
+            style: TextStyle(
+              color: Color(0xFF639922),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );
@@ -619,20 +836,39 @@ class _InfoTile extends StatelessWidget {
   final bool isBold;
   final Color? valueColor;
 
-  const _InfoTile({required this.label, required this.value, required this.icon, this.isBold = false, this.valueColor});
+  const _InfoTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.isBold = false,
+    this.valueColor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFFF8FBF4), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBF4),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
         children: [
           Icon(icon, size: 18, color: const Color(0xFF3B6D11)),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF639922))),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF639922)),
+          ),
           const Spacer(),
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: isBold ? FontWeight.w700 : FontWeight.w600, color: valueColor ?? const Color(0xFF27500A))),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
+              color: valueColor ?? const Color(0xFF27500A),
+            ),
+          ),
         ],
       ),
     );
@@ -646,7 +882,13 @@ class _MethodCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
 
-  const _MethodCard({required this.method, required this.selected, required this.label, required this.icon, required this.onTap});
+  const _MethodCard({
+    required this.method,
+    required this.selected,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -657,12 +899,32 @@ class _MethodCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(color: selected ? const Color(0xFF3B6D11) : Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: selected ? const Color(0xFF3B6D11) : const Color(0xFFEAF3DE), width: 2)),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF3B6D11) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF3B6D11)
+                  : const Color(0xFFEAF3DE),
+              width: 2,
+            ),
+          ),
           child: Column(
             children: [
-              Icon(icon, color: selected ? Colors.white : const Color(0xFF3B6D11), size: 28),
+              Icon(
+                icon,
+                color: selected ? Colors.white : const Color(0xFF3B6D11),
+                size: 28,
+              ),
               const SizedBox(height: 8),
-              Text(label, style: TextStyle(color: selected ? Colors.white : const Color(0xFF27500A), fontSize: 13, fontWeight: FontWeight.w600)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : const Color(0xFF27500A),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -678,7 +940,13 @@ class _TextField extends StatelessWidget {
   final int maxLines;
   final TextInputType? keyboardType;
 
-  const _TextField({required this.label, required this.controller, required this.icon, this.maxLines = 1, this.keyboardType});
+  const _TextField({
+    required this.label,
+    required this.controller,
+    required this.icon,
+    this.maxLines = 1,
+    this.keyboardType,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -691,8 +959,14 @@ class _TextField extends StatelessWidget {
         prefixIcon: Icon(icon, size: 20, color: const Color(0xFF3B6D11)),
         filled: true,
         fillColor: const Color(0xFFF8FBF4),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF3B6D11))),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF3B6D11)),
+        ),
       ),
     );
   }

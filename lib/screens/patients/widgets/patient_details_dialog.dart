@@ -209,6 +209,16 @@ class PatientDetailsDialog extends StatelessWidget {
                                 icon: Icons.calendar_today_outlined,
                               ),
                             ),
+                            if (patient.address != null &&
+                                patient.address!.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _InfoField(
+                                label: "Address",
+                                value: patient.address!,
+                                icon: Icons.location_on_outlined,
+                                fullWidth: true,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -290,18 +300,20 @@ class PatientDetailsDialog extends StatelessWidget {
                         label: "Admission Details",
                         child: _Row2(
                           _InfoField(
-                            label: "Admission Date",
-                            value:
-                                '${patient.admissionDate.day}/${patient.admissionDate.month}/${patient.admissionDate.year}',
+                            label: "Registration Date",
+                            value: DateFormat('d/M/y, hh:mm a').format(
+                              patient.registrationDate ?? patient.admissionDate,
+                            ),
                             icon: Icons.event_outlined,
                           ),
                           _InfoField(
-                            label: "Days Admitted",
-                            value: DateTime.now()
-                                .difference(patient.admissionDate)
-                                .inDays
-                                .toString(),
-                            icon: Icons.access_time_outlined,
+                            label: "Exit Date",
+                            value: patient.exitDate == null
+                                ? 'Not set'
+                                : DateFormat(
+                                    'd/M/y, hh:mm a',
+                                  ).format(patient.exitDate!),
+                            icon: Icons.event_available_outlined,
                           ),
                         ),
                       ),
@@ -680,7 +692,7 @@ class _PaymentHistoryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  payment.method.toUpperCase(),
+                  'MODE OF PAYMENT: ${payment.method.toUpperCase()}',
                   style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
@@ -712,6 +724,12 @@ class _PaymentHistoryTile extends StatelessWidget {
               if (payment.receiptNumber != null)
                 Text(
                   "Ref: ${payment.receiptNumber}",
+                  style: const TextStyle(fontSize: 9, color: Colors.grey),
+                ),
+              if (payment.transactionId != null &&
+                  payment.transactionId!.isNotEmpty)
+                Text(
+                  "Transaction: ${payment.transactionId}",
                   style: const TextStyle(fontSize: 9, color: Colors.grey),
                 ),
             ],

@@ -8,6 +8,7 @@ import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../models/patient_model.dart';
+import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'payment_dialog.dart';
 
@@ -22,6 +23,9 @@ class AddPatientDialog extends StatefulWidget {
 
 class _AddPatientDialogState extends State<AddPatientDialog> {
   bool _isLoading = false;
+  // Retains the previous detailed attendant editor without rendering it; the
+  // compact editor below is intentionally shown last in the form.
+  bool _showLegacyAttendantSection = false;
 
   // Controllers
   final _dateController = TextEditingController();
@@ -29,9 +33,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _patientNameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _ageController = TextEditingController();
-  final _pincodeController = TextEditingController();
   final _addressController = TextEditingController();
-  final _stateController = TextEditingController();
   final _diagnosisController = TextEditingController();
   final _attendantCountController = TextEditingController();
 
@@ -41,15 +43,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   // New field controllers
   final _registrationNumberController = TextEditingController();
   final _registrationDateController = TextEditingController();
+  final _registrationTimeController = TextEditingController();
   final _panCardController = TextEditingController();
   final _aadhaarCardController = TextEditingController();
-  final _receiptNumberController = TextEditingController();
   final _utiNumberController = TextEditingController();
 
   String? _selectedGender;
   DateTime? _selectedDate;
   DateTime? _selectedRegistrationDate;
-  String? _selectedModeOfPayment;
+  DateTime? _selectedExitDate;
+  final _exitDateController = TextEditingController();
+  final _exitTimeController = TextEditingController();
   Uint8List? _patientPhotoBytes;
   String? _patientPhotoDataUrl;
   String? _patientPhotoFileName;
@@ -63,7 +67,14 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   @override
   void initState() {
     super.initState();
+    for (final attendant in _attendants) {
+      attendant.nameController.addListener(_refreshPaymentSummary);
+    }
     _loadAvailableRooms();
+  }
+
+  void _refreshPaymentSummary() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -73,9 +84,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _patientNameController.dispose();
     _mobileController.dispose();
     _ageController.dispose();
-    _pincodeController.dispose();
     _addressController.dispose();
-    _stateController.dispose();
     _diagnosisController.dispose();
     for (final attendant in _attendants) {
       attendant.dispose();
@@ -83,10 +92,12 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _attendantCountController.dispose();
     _registrationNumberController.dispose();
     _registrationDateController.dispose();
+    _registrationTimeController.dispose();
     _panCardController.dispose();
     _aadhaarCardController.dispose();
-    _receiptNumberController.dispose();
     _utiNumberController.dispose();
+    _exitDateController.dispose();
+    _exitTimeController.dispose();
     super.dispose();
   }
 
@@ -148,6 +159,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
+        _ageController.text = PatientModel.calculateAge(picked).toString();
         _dateController.text =
             '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
       });
@@ -159,7 +171,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(1900),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+      lastDate: DateTime.now(),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -176,12 +188,115 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
     if (picked != null) {
       setState(() {
-        _selectedRegistrationDate = picked;
+        final time = _selectedRegistrationDate ?? DateTime.now();
+        _selectedRegistrationDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          time.hour,
+          time.minute,
+        );
         _registrationDateController.text =
             '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
+        _registrationTimeController.text = _formatTime(
+          _selectedRegistrationDate,
+        );
       });
     }
   }
+
+  String _formatTime(DateTime? value) => value == null
+      ? ''
+      : '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _selectRegistrationTime(BuildContext context) async {
+    final base = _selectedRegistrationDate ?? DateTime.now();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (picked == null) return;
+    setState(() {
+      _selectedRegistrationDate = DateTime(
+        base.year,
+        base.month,
+        base.day,
+        picked.hour,
+        picked.minute,
+      );
+      _registrationTimeController.text = _formatTime(_selectedRegistrationDate);
+    });
+  }
+
+  Future<void> _selectExitDate(BuildContext context) async {
+    final registrationDate = _selectedRegistrationDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          _selectedExitDate ?? registrationDate.add(const Duration(days: 7)),
+      firstDate: DateTime(
+        registrationDate.year,
+        registrationDate.month,
+        registrationDate.day,
+      ),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+    );
+    if (picked != null) {
+      setState(() {
+        final hour = _selectedExitDate?.hour ?? 9;
+        final minute = _selectedExitDate?.minute ?? 0;
+        _selectedExitDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          hour,
+          minute,
+        );
+        _exitDateController.text =
+            '${picked.day.toString().padLeft(2, '0')} / ${picked.month.toString().padLeft(2, '0')} / ${picked.year}';
+        _exitTimeController.text = _formatTime(_selectedExitDate);
+      });
+    }
+  }
+
+  Future<void> _selectExitTime(BuildContext context) async {
+    final base =
+        _selectedExitDate ?? DateTime.now().add(const Duration(days: 7));
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (picked == null) return;
+    setState(() {
+      _selectedExitDate = DateTime(
+        base.year,
+        base.month,
+        base.day,
+        picked.hour,
+        picked.minute,
+      );
+      _exitTimeController.text = _formatTime(_selectedExitDate);
+    });
+  }
+
+  int get _plannedStayDays {
+    if (_selectedExitDate == null) return 7;
+    final start = _selectedRegistrationDate ?? DateTime.now();
+    var days = _selectedExitDate!
+        .difference(DateTime(start.year, start.month, start.day))
+        .inDays;
+    if (_selectedExitDate!.hour >= 9) days++;
+    return days.clamp(1, 3650);
+  }
+
+  double get _estimatedTotal =>
+      PricingHelper.calculateDailyCharge(
+        _selectedRoom?.isPrivate ?? false,
+        _attendants
+            .where((a) => a.nameController.text.trim().isNotEmpty)
+            .length,
+      ) *
+      _plannedStayDays;
 
   Future<void> _pickPatientPhoto() async {
     try {
@@ -244,7 +359,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       return;
     }
     if (_ageController.text.trim().isEmpty) {
-      _showError('Please enter age');
+      _showError('Please select date of birth');
+      return;
+    }
+    if (_selectedDate == null) {
+      _showError('Please select date of birth');
       return;
     }
     if (_diagnosisController.text.trim().isEmpty) {
@@ -297,6 +416,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           .where((a) => a.nameController.text.trim().isNotEmpty)
           .length,
       roomIdentifier: _selectedRoom?.roomIdentifier,
+      totalBillOverride: _estimatedTotal,
       showPayLater: true,
     );
     if (result == null) return; // User cancelled
@@ -338,26 +458,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         }
       }
 
-      // Calculate date of birth from age
-      final age = int.tryParse(_ageController.text.trim()) ?? 0;
-      final dateOfBirth = DateTime.now().subtract(Duration(days: age * 365));
-
-      // Use selected date or current date for admission
-      final admissionDate = _selectedDate ?? DateTime.now();
+      final dateOfBirth = _selectedDate!;
+      final admissionDate = _selectedRegistrationDate ?? DateTime.now();
 
       // Build notes from additional fields
       final notesList = <String>[];
       if (_fileNoController.text.trim().isNotEmpty) {
         notesList.add('File No: ${_fileNoController.text.trim()}');
-      }
-      if (_addressController.text.trim().isNotEmpty) {
-        notesList.add('Address: ${_addressController.text.trim()}');
-      }
-      if (_stateController.text.trim().isNotEmpty) {
-        notesList.add('State: ${_stateController.text.trim()}');
-      }
-      if (_pincodeController.text.trim().isNotEmpty) {
-        notesList.add('Pincode: ${_pincodeController.text.trim()}');
       }
       if (_attendantCountController.text.trim().isNotEmpty) {
         notesList.add(
@@ -374,7 +481,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         if (name.isNotEmpty) {
           final aadhaar = att.aadhaarController.text.trim();
           notesList.add(
-            'Attendant ${i + 1}: $name (Age: ${age.isEmpty ? 'N/A' : age}, Relation: ${relation.isEmpty ? 'N/A' : relation})',
+            'Attendant ${i + 1}: $name (Relation: ${relation.isEmpty ? 'N/A' : relation})',
           );
           structuredAttendants.add(
             AttendantModel(
@@ -390,13 +497,27 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
       notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
 
-      // Calculate Advance Bill
-      final advanceBilledAmount = _selectedRoom!.isPrivate
-          ? 3500.0
-          : _selectedBeds.length *
-                (1 + structuredAttendants.length) *
-                200.0 *
-                7;
+      final initialPayment = result.payment == null
+          ? null
+          : PaymentModel(
+              id: result.payment!.id,
+              amount: result.payment!.amount,
+              totalAmount: result.payment!.totalAmount,
+              paidAmount: result.payment!.paidAmount,
+              pendingAmount: result.payment!.pendingAmount,
+              paymentStatus: result.payment!.paymentStatus,
+              method: result.payment!.method,
+              date: result.payment!.date,
+              receiptNumber: result.payment!.receiptNumber,
+              checkNumber: result.payment!.checkNumber,
+              bankName: result.payment!.bankName,
+              transactionId:
+                  result.payment!.transactionId ??
+                  (_utiNumberController.text.trim().isEmpty
+                      ? null
+                      : _utiNumberController.text.trim()),
+              notes: result.payment!.notes,
+            );
 
       // Create patient
       final patientId = await ServiceLocator().patientService.addPatient(
@@ -418,6 +539,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         photoDataUrl: _patientPhotoDataUrl,
         photoFileName: _patientPhotoFileName,
         notes: notesList.isEmpty ? null : notesList.join('\n'),
+        address: _addressController.text.trim().isEmpty
+            ? null
+            : _addressController.text.trim(),
+        exitDate: _selectedExitDate,
         createdBy: currentUser.uid,
         registrationNumber: _registrationNumberController.text.trim().isNotEmpty
             ? _registrationNumberController.text.trim()
@@ -429,22 +554,19 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         aadhaarCardNumber: _aadhaarCardController.text.trim().isNotEmpty
             ? _aadhaarCardController.text.trim()
             : null,
-        receiptNumber: _receiptNumberController.text.trim().isNotEmpty
-            ? _receiptNumberController.text.trim()
-            : null,
-        modeOfPayment: _selectedModeOfPayment,
         utiNumber: _utiNumberController.text.trim().isNotEmpty
             ? _utiNumberController.text.trim()
             : null,
         isAdvancePeriod: true,
-        advanceBilledAmount: advanceBilledAmount,
+        advanceBilledAmount: _estimatedTotal,
         attendanceCharges: 0.0,
         totalPresentDays: 0,
         totalAbsentDays: 0,
         attendants: structuredAttendants.isNotEmpty
             ? structuredAttendants
             : null,
-        payments: result.payment != null ? [result.payment!] : null,
+        payments: initialPayment != null ? [initialPayment] : null,
+        initialTotalAmount: _estimatedTotal,
       );
 
       // Get attendant count (default to 1 if not specified)
@@ -461,7 +583,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           roomNumber: _selectedRoom!.roomIdentifier,
           roomType: _selectedRoom!.roomType,
           admissionDate: admissionDate,
-          durationDays: 7, // Default 7 days
+          durationDays: _plannedStayDays,
           attendantCount: attendantCount,
           bedId: _selectedBeds.isNotEmpty ? _selectedBeds.first.id : null,
           bedLabel: _selectedBeds.isNotEmpty
@@ -480,7 +602,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             roomNumber: _selectedRoom!.roomIdentifier,
             roomType: _selectedRoom!.roomType,
             admissionDate: admissionDate,
-            durationDays: 7, // Default 7 days
+            durationDays: _plannedStayDays,
             attendantCount: 1, // General rooms: 1 attendant per bed
             bedId: bed.id,
             bedLabel: bed.bedLabel,
@@ -560,32 +682,57 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                           children: [
                             PatientFormRow2(
                               PatientFormField(
-                                label: "Date",
-                                hint: "",
-                                isDate: true,
-                                controller: _dateController,
-                                onTap: () => _selectDate(context),
-                              ),
-                              PatientFormField(
-                                label: "File no",
-                                hint: "e.g. F-2024-001",
-                                controller: _fileNoController,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
-                                label: "Registration number",
-                                hint: "e.g. REG-2024-001",
-                                controller: _registrationNumberController,
-                              ),
-                              _NatureField(
                                 label: "Registration date",
                                 hint: "",
                                 isDate: true,
                                 controller: _registrationDateController,
                                 onTap: () => _selectRegistrationDate(context),
                               ),
+                              PatientFormField(
+                                label: "Exit date",
+                                hint: "",
+                                isDate: true,
+                                controller: _exitDateController,
+                                onTap: () => _selectExitDate(context),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormRow2(
+                              PatientFormField(
+                                label: "Registration time",
+                                hint: "",
+                                isDate: true,
+                                controller: _registrationTimeController,
+                                onTap: () => _selectRegistrationTime(context),
+                              ),
+                              PatientFormField(
+                                label: "Exit time",
+                                hint: "",
+                                isDate: true,
+                                controller: _exitTimeController,
+                                onTap: () => _selectExitTime(context),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _Row2(
+                              _NatureField(
+                                label: "File no",
+                                hint: "e.g. F-2024-001",
+                                controller: _fileNoController,
+                              ),
+                              _NatureField(
+                                label: "Registration number",
+                                hint: "",
+                                controller: _registrationNumberController,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormField(
+                              label: "Date of Birth",
+                              hint: "",
+                              isDate: true,
+                              controller: _dateController,
+                              onTap: () => _selectDate(context),
                             ),
                             const SizedBox(height: 12),
                             _Row2(
@@ -609,7 +756,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               controller: _mobileController,
                             ),
                             const SizedBox(height: 12),
-                            PatientFormRow3(
+                            PatientFormRow2(
                               PatientFormDropdown(
                                 label: "Gender",
                                 items: const ["Male", "Female", "Other"],
@@ -624,12 +771,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 keyboard: TextInputType.number,
                                 controller: _ageController,
                               ),
-                              PatientFormField(
-                                label: "Pincode",
-                                hint: "000000",
-                                keyboard: TextInputType.number,
-                                controller: _pincodeController,
-                              ),
                             ),
                             const SizedBox(height: 12),
                             PatientFormField(
@@ -637,20 +778,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               hint: "Street, city, district",
                               controller: _addressController,
                             ),
-                            const SizedBox(height: 12),
-                            // PatientFormRow2(
-                            //   PatientFormField(
-                            //     label: "State",
-                            //     hint: "State",
-                            //     controller: _stateController,
-                            //   ),
-                            //   PatientFormField(
-                            //     label: "Mumbai local contact address",
-                            //     hint: "Local address",
-                            //     controller: _localAddressController,
-                            //   ),
-                            // ),
-                            PatientFormField(label: "State", hint: "State", controller: _stateController),
                           ],
                         ),
                       ),
@@ -681,220 +808,251 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      PatientFormSection(
-                        label: "Attendant details",
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (int i = 0; i < _attendants.length; i++)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF4F9F0),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: const Color(0xFFC0DD97),
-                                      width: 1,
+                      if (_showLegacyAttendantSection)
+                        PatientFormSection(
+                          label: "Attendant details",
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (int i = 0; i < _attendants.length; i++)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF4F9F0),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFFC0DD97),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      8,
+                                      12,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 22,
+                                          height: 22,
+                                          margin: const EdgeInsets.only(
+                                            top: 18,
+                                            right: 8,
+                                          ),
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF3B6D11),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '${i + 1}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Expanded(
+                                        //   child: _Row3(
+                                        //     _NatureField(
+                                        //       label: "Attendant name",
+                                        //       hint: "Full name",
+                                        //       controller:
+                                        //           _attendants[i].nameController,
+                                        //     ),
+                                        //     _NatureField(
+                                        //       label: "Age",
+                                        //       hint: "Years",
+                                        //       keyboard: TextInputType.number,
+                                        //       controller:
+                                        //           _attendants[i].ageController,
+                                        //     ),
+                                        //     _NatureField(
+                                        //       label: "Relation",
+                                        //       hint: "e.g. Spouse",
+                                        //       controller: _attendants[i]
+                                        //           .relationController,
+                                        //     ),
+                                        //   ),
+                                        // ),
+                                        Expanded(
+                                          child: Column(
+                                            children: [
+                                              _Row2(
+                                                _NatureField(
+                                                  label: "Attendant name",
+                                                  hint: "Full name",
+                                                  controller: _attendants[i]
+                                                      .nameController,
+                                                ),
+                                                _NatureField(
+                                                  label: "Relation",
+                                                  hint: "e.g. Spouse",
+                                                  controller: _attendants[i]
+                                                      .relationController,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _Row2(
+                                                _NatureField(
+                                                  label: "Aadhaar number",
+                                                  hint: "XXXX XXXX XXXX",
+                                                  keyboard:
+                                                      TextInputType.number,
+                                                  controller: _attendants[i]
+                                                      .aadhaarController,
+                                                ),
+                                                _AttendantPhotoPicker(
+                                                  imageBytes:
+                                                      _attendants[i].photoBytes,
+                                                  fileName: _attendants[i]
+                                                      .photoFileName,
+                                                  onPick: () async {
+                                                    final idx = i;
+                                                    final result =
+                                                        await FilePicker
+                                                            .platform
+                                                            .pickFiles(
+                                                              type: FileType
+                                                                  .custom,
+                                                              allowedExtensions:
+                                                                  const [
+                                                                    'jpg',
+                                                                    'jpeg',
+                                                                    'png',
+                                                                    'webp',
+                                                                  ],
+                                                              withData: true,
+                                                            );
+                                                    if (result == null) return;
+                                                    final file =
+                                                        result.files.single;
+                                                    final bytes = file.bytes;
+                                                    if (bytes == null) return;
+                                                    if (bytes.length >
+                                                        1500 * 1024) {
+                                                      _showError(
+                                                        'Image must be under 1.5 MB',
+                                                      );
+                                                      return;
+                                                    }
+                                                    final ext =
+                                                        (file.extension ?? '')
+                                                            .toLowerCase();
+                                                    final mime = ext == 'png'
+                                                        ? 'image/png'
+                                                        : 'image/jpeg';
+                                                    setState(() {
+                                                      _attendants[idx]
+                                                              .photoBytes =
+                                                          bytes;
+                                                      _attendants[idx]
+                                                              .photoFileName =
+                                                          file.name;
+                                                      _attendants[idx]
+                                                              .photoDataUrl =
+                                                          'data:$mime;base64,${base64Encode(bytes)}';
+                                                    });
+                                                  },
+                                                  onRemove: () {
+                                                    final idx = i;
+                                                    setState(() {
+                                                      _attendants[idx]
+                                                              .photoBytes =
+                                                          null;
+                                                      _attendants[idx]
+                                                              .photoDataUrl =
+                                                          null;
+                                                      _attendants[idx]
+                                                              .photoFileName =
+                                                          null;
+                                                    });
+                                                  },
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (_attendants.length > 1)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 14,
+                                            ),
+                                            child: IconButton(
+                                              icon: const Icon(
+                                                Icons.remove_circle_outline,
+                                                color: Color(0xFFD32F2F),
+                                                size: 20,
+                                              ),
+                                              tooltip: "Remove attendant",
+                                              constraints: const BoxConstraints(
+                                                minWidth: 32,
+                                                minHeight: 32,
+                                              ),
+                                              padding: EdgeInsets.zero,
+                                              onPressed: () {
+                                                setState(() {
+                                                  _attendants[i].dispose();
+                                                  _attendants.removeAt(i);
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    8,
-                                    12,
+                                ),
+                              // ── Add Attendant Button ──
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _attendants.add(_AttendantEntry());
+                                  });
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
                                   ),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF3DE),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF3B6D11),
+                                      width: 1,
+                                      style: BorderStyle.solid,
+                                    ),
+                                  ),
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Container(
-                                        width: 22,
-                                        height: 22,
-                                        margin: const EdgeInsets.only(
-                                          top: 18,
-                                          right: 8,
-                                        ),
-                                        decoration: const BoxDecoration(
+                                      Icon(
+                                        Icons.add_circle_rounded,
+                                        size: 18,
+                                        color: Color(0xFF3B6D11),
+                                      ),
+                                      SizedBox(width: 6),
+                                      Text(
+                                        "Add another attendant",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
                                           color: Color(0xFF3B6D11),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            '${i + 1}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
                                         ),
                                       ),
-                                      // Expanded(
-                                      //   child: _Row3(
-                                      //     _NatureField(
-                                      //       label: "Attendant name",
-                                      //       hint: "Full name",
-                                      //       controller:
-                                      //           _attendants[i].nameController,
-                                      //     ),
-                                      //     _NatureField(
-                                      //       label: "Age",
-                                      //       hint: "Years",
-                                      //       keyboard: TextInputType.number,
-                                      //       controller:
-                                      //           _attendants[i].ageController,
-                                      //     ),
-                                      //     _NatureField(
-                                      //       label: "Relation",
-                                      //       hint: "e.g. Spouse",
-                                      //       controller: _attendants[i]
-                                      //           .relationController,
-                                      //     ),
-                                      //   ),
-                                      // ),
-                                      Expanded(
-                        child: Column(
-                          children: [
-                            _Row3(
-                              _NatureField(
-                                label: "Attendant name",
-                                hint: "Full name",
-                                controller: _attendants[i].nameController,
-                              ),
-                              _NatureField(
-                                label: "Age",
-                                hint: "Years",
-                                keyboard: TextInputType.number,
-                                controller: _attendants[i].ageController,
-                              ),
-                              _NatureField(
-                                label: "Relation",
-                                hint: "e.g. Spouse",
-                                controller: _attendants[i].relationController,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            _Row2(
-                              _NatureField(
-                                label: "Aadhaar number",
-                                hint: "XXXX XXXX XXXX",
-                                keyboard: TextInputType.number,
-                                controller: _attendants[i].aadhaarController,
-                              ),
-                              _AttendantPhotoPicker(
-                                imageBytes: _attendants[i].photoBytes,
-                                fileName: _attendants[i].photoFileName,
-                                onPick: () async {
-                                  final idx = i;
-                                  final result = await FilePicker.platform.pickFiles(
-                                    type: FileType.custom,
-                                    allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-                                    withData: true,
-                                  );
-                                  if (result == null) return;
-                                  final file = result.files.single;
-                                  final bytes = file.bytes;
-                                  if (bytes == null) return;
-                                  if (bytes.length > 1500 * 1024) {
-                                    _showError('Image must be under 1.5 MB');
-                                    return;
-                                  }
-                                  final ext = (file.extension ?? '').toLowerCase();
-                                  final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
-                                  setState(() {
-                                    _attendants[idx].photoBytes = bytes;
-                                    _attendants[idx].photoFileName = file.name;
-                                    _attendants[idx].photoDataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
-                                  });
-                                },
-                                onRemove: () {
-                                  final idx = i;
-                                  setState(() {
-                                    _attendants[idx].photoBytes = null;
-                                    _attendants[idx].photoDataUrl = null;
-                                    _attendants[idx].photoFileName = null;
-                                  });
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                                      if (_attendants.length > 1)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 14,
-                                          ),
-                                          child: IconButton(
-                                            icon: const Icon(
-                                              Icons.remove_circle_outline,
-                                              color: Color(0xFFD32F2F),
-                                              size: 20,
-                                            ),
-                                            tooltip: "Remove attendant",
-                                            constraints: const BoxConstraints(
-                                              minWidth: 32,
-                                              minHeight: 32,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            onPressed: () {
-                                              setState(() {
-                                                _attendants[i].dispose();
-                                                _attendants.removeAt(i);
-                                              });
-                                            },
-                                          ),
-                                        ),
                                     ],
                                   ),
                                 ),
                               ),
-                            // ── Add Attendant Button ──
-                            GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _attendants.add(_AttendantEntry());
-                                });
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF3DE),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: const Color(0xFF3B6D11),
-                                    width: 1,
-                                    style: BorderStyle.solid,
-                                  ),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.add_circle_rounded,
-                                      size: 18,
-                                      color: Color(0xFF3B6D11),
-                                    ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      "Add another attendant",
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF3B6D11),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 20),
                       _Section(
                         label: "Identity documents",
@@ -937,32 +1095,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               ),
                             ],
                             const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
-                                label: "Receipt number",
-                                hint: "e.g. RCP-2024-001",
-                                controller: _receiptNumberController,
-                              ),
-                              _NatureDropdown(
-                                label: "Mode of payment",
-                                items: const [
-                                  "Cash",
-                                  "UPI",
-                                  "Card",
-                                  "Cheque",
-                                  "NEFT / RTGS",
-                                  "Other",
-                                ],
-                                onChanged: (value) {
-                                  setState(
-                                    () => _selectedModeOfPayment = value,
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 12),
                             _NatureField(
-                              label: "UTI number",
+                              label: "Transaction number (UTI number)",
                               hint: "Unique transaction identifier",
                               controller: _utiNumberController,
                             ),
@@ -980,7 +1114,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                             .length,
                         isPrivateRoom: _selectedRoom?.isPrivate ?? false,
                         roomIdentifier: _selectedRoom?.roomIdentifier,
+                        days: _plannedStayDays,
                       ),
+                      const SizedBox(height: 20),
+                      _buildAttendantDetails(),
                     ],
                   ),
                 ),
@@ -996,6 +1133,57 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       ),
     );
   }
+
+  Widget _buildAttendantDetails() => PatientFormSection(
+    label: 'Attendant details',
+    child: Column(
+      children: [
+        for (var i = 0; i < _attendants.length; i++) ...[
+          _Row2(
+            _NatureField(
+              label: 'Attendant name',
+              hint: 'Full name',
+              controller: _attendants[i].nameController,
+            ),
+            _NatureField(
+              label: 'Relation',
+              hint: 'e.g. Spouse',
+              controller: _attendants[i].relationController,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _NatureField(
+            label: 'Aadhaar number',
+            hint: 'XXXX XXXX XXXX',
+            keyboard: TextInputType.number,
+            controller: _attendants[i].aadhaarController,
+          ),
+          if (_attendants.length > 1)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() {
+                  _attendants[i].dispose();
+                  _attendants.removeAt(i);
+                }),
+                icon: const Icon(Icons.remove_circle_outline),
+                label: const Text('Remove attendant'),
+              ),
+            ),
+          const SizedBox(height: 12),
+        ],
+        OutlinedButton.icon(
+          onPressed: () {
+            final attendant = _AttendantEntry();
+            attendant.nameController.addListener(_refreshPaymentSummary);
+            setState(() => _attendants.add(attendant));
+          },
+          icon: const Icon(Icons.add_circle_outline),
+          label: const Text('Add another attendant'),
+        ),
+      ],
+    ),
+  );
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
@@ -1252,17 +1440,25 @@ class _AttendantPhotoPicker extends StatelessWidget {
                   color: const Color(0xFFEAF3DE),
                   child: hasImage
                       ? Image.memory(imageBytes!, fit: BoxFit.cover)
-                      : const Icon(Icons.person_outline_rounded,
-                          color: Color(0xFF639922), size: 20),
+                      : const Icon(
+                          Icons.person_outline_rounded,
+                          color: Color(0xFF639922),
+                          size: 20,
+                        ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  hasImage ? (fileName ?? 'Selected photo') : 'No image selected',
+                  hasImage
+                      ? (fileName ?? 'Selected photo')
+                      : 'No image selected',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF27500A)),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF27500A),
+                  ),
                 ),
               ),
               TextButton.icon(
@@ -1280,8 +1476,11 @@ class _AttendantPhotoPicker extends StatelessWidget {
               if (hasImage)
                 IconButton(
                   onPressed: onRemove,
-                  icon: const Icon(Icons.close_rounded,
-                      color: Color(0xFFD32F2F), size: 16),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Color(0xFFD32F2F),
+                    size: 16,
+                  ),
                 )
               else
                 const SizedBox(width: 4),
@@ -1756,7 +1955,7 @@ class _AttendantEntry {
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();
   final TextEditingController aadhaarController = TextEditingController();
-  
+
   Uint8List? photoBytes;
   String? photoDataUrl;
   String? photoFileName;
@@ -1776,6 +1975,7 @@ class _PaymentSummary extends StatelessWidget {
   final int attendantsCount;
   final bool isPrivateRoom;
   final String? roomIdentifier;
+  final int days;
 
   // ── Pricing constants (edit here to update rates) ──
   static const int _defaultDays = 7; // default stay duration
@@ -1785,6 +1985,7 @@ class _PaymentSummary extends StatelessWidget {
     required this.attendantsCount,
     required this.isPrivateRoom,
     this.roomIdentifier,
+    this.days = _defaultDays,
   });
 
   String _fmt(double amount) {
@@ -1801,10 +2002,10 @@ class _PaymentSummary extends StatelessWidget {
 
     final occupants = 1 + attendantsCount;
     final bedTotal = isPrivateRoom
-        ? (700.0 * _defaultDays)
-        : (bedsCount * occupants * 200.0 * _defaultDays);
+        ? (700.0 * days)
+        : (bedsCount * occupants * 200.0 * days);
     final attendantTotal = isPrivateRoom
-        ? (attendantsCount * 200.0 * _defaultDays)
+        ? (attendantsCount * 200.0 * days)
         : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
@@ -1858,7 +2059,7 @@ class _PaymentSummary extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    '$_defaultDays-day estimate',
+                    '$days-day estimate',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -1886,7 +2087,7 @@ class _PaymentSummary extends StatelessWidget {
                   count: isPrivateRoom ? 1 : bedsCount,
                   rate: isPrivateRoom ? 700.0 : (occupants * 200.0),
                   total: bedTotal,
-                  days: _defaultDays,
+                  days: days,
                 ),
                 if (isPrivateRoom) ...[
                   const SizedBox(height: 8),
@@ -1896,7 +2097,7 @@ class _PaymentSummary extends StatelessWidget {
                     count: attendantsCount,
                     rate: 200.0,
                     total: attendantTotal,
-                    days: _defaultDays,
+                    days: days,
                   ),
                 ],
               ],

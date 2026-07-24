@@ -156,6 +156,10 @@ class PatientModel {
   final String? photoDataUrl;
   final String? photoFileName;
   final String? notes;
+  final String? address;
+
+  /// Planned exit date; actual discharge remains in [dischargeDate].
+  final DateTime? exitDate;
   final DateTime createdAt;
   final DateTime updatedAt;
   final String createdBy;
@@ -218,6 +222,8 @@ class PatientModel {
     this.photoDataUrl,
     this.photoFileName,
     this.notes,
+    this.address,
+    this.exitDate,
     required this.createdAt,
     required this.updatedAt,
     required this.createdBy,
@@ -278,6 +284,8 @@ class PatientModel {
       'photoDataUrl': photoDataUrl,
       'photoFileName': photoFileName,
       'notes': notes,
+      'address': address,
+      'exitDate': exitDate?.millisecondsSinceEpoch,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
       'createdBy': createdBy,
@@ -347,6 +355,10 @@ class PatientModel {
       photoDataUrl: data['photoDataUrl']?.toString(),
       photoFileName: data['photoFileName']?.toString(),
       notes: data['notes']?.toString(),
+      address: data['address']?.toString(),
+      exitDate: data['exitDate'] != null
+          ? _parseDateTime(data['exitDate'])
+          : null,
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
       createdBy: _parseString(data['createdBy']),
@@ -483,6 +495,8 @@ class PatientModel {
     String? photoDataUrl,
     String? photoFileName,
     String? notes,
+    String? address,
+    DateTime? exitDate,
     DateTime? createdAt,
     DateTime? updatedAt,
     String? createdBy,
@@ -536,6 +550,8 @@ class PatientModel {
       photoDataUrl: photoDataUrl ?? this.photoDataUrl,
       photoFileName: photoFileName ?? this.photoFileName,
       notes: notes ?? this.notes,
+      address: address ?? this.address,
+      exitDate: exitDate ?? this.exitDate,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       createdBy: createdBy ?? this.createdBy,

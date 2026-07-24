@@ -1049,6 +1049,15 @@ class _OverviewTab extends StatelessWidget {
               icon: Icons.calendar_today_outlined,
             ),
           ),
+          const SizedBox(height: 12),
+          _InfoField(
+            label: "Address",
+            value: patient.address?.trim().isNotEmpty == true
+                ? patient.address!
+                : 'Not provided',
+            icon: Icons.location_on_outlined,
+            fullWidth: true,
+          ),
         ],
       ),
     );
@@ -1223,23 +1232,23 @@ class _OverviewTab extends StatelessWidget {
   }
 
   Widget _buildAdmissionDetails() {
-    final admStr =
-        '${patient.admissionDate.day}/${patient.admissionDate.month}/${patient.admissionDate.year}';
-    final daysAdmitted = DateTime.now()
-        .difference(patient.admissionDate)
-        .inDays;
+    final registrationDate = patient.registrationDate ?? patient.admissionDate;
+    final dateTimeFormat = DateFormat('d/M/y, hh:mm a');
+    final registrationStr = dateTimeFormat.format(registrationDate);
     return _Section(
       label: "Admission Details",
       child: _Row2(
         _InfoField(
-          label: "Admission Date",
-          value: admStr,
+          label: "Registration Date",
+          value: registrationStr,
           icon: Icons.event_outlined,
         ),
         _InfoField(
-          label: "Days Admitted",
-          value: "$daysAdmitted days",
-          icon: Icons.access_time_outlined,
+          label: "Exit Date",
+          value: patient.exitDate == null
+              ? 'Not set'
+              : dateTimeFormat.format(patient.exitDate!),
+          icon: Icons.event_available_outlined,
         ),
       ),
     );
@@ -1574,6 +1583,11 @@ class _PaymentHistoryTab extends StatelessWidget {
                     payment['date'] ?? 0,
                   );
                   final method = payment['method']?.toString() ?? "CASH";
+                  final transactionNumber =
+                      payment['transactionId']?.toString().trim().isNotEmpty ==
+                          true
+                      ? payment['transactionId'].toString()
+                      : patient.utiNumber;
                   final amount = (payment['amount'] ?? 0).toDouble();
                   final isExcelImport = (payment['notes']?.toString() ?? '')
                       .toLowerCase()
@@ -1612,7 +1626,7 @@ class _PaymentHistoryTab extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                method.toUpperCase(),
+                                'MODE OF PAYMENT: ${method.toUpperCase()}',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -1645,13 +1659,11 @@ class _PaymentHistoryTab extends StatelessWidget {
                                   ),
                                 ),
                               ],
-                              if (payment['transactionId'] != null &&
-                                  payment['transactionId']
-                                      .toString()
-                                      .isNotEmpty) ...[
+                              if (transactionNumber != null &&
+                                  transactionNumber.trim().isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Transaction No.: ${payment['transactionId']}',
+                                  'Transaction No.: $transactionNumber',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey.shade600,
@@ -1732,7 +1744,12 @@ class _AttendanceTabState extends State<_AttendanceTab> {
           if (records is Map) {
             records.forEach((patientId, record) {
               if (patientId == widget.patient.id && record is Map) {
-                result[dateStr] = Map<String, dynamic>.from(record);
+                final normalizedRecord = Map<String, dynamic>.from(record);
+                // Prefer the stored ISO date when present; this also supports
+                // older records whose parent RTDB key used another format.
+                final recordDate = normalizedRecord['date']?.toString();
+                result[recordDate?.isNotEmpty == true ? recordDate! : dateStr] =
+                    normalizedRecord;
               }
             });
           }
@@ -2330,11 +2347,19 @@ class _StaysTab extends StatelessWidget {
 
   Widget _buildActiveStayCard(StayModel stay) {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final dateFmt = DateFormat('dd MMM yyyy');
+    final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
+    final registrationDate = patient.registrationDate ?? stay.admissionDate;
+    final exitDate = patient.exitDate ?? stay.effectiveExpiryDate;
+    final stayDays = _billableStayDays(registrationDate, exitDate);
+    final attendantsCount = patient.attendants?.length ?? stay.attendantCount;
+    final isPrivateRoom = stay.roomType.toLowerCase() == 'private';
+    final baseCost = (isPrivateRoom ? 700.0 : 200.0) * stayDays;
+    final extraAttendantCost = attendantsCount * 200.0 * stayDays;
+    final totalCost = baseCost + extraAttendantCost;
+    final daysRemaining = exitDate.difference(DateTime.now()).inDays;
 
-    final admStr = dateFmt.format(stay.admissionDate);
-    final expDisStr = dateFmt.format(stay.effectiveExpiryDate);
-    final daysRemaining = stay.daysRemaining;
+    final admStr = dateFmt.format(registrationDate);
+    final expDisStr = dateFmt.format(exitDate);
 
     return Container(
       decoration: BoxDecoration(
@@ -2447,21 +2472,21 @@ class _StaysTab extends StatelessWidget {
                     Expanded(
                       child: _buildMicroDetail(
                         label: "Base Cost",
-                        value: currencyFmt.format(stay.baseCost),
+                        value: currencyFmt.format(baseCost),
                         icon: Icons.money_rounded,
                       ),
                     ),
                     Expanded(
                       child: _buildMicroDetail(
                         label: "Extra Attendants Cost",
-                        value: currencyFmt.format(stay.extraAttendantCost),
+                        value: currencyFmt.format(extraAttendantCost),
                         icon: Icons.group_outlined,
                       ),
                     ),
                     Expanded(
                       child: _buildMicroDetail(
                         label: "Total Cost",
-                        value: currencyFmt.format(stay.totalCost),
+                        value: currencyFmt.format(totalCost),
                         icon: Icons.payments_outlined,
                         valueColor: const Color(0xFF3B6D11),
                       ),
@@ -2546,6 +2571,20 @@ class _StaysTab extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  int _billableStayDays(DateTime registrationDate, DateTime exitDate) {
+    var days = exitDate
+        .difference(
+          DateTime(
+            registrationDate.year,
+            registrationDate.month,
+            registrationDate.day,
+          ),
+        )
+        .inDays;
+    if (exitDate.hour >= 9) days++;
+    return days.clamp(1, 3650);
   }
 
   Widget _buildCompletedStayCard(StayModel stay) {
@@ -2899,8 +2938,15 @@ class _CalendarViewState extends State<_CalendarView> {
             final hasAttendantData =
                 attendantRecords != null && attendantRecords is Map;
             final isSelected = _hoveredDate == dateStr;
-            final isPresent = patientStatus == 'Present';
-            final isAbsent = patientStatus == 'Absent';
+            final normalizedStatus = patientStatus?.trim().toLowerCase();
+            final isPresent =
+                normalizedStatus == 'present' ||
+                normalizedStatus == 'true' ||
+                patientRecord?['isPresent'] == true;
+            final isAbsent =
+                normalizedStatus == 'absent' ||
+                normalizedStatus == 'false' ||
+                patientRecord?['isPresent'] == false;
             final hasData = patientStatus != null || hasAttendantData;
 
             return InkWell(

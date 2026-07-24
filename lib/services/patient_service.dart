@@ -164,6 +164,8 @@ class PatientService {
     String? photoDataUrl,
     String? photoFileName,
     String? notes,
+    String? address,
+    DateTime? exitDate,
     required String createdBy,
     // New fields
     String? registrationNumber,
@@ -234,6 +236,8 @@ class PatientService {
         photoDataUrl: photoDataUrl,
         photoFileName: photoFileName,
         notes: notes,
+        address: address,
+        exitDate: exitDate,
         createdAt: now,
         updatedAt: now,
         createdBy: createdBy,
