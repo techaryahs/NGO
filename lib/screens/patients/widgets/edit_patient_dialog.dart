@@ -26,20 +26,31 @@ class EditPatientDialog extends StatefulWidget {
 class _EditPatientDialogState extends State<EditPatientDialog> {
   bool _isLoading = false;
   bool _isLoadingRooms = true;
+  bool _showLegacyAttendantSection = false;
 
   // Controllers
   late TextEditingController _patientNameController;
+  late TextEditingController _dateOfBirthController;
   late TextEditingController _mobileController;
   late TextEditingController _ageController;
   late TextEditingController _diagnosisController;
-  late TextEditingController _allergiesController;
-  late TextEditingController _notesController;
+  late TextEditingController _addressController;
+  late TextEditingController _registrationNumberController;
+  late TextEditingController _registrationDateController;
+  late TextEditingController _registrationTimeController;
+  late TextEditingController _exitDateController;
+  late TextEditingController _exitTimeController;
+  late TextEditingController _panCardController;
+  late TextEditingController _aadhaarCardController;
+  late TextEditingController _utiNumberController;
 
   final List<_AttendantEntry> _attendants = [];
 
   String? _selectedGender;
-  String? _selectedBloodType;
   String? _patientPhotoDataUrl;
+  late DateTime _selectedDateOfBirth;
+  DateTime? _selectedRegistrationDate;
+  DateTime? _selectedExitDate;
 
   // Room and Bed Selection
   RoomModel? _selectedRoom;
@@ -47,17 +58,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
   List<String> _currentStayIds = []; // Track multiple stays
-
-  final List<String> _bloodTypes = [
-    'A+',
-    'A-',
-    'B+',
-    'B-',
-    'AB+',
-    'AB-',
-    'O+',
-    'O-',
-  ];
 
   // @override
   // void initState() {
@@ -109,15 +109,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _patientNameController = TextEditingController(
       text: widget.patient.fullName,
     );
+    _dateOfBirthController = TextEditingController(
+      text: _formatDate(widget.patient.dateOfBirth),
+    );
     _mobileController = TextEditingController(
       text: widget.patient.contactNumber,
     );
     _ageController = TextEditingController(text: widget.patient.age.toString());
     _diagnosisController = TextEditingController(
       text: widget.patient.medicalCondition,
-    );
-    _allergiesController = TextEditingController(
-      text: widget.patient.allergies ?? '',
     );
 
     // Load existing patient photo
@@ -144,7 +144,36 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _attendants.add(entry);
     }
 
-    _notesController = TextEditingController(text: widget.patient.notes ?? '');
+    _addressController = TextEditingController(
+      text: widget.patient.address ?? '',
+    );
+    _registrationNumberController = TextEditingController(
+      text: widget.patient.registrationNumber ?? '',
+    );
+    _registrationDateController = TextEditingController(
+      text: _formatDate(widget.patient.registrationDate),
+    );
+    _registrationTimeController = TextEditingController(
+      text: _formatTime(widget.patient.registrationDate),
+    );
+    _exitDateController = TextEditingController(
+      text: _formatDate(widget.patient.exitDate),
+    );
+    _exitTimeController = TextEditingController(
+      text: _formatTime(widget.patient.exitDate),
+    );
+    _panCardController = TextEditingController(
+      text: widget.patient.panCardNumber ?? '',
+    );
+    _aadhaarCardController = TextEditingController(
+      text: widget.patient.aadhaarCardNumber ?? '',
+    );
+    _utiNumberController = TextEditingController(
+      text: widget.patient.utiNumber ?? '',
+    );
+    _selectedDateOfBirth = widget.patient.dateOfBirth;
+    _selectedRegistrationDate = widget.patient.registrationDate;
+    _selectedExitDate = widget.patient.exitDate;
 
     // _selectedGender =
     //     widget.patient.gender[0].toUpperCase() +
@@ -155,10 +184,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
     _selectedGender = ["male", "female", "other"].contains(gender.toLowerCase())
         ? gender[0].toUpperCase() + gender.substring(1).toLowerCase()
-        : null;
-
-    _selectedBloodType = _bloodTypes.contains(widget.patient.bloodType)
-        ? widget.patient.bloodType
         : null;
 
     _loadRoomsAndCurrentStay();
@@ -252,15 +277,109 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   @override
   void dispose() {
     _patientNameController.dispose();
+    _dateOfBirthController.dispose();
     _mobileController.dispose();
     _ageController.dispose();
     _diagnosisController.dispose();
-    _allergiesController.dispose();
-    _notesController.dispose();
+    _addressController.dispose();
+    _registrationNumberController.dispose();
+    _registrationDateController.dispose();
+    _registrationTimeController.dispose();
+    _exitDateController.dispose();
+    _exitTimeController.dispose();
+    _panCardController.dispose();
+    _aadhaarCardController.dispose();
+    _utiNumberController.dispose();
     for (final att in _attendants) {
       att.dispose();
     }
     super.dispose();
+  }
+
+  String _formatDate(DateTime? date) => date == null
+      ? ''
+      : '${date.day.toString().padLeft(2, '0')} / ${date.month.toString().padLeft(2, '0')} / ${date.year}';
+
+  String _formatTime(DateTime? value) => value == null
+      ? ''
+      : '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _pickDate({
+    required bool isBirthDate,
+    required bool isExitDate,
+  }) async {
+    final initial = isBirthDate
+        ? _selectedDateOfBirth
+        : isExitDate
+        ? (_selectedExitDate ?? DateTime.now().add(const Duration(days: 7)))
+        : (_selectedRegistrationDate ?? DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: isBirthDate
+          ? DateTime.now()
+          : DateTime.now().add(const Duration(days: 365 * 5)),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (isBirthDate) {
+        _selectedDateOfBirth = picked;
+        _dateOfBirthController.text = _formatDate(picked);
+        _ageController.text = PatientModel.calculateAge(picked).toString();
+      } else if (isExitDate) {
+        final previous = _selectedExitDate;
+        _selectedExitDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          previous?.hour ?? 9,
+          previous?.minute ?? 0,
+        );
+        _exitDateController.text = _formatDate(picked);
+        _exitTimeController.text = _formatTime(_selectedExitDate);
+      } else {
+        final previous = _selectedRegistrationDate;
+        _selectedRegistrationDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          previous?.hour ?? 0,
+          previous?.minute ?? 0,
+        );
+        _registrationDateController.text = _formatDate(picked);
+        _registrationTimeController.text = _formatTime(
+          _selectedRegistrationDate,
+        );
+      }
+    });
+  }
+
+  Future<void> _pickTime({required bool isExitTime}) async {
+    final base = isExitTime
+        ? (_selectedExitDate ?? DateTime.now().add(const Duration(days: 7)))
+        : (_selectedRegistrationDate ?? DateTime.now());
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(base),
+    );
+    if (picked == null) return;
+    setState(() {
+      final value = DateTime(
+        base.year,
+        base.month,
+        base.day,
+        picked.hour,
+        picked.minute,
+      );
+      if (isExitTime) {
+        _selectedExitDate = value;
+        _exitTimeController.text = _formatTime(value);
+      } else {
+        _selectedRegistrationDate = value;
+        _registrationTimeController.text = _formatTime(value);
+      }
+    });
   }
 
   Future<void> _pickPatientPhoto() async {
@@ -337,9 +456,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
 
-      // Calculate new date of birth from age
-      final age = int.tryParse(_ageController.text.trim()) ?? 0;
-      final dateOfBirth = DateTime.now().subtract(Duration(days: age * 365));
+      final dateOfBirth = _selectedDateOfBirth;
+      final age = PatientModel.calculateAge(dateOfBirth);
 
       final structuredAttendants = <AttendantModel>[];
       for (final att in _attendants) {
@@ -374,14 +492,24 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'emergencyContactName': structuredAttendants.isNotEmpty
             ? structuredAttendants.first.name
             : '',
-        'allergies': _allergiesController.text.trim().isEmpty
-            ? null
-            : _allergiesController.text.trim(),
-        'bloodType': _selectedBloodType,
-        'notes': _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
         'attendants': structuredAttendants.map((a) => a.toMap()).toList(),
+        'address': _addressController.text.trim().isEmpty
+            ? null
+            : _addressController.text.trim(),
+        'registrationNumber': _registrationNumberController.text.trim().isEmpty
+            ? null
+            : _registrationNumberController.text.trim(),
+        'registrationDate': _selectedRegistrationDate?.millisecondsSinceEpoch,
+        'exitDate': _selectedExitDate?.millisecondsSinceEpoch,
+        'panCardNumber': _panCardController.text.trim().isEmpty
+            ? null
+            : _panCardController.text.trim(),
+        'aadhaarCardNumber': _aadhaarCardController.text.trim().isEmpty
+            ? null
+            : _aadhaarCardController.text.trim(),
+        'utiNumber': _utiNumberController.text.trim().isEmpty
+            ? null
+            : _utiNumberController.text.trim(),
       };
 
       // Handle room/bed change
@@ -495,6 +623,53 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
     }
   }
+
+  Widget _buildAttendantDetails() => PatientFormSection(
+    label: 'Attendant details',
+    child: Column(
+      children: [
+        for (var i = 0; i < _attendants.length; i++) ...[
+          PatientFormRow2(
+            _NatureField(
+              label: 'Attendant name',
+              hint: 'Full name',
+              controller: _attendants[i].nameController,
+            ),
+            _NatureField(
+              label: 'Relation',
+              hint: 'e.g. Spouse',
+              controller: _attendants[i].relationController,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _NatureField(
+            label: 'Aadhaar number',
+            hint: 'XXXX XXXX XXXX',
+            keyboard: TextInputType.number,
+            controller: _attendants[i].aadhaarController,
+          ),
+          if (_attendants.length > 1)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() {
+                  _attendants[i].dispose();
+                  _attendants.removeAt(i);
+                }),
+                icon: const Icon(Icons.remove_circle_outline),
+                label: const Text('Remove attendant'),
+              ),
+            ),
+          const SizedBox(height: 12),
+        ],
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _attendants.add(_AttendantEntry())),
+          icon: const Icon(Icons.add_circle_outline),
+          label: const Text('Add another attendant'),
+        ),
+      ],
+    ),
+  );
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -621,6 +796,64 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                             const SizedBox(height: 12),
                             PatientFormRow2(
                               PatientFormField(
+                                label: "Date of Birth",
+                                hint: "",
+                                isDate: true,
+                                controller: _dateOfBirthController,
+                                onTap: () => _pickDate(
+                                  isBirthDate: true,
+                                  isExitDate: false,
+                                ),
+                              ),
+                              PatientFormField(
+                                label: "Registration number",
+                                hint: "e.g. REG-2024-001",
+                                controller: _registrationNumberController,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormRow2(
+                              PatientFormField(
+                                label: "Registration date",
+                                hint: "",
+                                isDate: true,
+                                controller: _registrationDateController,
+                                onTap: () => _pickDate(
+                                  isBirthDate: false,
+                                  isExitDate: false,
+                                ),
+                              ),
+                              PatientFormField(
+                                label: "Exit date",
+                                hint: "",
+                                isDate: true,
+                                controller: _exitDateController,
+                                onTap: () => _pickDate(
+                                  isBirthDate: false,
+                                  isExitDate: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormRow2(
+                              PatientFormField(
+                                label: "Registration time",
+                                hint: "",
+                                isDate: true,
+                                controller: _registrationTimeController,
+                                onTap: () => _pickTime(isExitTime: false),
+                              ),
+                              PatientFormField(
+                                label: "Exit time",
+                                hint: "",
+                                isDate: true,
+                                controller: _exitTimeController,
+                                onTap: () => _pickTime(isExitTime: true),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormRow2(
+                              PatientFormField(
                                 label: "Mobile no",
                                 hint: "+91 XXXXX XXXXX",
                                 keyboard: TextInputType.phone,
@@ -642,6 +875,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 setState(() => _selectedGender = value);
                               },
                             ),
+                            const SizedBox(height: 12),
+                            PatientFormField(
+                              label: "Permanent address",
+                              hint: "Street, city, district",
+                              controller: _addressController,
+                            ),
                           ],
                         ),
                       ),
@@ -655,257 +894,255 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                               hint: "Primary diagnosis",
                               controller: _diagnosisController,
                             ),
-                            const SizedBox(height: 12),
-                            PatientFormRow2(
-                              PatientFormDropdown(
-                                label: "Blood Type",
-                                items: _bloodTypes,
-                                value: _selectedBloodType,
-                                onChanged: (value) {
-                                  setState(() => _selectedBloodType = value);
-                                },
-                              ),
-                              PatientFormField(
-                                label: "Allergies",
-                                hint: "Known allergies",
-                                controller: _allergiesController,
-                              ),
-                            ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
-                      PatientFormSection(
-                        label: "Attendant details",
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (int i = 0; i < _attendants.length; i++)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF4F9F0),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: const Color(0xFFC0DD97),
-                                      width: 1,
+                      if (_showLegacyAttendantSection)
+                        PatientFormSection(
+                          label: "Attendant details",
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (int i = 0; i < _attendants.length; i++)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF4F9F0),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFFC0DD97),
+                                        width: 1,
+                                      ),
                                     ),
-                                  ),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    8,
-                                    12,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // ── Top row: number badge + photo picker ──
-                                      Row(
-                                        children: [
-                                          Container(
-                                            width: 22,
-                                            height: 22,
-                                            decoration: const BoxDecoration(
-                                              color: Color(0xFF3B6D11),
-                                              shape: BoxShape.circle,
-                                            ),
-                                            child: Center(
-                                              child: Text(
-                                                '${i + 1}',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w700,
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      8,
+                                      12,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // ── Top row: number badge + photo picker ──
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 22,
+                                              height: 22,
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFF3B6D11),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  '${i + 1}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          // ── Attendant Photo ──
-                                          GestureDetector(
-                                            onTap: () => _pickAttendantPhoto(i),
-                                            child: Stack(
-                                              children: [
-                                                Container(
-                                                  width: 48,
-                                                  height: 48,
-                                                  decoration: BoxDecoration(
-                                                    shape: BoxShape.circle,
-                                                    color: const Color(
-                                                      0xFFE3F2FD,
-                                                    ),
-                                                    border: Border.all(
-                                                      color: const Color(
-                                                        0xFF90CAF9,
-                                                      ),
-                                                      width: 1.5,
-                                                    ),
-                                                  ),
-                                                  child: ClipOval(
-                                                    child:
-                                                        _attendants[i]
-                                                                .photoDataUrl !=
-                                                            null
-                                                        ? Image.memory(
-                                                            _decodePhoto(
-                                                              _attendants[i]
-                                                                  .photoDataUrl,
-                                                            )!,
-                                                            fit: BoxFit.cover,
-                                                          )
-                                                        : const Icon(
-                                                            Icons
-                                                                .person_outline,
-                                                            size: 24,
-                                                            color: Color(
-                                                              0xFF1565C0,
-                                                            ),
-                                                          ),
-                                                  ),
-                                                ),
-                                                Positioned(
-                                                  bottom: 0,
-                                                  right: 0,
-                                                  child: Container(
-                                                    width: 16,
-                                                    height: 16,
+                                            const SizedBox(width: 10),
+                                            // ── Attendant Photo ──
+                                            GestureDetector(
+                                              onTap: () =>
+                                                  _pickAttendantPhoto(i),
+                                              child: Stack(
+                                                children: [
+                                                  Container(
+                                                    width: 48,
+                                                    height: 48,
                                                     decoration: BoxDecoration(
-                                                      color: const Color(
-                                                        0xFF1565C0,
-                                                      ),
                                                       shape: BoxShape.circle,
+                                                      color: const Color(
+                                                        0xFFE3F2FD,
+                                                      ),
                                                       border: Border.all(
-                                                        color: Colors.white,
+                                                        color: const Color(
+                                                          0xFF90CAF9,
+                                                        ),
                                                         width: 1.5,
                                                       ),
                                                     ),
-                                                    child: const Icon(
-                                                      Icons.camera_alt_rounded,
-                                                      size: 8,
-                                                      color: Colors.white,
+                                                    child: ClipOval(
+                                                      child:
+                                                          _attendants[i]
+                                                                  .photoDataUrl !=
+                                                              null
+                                                          ? Image.memory(
+                                                              _decodePhoto(
+                                                                _attendants[i]
+                                                                    .photoDataUrl,
+                                                              )!,
+                                                              fit: BoxFit.cover,
+                                                            )
+                                                          : const Icon(
+                                                              Icons
+                                                                  .person_outline,
+                                                              size: 24,
+                                                              color: Color(
+                                                                0xFF1565C0,
+                                                              ),
+                                                            ),
                                                     ),
                                                   ),
+                                                  Positioned(
+                                                    bottom: 0,
+                                                    right: 0,
+                                                    child: Container(
+                                                      width: 16,
+                                                      height: 16,
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                          0xFF1565C0,
+                                                        ),
+                                                        shape: BoxShape.circle,
+                                                        border: Border.all(
+                                                          color: Colors.white,
+                                                          width: 1.5,
+                                                        ),
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons
+                                                            .camera_alt_rounded,
+                                                        size: 8,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            if (_attendants.length > 1)
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.remove_circle_outline,
+                                                  color: Color(0xFFD32F2F),
+                                                  size: 20,
                                                 ),
-                                              ],
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          if (_attendants.length > 1)
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.remove_circle_outline,
-                                                color: Color(0xFFD32F2F),
-                                                size: 20,
+                                                tooltip: "Remove attendant",
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minWidth: 32,
+                                                      minHeight: 32,
+                                                    ),
+                                                padding: EdgeInsets.zero,
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _attendants[i].dispose();
+                                                    _attendants.removeAt(i);
+                                                  });
+                                                },
                                               ),
-                                              tooltip: "Remove attendant",
-                                              constraints: const BoxConstraints(
-                                                minWidth: 32,
-                                                minHeight: 32,
-                                              ),
-                                              padding: EdgeInsets.zero,
-                                              onPressed: () {
-                                                setState(() {
-                                                  _attendants[i].dispose();
-                                                  _attendants.removeAt(i);
-                                                });
-                                              },
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-
-                                      // ── Name + Age + Relation ──
-                                      _Row3(
-                                        _NatureField(
-                                          label: "Attendant name",
-                                          hint: "Full name",
-                                          controller:
-                                              _attendants[i].nameController,
+                                          ],
                                         ),
+                                        const SizedBox(height: 10),
+
+                                        // ── Name + Age + Relation ──
+                                        PatientFormRow2(
+                                          _NatureField(
+                                            label: "Attendant name",
+                                            hint: "Full name",
+                                            controller:
+                                                _attendants[i].nameController,
+                                          ),
+                                          _NatureField(
+                                            label: "Relation",
+                                            hint: "e.g. Spouse",
+                                            controller: _attendants[i]
+                                                .relationController,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+
+                                        // ── Aadhaar field ──
                                         _NatureField(
-                                          label: "Age",
-                                          hint: "Years",
+                                          label: "Aadhaar Number",
+                                          hint: "XXXX XXXX XXXX",
                                           keyboard: TextInputType.number,
                                           controller:
-                                              _attendants[i].ageController,
+                                              _attendants[i].aadhaarController,
                                         ),
-                                        _NatureField(
-                                          label: "Relation",
-                                          hint: "e.g. Spouse",
-                                          controller:
-                                              _attendants[i].relationController,
-                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              // ── Add Attendant Button ──
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _attendants.add(_AttendantEntry());
+                                  });
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF3DE),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF3B6D11),
+                                      width: 1,
+                                      style: BorderStyle.solid,
+                                    ),
+                                  ),
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.add_circle_rounded,
+                                        size: 18,
+                                        color: Color(0xFF3B6D11),
                                       ),
-                                      const SizedBox(height: 10),
-
-                                      // ── Aadhaar field ──
-                                      _NatureField(
-                                        label: "Aadhaar Number",
-                                        hint: "XXXX XXXX XXXX",
-                                        keyboard: TextInputType.number,
-                                        controller:
-                                            _attendants[i].aadhaarController,
+                                      SizedBox(width: 6),
+                                      Text(
+                                        "Add another attendant",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF3B6D11),
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
-                            // ── Add Attendant Button ──
-                            GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _attendants.add(_AttendantEntry());
-                                });
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF3DE),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: const Color(0xFF3B6D11),
-                                    width: 1,
-                                    style: BorderStyle.solid,
-                                  ),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.add_circle_rounded,
-                                      size: 18,
-                                      color: Color(0xFF3B6D11),
-                                    ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      "Add another attendant",
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF3B6D11),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 20),
                       PatientFormSection(
-                        label: "Additional Notes",
-                        child: PatientFormField(
-                          label: "Notes",
-                          hint: "Any additional information",
-                          controller: _notesController,
-                          maxLines: 4,
+                        label: "Identity documents",
+                        child: Column(
+                          children: [
+                            PatientFormRow2(
+                              PatientFormField(
+                                label: "PAN card number",
+                                hint: "ABCDE1234F",
+                                controller: _panCardController,
+                              ),
+                              PatientFormField(
+                                label: "Aadhaar card number",
+                                hint: "XXXX XXXX XXXX",
+                                keyboard: TextInputType.number,
+                                controller: _aadhaarCardController,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormField(
+                              label: "Transaction number (UTI number)",
+                              hint: "Unique transaction identifier",
+                              controller: _utiNumberController,
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -1001,17 +1238,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                               ),
                       ),
                       const SizedBox(height: 20),
-                      // ── Payment Summary ──
-                      _PaymentSummary(
-                        bedsCount: _selectedBeds.length,
-                        attendantsCount: _attendants
-                            .where(
-                              (a) => a.nameController.text.trim().isNotEmpty,
-                            )
-                            .length,
-                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
-                        roomIdentifier: _selectedRoom?.roomIdentifier,
-                      ),
+                      _buildAttendantDetails(),
                     ],
                   ),
                 ),
