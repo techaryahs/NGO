@@ -329,7 +329,7 @@ extension RoomServiceStays on RoomService {
 
       baseCost = basePrice * durationDays;
       final chargedAttendants = attendantCount > includedAttendants
-          ? attendantCount
+          ? attendantCount - includedAttendants
           : 0;
       extraAttendantCost = chargedAttendants * extraFee * durationDays;
     } else {
@@ -342,5 +342,28 @@ extension RoomServiceStays on RoomService {
       extraAttendantCost: extraAttendantCost,
       totalCost: baseCost + extraAttendantCost,
     );
+  }
+
+  /// Keeps a stay's stored pricing in sync when attendants are edited after
+  /// admission. The private-room base includes the configured free attendant.
+  Future<void> updateStayAttendantCount(
+    String stayId,
+    int attendantCount,
+  ) async {
+    final stay = await getStay(stayId);
+    if (stay == null) throw Exception('Stay not found');
+    final costs = _calculateStayCosts(
+      roomType: stay.roomType,
+      durationDays: stay.totalDays,
+      attendantCount: attendantCount,
+      pricing: await getPricing(),
+    );
+    await rtdb.patch('$staysPath/$stayId', {
+      'attendantCount': attendantCount,
+      'baseCost': costs.baseCost,
+      'extraAttendantCost': costs.extraAttendantCost,
+      'totalCost': costs.totalCost,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
+    });
   }
 }

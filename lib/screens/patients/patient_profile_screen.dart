@@ -2455,7 +2455,7 @@ class _StaysTab extends StatelessWidget {
     final isPrivateRoom = stay.roomType.toLowerCase() == 'private';
     final baseCost = (isPrivateRoom ? 700.0 : 200.0) * stayDays;
     final extraAttendantCost = isPrivateRoom && attendantsCount > 1
-        ? attendantsCount * 200.0 * stayDays
+        ? (attendantsCount - 1) * 200.0 * stayDays
         : 0.0;
     final totalCost = baseCost + extraAttendantCost;
     final daysRemaining = exitDate.difference(DateTime.now()).inDays;

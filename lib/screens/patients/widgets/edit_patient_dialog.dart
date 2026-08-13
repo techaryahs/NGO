@@ -629,10 +629,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       // occupancy count and the patient bill in sync with the edited list.
       if (!roomChanged && !bedsChanged) {
         for (final stayId in _currentStayIds) {
-          await ServiceLocator().rtdbService.patch('stays/$stayId', {
-            'attendantCount': structuredAttendants.length,
-            'updatedAt': DateTime.now().millisecondsSinceEpoch,
-          });
+          await roomService.updateStayAttendantCount(
+            stayId,
+            structuredAttendants.length,
+          );
         }
         if (_selectedRoom?.isPrivate == true) {
           await ServiceLocator().rtdbService.patch(
