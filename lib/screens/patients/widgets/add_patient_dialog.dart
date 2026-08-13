@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../utils/bed_helper.dart';
 import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
@@ -38,7 +39,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final _attendantCountController = TextEditingController();
 
   // List to hold multiple attendants
-  final List<_AttendantEntry> _attendants = [_AttendantEntry()];
+  final List<_AttendantEntry> _attendants = [];
 
   // New field controllers
   final _registrationNumberController = TextEditingController();
@@ -60,6 +61,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
   // Room and Bed Selection
   RoomModel? _selectedRoom;
+  String? _selectedLobby;
+  static const _lobbyOptions = ['Lobby 1', 'Lobby 2'];
   List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
@@ -121,6 +124,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   void _onRoomSelected(RoomModel? room) {
     setState(() {
       _selectedRoom = room;
+      _selectedLobby = null;
       _selectedBeds = []; // Reset bed selection
       // Only show available beds for selection
       _availableBeds = room?.beds.where((b) => b.isAvailable).toList() ?? [];
@@ -128,10 +132,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       // For private rooms, automatically select ALL beds
       if (room != null && room.isPrivate) {
         _selectedBeds = List.from(room.beds);
-        // Set default attendant count to 1 if not already set
-        if (_attendantCountController.text.trim().isEmpty) {
-          _attendantCountController.text = '1';
-        }
       }
     });
   }
@@ -285,7 +285,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     var days = _selectedExitDate!
         .difference(DateTime(start.year, start.month, start.day))
         .inDays;
-    if (_selectedExitDate!.hour >= 9) days++;
+    final exitTime = _selectedExitDate!;
+    if (exitTime.hour > 9 || (exitTime.hour == 9 && exitTime.minute > 0)) {
+      days++;
+    }
     return days.clamp(1, 3650);
   }
 
@@ -350,8 +353,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter patient name');
       return;
     }
-    if (_mobileController.text.trim().isEmpty) {
-      _showError('Please enter mobile number');
+    final mobileNumber = _mobileController.text.trim();
+    if (!RegExp(r'^\d{10}$').hasMatch(mobileNumber)) {
+      _showError('Please enter a valid 10-digit phone number');
       return;
     }
     if (_selectedGender == null) {
@@ -369,22 +373,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (_diagnosisController.text.trim().isEmpty) {
       _showError('Please enter diagnosis');
       return;
-    }
-    if (_attendants.isEmpty ||
-        _attendants.first.nameController.text.trim().isEmpty) {
-      _showError('Please enter at least one attendant name');
-      return;
-    }
-    if (_selectedRoom?.isPrivate == true) {
-      final attendantCount = int.tryParse(
-        _attendantCountController.text.trim(),
-      );
-      if (attendantCount == null || attendantCount < 1 || attendantCount > 5) {
-        _showError(
-          'Please enter a valid attendant count (1-5) for private rooms',
-        );
-        return;
-      }
     }
     if (_selectedRoom?.isPrivate == false) {
       final totalOccupants =
@@ -495,6 +483,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         }
       }
       notesList.add('Room: ${_selectedRoom!.roomIdentifier}');
+      if (_selectedLobby != null) {
+        notesList.add('Lobby: $_selectedLobby');
+      }
       notesList.add('Beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}');
 
       final initialPayment = result.payment == null
@@ -542,6 +533,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         address: _addressController.text.trim().isEmpty
             ? null
             : _addressController.text.trim(),
+        lobby: _selectedLobby,
         exitDate: _selectedExitDate,
         createdBy: currentUser.uid,
         registrationNumber: _registrationNumberController.text.trim().isNotEmpty
@@ -569,9 +561,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         initialTotalAmount: _estimatedTotal,
       );
 
-      // Get attendant count (default to 1 if not specified)
-      final attendantCount =
-          int.tryParse(_attendantCountController.text.trim()) ?? 1;
+      final attendantCount = structuredAttendants.length;
 
       // Handle stay creation based on room type
       if (_selectedRoom!.isPrivate) {
@@ -589,7 +579,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           bedLabel: _selectedBeds.isNotEmpty
               ? _selectedBeds.map((b) => b.bedLabel).join(", ")
               : null,
-          notes: 'Private room admission with $attendantCount attendant(s)',
+          notes: [
+            'Private room admission with $attendantCount attendant(s)',
+            if (_selectedLobby != null) 'Lobby: $_selectedLobby',
+          ].join('\n'),
           createdBy: currentUser.uid,
         );
       } else {
@@ -603,16 +596,22 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             roomType: _selectedRoom!.roomType,
             admissionDate: admissionDate,
             durationDays: _plannedStayDays,
-            attendantCount: 1, // General rooms: 1 attendant per bed
+            attendantCount: attendantCount,
             bedId: bed.id,
             bedLabel: bed.bedLabel,
-            notes: _selectedBeds.length > 1
-                ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
-                : 'General ward admission',
+            notes: [
+              _selectedBeds.length > 1
+                  ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                  : 'General ward admission',
+              if (_selectedLobby != null) 'Lobby: $_selectedLobby',
+            ].join('\n'),
             createdBy: currentUser.uid,
           );
         }
       }
+
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patientId);
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -754,6 +753,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               hint: "+91 XXXXX XXXXX",
                               keyboard: TextInputType.phone,
                               controller: _mobileController,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(10),
+                              ],
                             ),
                             const SizedBox(height: 12),
                             PatientFormRow2(
@@ -1081,6 +1084,27 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               rooms: _availableRooms,
                               selectedRoom: _selectedRoom,
                               onChanged: _onRoomSelected,
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormDropdown(
+                              label: 'Lobby',
+                              hint: _selectedRoom == null
+                                  ? 'Select room first'
+                                  : BedHelper.isLobbyRoom(
+                                      _selectedRoom!.roomIdentifier,
+                                    )
+                                  ? 'Select lobby'
+                                  : 'Not available for this room',
+                              items: _lobbyOptions,
+                              value: _selectedLobby,
+                              onChanged:
+                                  _selectedRoom != null &&
+                                      BedHelper.isLobbyRoom(
+                                        _selectedRoom!.roomIdentifier,
+                                      )
+                                  ? (value) =>
+                                        setState(() => _selectedLobby = value)
+                                  : null,
                             ),
                             if (_selectedRoom != null) ...[
                               const SizedBox(height: 12),
@@ -2005,7 +2029,7 @@ class _PaymentSummary extends StatelessWidget {
         ? (700.0 * days)
         : (bedsCount * occupants * 200.0 * days);
     final attendantTotal = isPrivateRoom
-        ? (attendantsCount * 200.0 * days)
+        ? ((attendantsCount - 1).clamp(0, attendantsCount) * 200.0 * days)
         : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
@@ -2089,12 +2113,12 @@ class _PaymentSummary extends StatelessWidget {
                   total: bedTotal,
                   days: days,
                 ),
-                if (isPrivateRoom) ...[
+                if (isPrivateRoom && attendantsCount > 1) ...[
                   const SizedBox(height: 8),
                   _SummaryRow(
                     icon: Icons.person_outline_rounded,
-                    label: 'Attendants',
-                    count: attendantsCount,
+                    label: 'Extra attendants',
+                    count: attendantsCount - 1,
                     rate: 200.0,
                     total: attendantTotal,
                     days: days,

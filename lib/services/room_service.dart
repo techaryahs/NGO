@@ -32,8 +32,8 @@ class RoomService {
   static final Random _random = Random();
 
   static const Map<String, dynamic> defaultPricing = {
-    'privateRoomBasePrice': 600,
-    'privateRoomIncludedAttendants': 2,
+    'privateRoomBasePrice': 700,
+    'privateRoomIncludedAttendants': 1,
     'privateRoomExtraAttendantFee': 200,
     'privateRoomMaxAttendants': 5,
     'generalRoomBedPrice': 150,
@@ -98,7 +98,9 @@ class RoomService {
 
   DateTime? earliestExpectedVacancy(List<StayModel> stays) {
     if (stays.isEmpty) return null;
-    stays.sort((a, b) => a.effectiveExpiryDate.compareTo(b.effectiveExpiryDate));
+    stays.sort(
+      (a, b) => a.effectiveExpiryDate.compareTo(b.effectiveExpiryDate),
+    );
     return stays.first.effectiveExpiryDate;
   }
 

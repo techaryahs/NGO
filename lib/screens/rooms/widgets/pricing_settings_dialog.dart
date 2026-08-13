@@ -11,16 +11,19 @@ class PricingSettingsDialog extends StatefulWidget {
 
 class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
   final _roomService = ServiceLocator().roomService;
-  
-  final TextEditingController privateBasePriceController = TextEditingController();
-  final TextEditingController privateExtraAttendantController = TextEditingController();
-  final TextEditingController generalBedPriceController = TextEditingController();
-  
-  int privateIncludedAttendants = 2;
+
+  final TextEditingController privateBasePriceController =
+      TextEditingController();
+  final TextEditingController privateExtraAttendantController =
+      TextEditingController();
+  final TextEditingController generalBedPriceController =
+      TextEditingController();
+
+  int privateIncludedAttendants = 1;
   int privateMaxAttendants = 5;
   int generalDefaultBeds = 4;
   int generalMaxAttendants = 2;
-  
+
   bool isLoading = true;
   bool isSaving = false;
 
@@ -42,10 +45,14 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
     try {
       final pricing = await _roomService.getPricing();
       setState(() {
-        privateBasePriceController.text = pricing['privateRoomBasePrice'].toString();
-        privateExtraAttendantController.text = pricing['privateRoomExtraAttendantFee'].toString();
-        generalBedPriceController.text = pricing['generalRoomBedPrice'].toString();
-        privateIncludedAttendants = pricing['privateRoomIncludedAttendants'] ?? 2;
+        privateBasePriceController.text = pricing['privateRoomBasePrice']
+            .toString();
+        privateExtraAttendantController.text =
+            pricing['privateRoomExtraAttendantFee'].toString();
+        generalBedPriceController.text = pricing['generalRoomBedPrice']
+            .toString();
+        privateIncludedAttendants =
+            pricing['privateRoomIncludedAttendants'] ?? 1;
         privateMaxAttendants = pricing['privateRoomMaxAttendants'] ?? 5;
         generalDefaultBeds = pricing['generalRoomDefaultBeds'] ?? 4;
         generalMaxAttendants = pricing['generalRoomMaxAttendants'] ?? 2;
@@ -73,7 +80,9 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
       await _roomService.updatePricing({
         'privateRoomBasePrice': double.parse(privateBasePriceController.text),
         'privateRoomIncludedAttendants': privateIncludedAttendants,
-        'privateRoomExtraAttendantFee': double.parse(privateExtraAttendantController.text),
+        'privateRoomExtraAttendantFee': double.parse(
+          privateExtraAttendantController.text,
+        ),
         'privateRoomMaxAttendants': privateMaxAttendants,
         'generalRoomBedPrice': double.parse(generalBedPriceController.text),
         'generalRoomDefaultBeds': generalDefaultBeds,
@@ -99,7 +108,9 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -174,14 +185,21 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F9F0),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                        border: Border.all(
+                          color: const Color(0xFFC0DD97),
+                          width: 1,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.hotel_rounded, color: Color(0xFF3B6D11), size: 20),
+                              const Icon(
+                                Icons.hotel_rounded,
+                                color: Color(0xFF3B6D11),
+                                size: 20,
+                              ),
                               const SizedBox(width: 8),
                               const Text(
                                 "PRIVATE ROOM PRICING",
@@ -195,7 +213,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Base Price
                           const Text(
                             "Base Price (per day)",
@@ -210,26 +228,37 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           TextField(
                             controller: privateBasePriceController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             decoration: InputDecoration(
                               hintText: "600",
                               prefixText: "₹ ",
-                              hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                              hintStyle: const TextStyle(
+                                color: Color(0xFF97C459),
+                                fontSize: 14,
+                              ),
                               filled: true,
                               fillColor: Colors.white,
                               contentPadding: const EdgeInsets.all(12),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFC0DD97),
+                                  width: 1,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF639922),
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Included Attendants
                           const Text(
                             "Included Attendants",
@@ -245,18 +274,23 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                             children: [1, 2, 3].map((count) {
                               return Expanded(
                                 child: Padding(
-                                  padding: EdgeInsets.only(right: count < 3 ? 8 : 0),
+                                  padding: EdgeInsets.only(
+                                    right: count < 3 ? 8 : 0,
+                                  ),
                                   child: _CountChip(
                                     count: count,
-                                    isSelected: privateIncludedAttendants == count,
-                                    onTap: () => setState(() => privateIncludedAttendants = count),
+                                    isSelected:
+                                        privateIncludedAttendants == count,
+                                    onTap: () => setState(
+                                      () => privateIncludedAttendants = count,
+                                    ),
                                   ),
                                 ),
                               );
                             }).toList(),
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Extra Attendant Fee
                           const Text(
                             "Extra Attendant Fee (per day)",
@@ -271,26 +305,37 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           TextField(
                             controller: privateExtraAttendantController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             decoration: InputDecoration(
                               hintText: "200",
                               prefixText: "₹ ",
-                              hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                              hintStyle: const TextStyle(
+                                color: Color(0xFF97C459),
+                                fontSize: 14,
+                              ),
                               filled: true,
                               fillColor: Colors.white,
                               contentPadding: const EdgeInsets.all(12),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFC0DD97),
+                                  width: 1,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF639922),
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Max Attendants
                           const Text(
                             "Maximum Attendants",
@@ -307,11 +352,15 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                               final count = index + 1;
                               return Expanded(
                                 child: Padding(
-                                  padding: EdgeInsets.only(right: index < 4 ? 8 : 0),
+                                  padding: EdgeInsets.only(
+                                    right: index < 4 ? 8 : 0,
+                                  ),
                                   child: _CountChip(
                                     count: count,
                                     isSelected: privateMaxAttendants == count,
-                                    onTap: () => setState(() => privateMaxAttendants = count),
+                                    onTap: () => setState(
+                                      () => privateMaxAttendants = count,
+                                    ),
                                   ),
                                 ),
                               );
@@ -328,14 +377,21 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F9F0),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                        border: Border.all(
+                          color: const Color(0xFFC0DD97),
+                          width: 1,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.bed_rounded, color: Color(0xFF3B6D11), size: 20),
+                              const Icon(
+                                Icons.bed_rounded,
+                                color: Color(0xFF3B6D11),
+                                size: 20,
+                              ),
                               const SizedBox(width: 8),
                               const Text(
                                 "GENERAL ROOM PRICING",
@@ -349,7 +405,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Bed Price
                           const Text(
                             "Price per Bed (per day)",
@@ -364,41 +420,62 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           TextField(
                             controller: generalBedPriceController,
                             keyboardType: TextInputType.number,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             decoration: InputDecoration(
                               hintText: "150",
                               prefixText: "₹ ",
-                              hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                              hintStyle: const TextStyle(
+                                color: Color(0xFF97C459),
+                                fontSize: 14,
+                              ),
                               filled: true,
                               fillColor: Colors.white,
                               contentPadding: const EdgeInsets.all(12),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFC0DD97),
+                                  width: 1,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF639922),
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(height: 16),
-                          
+
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFF3E0),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFFFB74D), width: 1),
+                              border: Border.all(
+                                color: const Color(0xFFFFB74D),
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: const [
-                                Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFFE65100)),
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 16,
+                                  color: Color(0xFFE65100),
+                                ),
                                 SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     "General rooms include 1 attendant. 2nd attendant is self-expense.",
-                                    style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFFE65100),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -414,10 +491,15 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: isSaving ? null : () => Navigator.pop(context),
+                          onPressed: isSaving
+                              ? null
+                              : () => Navigator.pop(context),
                           style: TextButton.styleFrom(
                             foregroundColor: const Color(0xFF639922),
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
                           ),
                           child: const Text("Cancel"),
                         ),
@@ -430,7 +512,9 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                                   height: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
                                 )
                               : const Icon(Icons.check_rounded, size: 18),
@@ -439,7 +523,10 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                             backgroundColor: const Color(0xFF3B6D11),
                             foregroundColor: Colors.white,
                             elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -478,7 +565,9 @@ class _CountChip extends StatelessWidget {
           color: isSelected ? const Color(0xFF3B6D11) : Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+            color: isSelected
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFC0DD97),
             width: 1.5,
           ),
         ),

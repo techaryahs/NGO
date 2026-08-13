@@ -11,7 +11,8 @@ class RoomModel {
   final String roomIdentifier;
   final int floor;
   final String roomType; // 'private' or 'general'
-  final String status; // 'available', 'occupied', 'pending_discharge', 'maintenance', 'unavailable'
+  final String
+  status; // 'available', 'occupied', 'pending_discharge', 'maintenance', 'unavailable'
 
   // Private room fields
   final int maxAttendants;
@@ -82,12 +83,20 @@ class RoomModel {
     return 'partially_occupied';
   }
 
-  bool get isPartiallyOccupied => derivedOccupancyStatus == 'partially_occupied';
+  bool get isPartiallyOccupied =>
+      derivedOccupancyStatus == 'partially_occupied';
   bool get isDerivedAvailable => derivedOccupancyStatus == 'available';
   bool get isDerivedOccupied => derivedOccupancyStatus == 'occupied';
 
   static const List<String> privateRoomIdentifiers = ['1A', '2A', '2B'];
-  static const List<String> generalWardIdentifiers = ['1B', '1C', '1D', '2C', '2D', '2E'];
+  static const List<String> generalWardIdentifiers = [
+    '1B',
+    '1C',
+    '1D',
+    '2C',
+    '2D',
+    '2E',
+  ];
   static const List<String> floor1Rooms = ['1A', '1B', '1C', '1D'];
   static const List<String> floor2Rooms = ['2A', '2B', '2C', '2D', '2E'];
 
@@ -132,8 +141,10 @@ class RoomModel {
     required double extraAttendantFee,
   }) {
     final baseCost = basePrice * days;
-    final extraAttendants = attendants > includedAttendants ? attendants - includedAttendants : 0;
-    final extraCost = extraAttendants * extraAttendantFee * days;
+    // The base rate covers the patient and one attendant. When there are two
+    // or more attendants, every attendant is charged the extra-attendant fee.
+    final chargedAttendants = attendants > includedAttendants ? attendants : 0;
+    final extraCost = chargedAttendants * extraAttendantFee * days;
     return baseCost + extraCost;
   }
 
@@ -186,7 +197,9 @@ class RoomModel {
         final bedsMap = Map<String, dynamic>.from(data['beds']);
         bedsMap.forEach((key, value) {
           if (value is Map) {
-            bedsList.add(BedModel.fromMap(key, Map<String, dynamic>.from(value)));
+            bedsList.add(
+              BedModel.fromMap(key, Map<String, dynamic>.from(value)),
+            );
           }
         });
       }
@@ -272,7 +285,8 @@ class RoomModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    if (value is double)
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }

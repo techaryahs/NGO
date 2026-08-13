@@ -16,16 +16,16 @@ class RoomsPage extends StatefulWidget {
 class _RoomsPageState extends State<RoomsPage> {
   String selectedRoomType = 'all'; // 'all', 'private', 'general'
   int selectedFloor = 0; // 0 = all floors, 1 = Floor 1, 2 = Floor 2
-  String selectedStatus = 'all'; // 'all', 'available', 'occupied', 'partially_occupied', 'maintenance'
+  String selectedStatus =
+      'all'; // 'all', 'available', 'occupied', 'partially_occupied', 'maintenance'
   String searchQuery = '';
   final TextEditingController searchController = TextEditingController();
 
   void _showAddRoomDialog() {
     showDialog(
       context: context,
-      builder: (context) => AddRoomDialog(
-        selectedFloor: selectedFloor == 0 ? 1 : selectedFloor,
-      ),
+      builder: (context) =>
+          AddRoomDialog(selectedFloor: selectedFloor == 0 ? 1 : selectedFloor),
     );
   }
 
@@ -58,22 +58,21 @@ class _RoomsPageState extends State<RoomsPage> {
         stream: roomService.getRoomsStream(),
         builder: (context, roomsSnapshot) {
           // Show loading only on first load
-          if (roomsSnapshot.connectionState == ConnectionState.waiting && 
+          if (roomsSnapshot.connectionState == ConnectionState.waiting &&
               !roomsSnapshot.hasData) {
             return const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF3B6D11)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF3B6D11),
+                    ),
                   ),
                   SizedBox(height: 16),
                   Text(
                     "Loading rooms...",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF639922),
-                    ),
+                    style: TextStyle(fontSize: 14, color: Color(0xFF639922)),
                   ),
                 ],
               ),
@@ -120,20 +119,38 @@ class _RoomsPageState extends State<RoomsPage> {
           final totalRoomsCount = allRooms.length;
           final privateRoomsCount = allRooms.where((r) => r.isPrivate).length;
           final generalRoomsCount = allRooms.where((r) => r.isGeneral).length;
-          final totalBeds = allRooms.fold(0, (sum, r) => sum + r.actualTotalBeds);
-          final occupiedBeds = allRooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
+          final totalBeds = allRooms.fold(
+            0,
+            (sum, r) => sum + r.actualTotalBeds,
+          );
+          final occupiedBeds = allRooms.fold(
+            0,
+            (sum, r) => sum + r.actualOccupiedBeds,
+          );
           final availableBeds = totalBeds - occupiedBeds;
 
           // Calculate per-floor stats
           final floor1Rooms = allRooms.where((r) => r.floor == 1).toList();
           final floor2Rooms = allRooms.where((r) => r.floor == 2).toList();
 
-          final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-          final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor1Patients = floor1Rooms.fold(
+            0,
+            (sum, r) => sum + r.actualOccupiedBeds,
+          );
+          final floor1VacantBeds = floor1Rooms.fold(
+            0,
+            (sum, r) => sum + r.actualAvailableBeds,
+          );
           final floor1TotalRooms = floor1Rooms.length;
 
-          final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-          final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+          final floor2Patients = floor2Rooms.fold(
+            0,
+            (sum, r) => sum + r.actualOccupiedBeds,
+          );
+          final floor2VacantBeds = floor2Rooms.fold(
+            0,
+            (sum, r) => sum + r.actualAvailableBeds,
+          );
           final floor2TotalRooms = floor2Rooms.length;
 
           // Apply filters
@@ -144,21 +161,29 @@ class _RoomsPageState extends State<RoomsPage> {
             rooms = rooms.where((r) => r.floor == selectedFloor).toList();
           }
           if (selectedStatus != 'all') {
-            rooms = rooms.where((r) => r.derivedOccupancyStatus == selectedStatus).toList();
+            rooms = rooms
+                .where((r) => r.derivedOccupancyStatus == selectedStatus)
+                .toList();
           }
           if (searchQuery.isNotEmpty) {
             final query = searchQuery.toLowerCase();
-            rooms = rooms.where((r) =>
-              r.roomIdentifier.toLowerCase().contains(query) ||
-              r.roomNumber.toLowerCase().contains(query) ||
-              (r.notes != null && r.notes!.toLowerCase().contains(query))
-            ).toList();
+            rooms = rooms
+                .where(
+                  (r) =>
+                      r.roomIdentifier.toLowerCase().contains(query) ||
+                      r.roomNumber.toLowerCase().contains(query) ||
+                      (r.notes != null &&
+                          r.notes!.toLowerCase().contains(query)),
+                )
+                .toList();
           }
 
           // Calculate grid parameters
           int crossAxisCount = 1;
           if (screenWidth >= 1400) {
-            crossAxisCount = isWideDesktop ? 3 : 4; // adjustment when sidebar takes space
+            crossAxisCount = isWideDesktop
+                ? 3
+                : 4; // adjustment when sidebar takes space
           } else if (screenWidth >= 1050) {
             crossAxisCount = isWideDesktop ? 2 : 3;
           } else if (screenWidth >= 700) {
@@ -168,8 +193,12 @@ class _RoomsPageState extends State<RoomsPage> {
           // Compute aspect ratio dynamically based on screen width to enforce a 265px card height
           double spacing = 16.0;
           double sidebarWidth = isWideDesktop ? 330.0 : 0.0;
-          double gridWidth = screenWidth - (isWideDesktop ? sidebarWidth : 0.0) - 40.0; // 40px padding
-          double cellWidth = (gridWidth - (crossAxisCount - 1) * spacing) / crossAxisCount;
+          double gridWidth =
+              screenWidth -
+              (isWideDesktop ? sidebarWidth : 0.0) -
+              40.0; // 40px padding
+          double cellWidth =
+              (gridWidth - (crossAxisCount - 1) * spacing) / crossAxisCount;
           double childAspectRatio = (cellWidth / 265.0).clamp(0.6, 2.5);
 
           return CustomScrollView(
@@ -178,7 +207,12 @@ class _RoomsPageState extends State<RoomsPage> {
               // HEADER ROW (Non-scrollable top margin, but inside custom scroll view)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 8),
+                  padding: const EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 20,
+                    bottom: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -199,12 +233,21 @@ class _RoomsPageState extends State<RoomsPage> {
                                 builder: (context) => PricingSettingsDialog(),
                               );
                             },
-                            icon: const Icon(Icons.attach_money_rounded, size: 18),
+                            icon: const Icon(
+                              Icons.attach_money_rounded,
+                              size: 18,
+                            ),
                             label: const Text("Pricing"),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF3B6D11),
-                              side: const BorderSide(color: Color(0xFF3B6D11), width: 1.5),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              side: const BorderSide(
+                                color: Color(0xFF3B6D11),
+                                width: 1.5,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -219,7 +262,10 @@ class _RoomsPageState extends State<RoomsPage> {
                               backgroundColor: const Color(0xFF3B6D11),
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -235,7 +281,10 @@ class _RoomsPageState extends State<RoomsPage> {
               // KPI HORIZONTAL CARDS SECTION
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   child: screenWidth >= 900
                       ? Row(
                           children: [
@@ -316,7 +365,10 @@ class _RoomsPageState extends State<RoomsPage> {
               // FLOOR OVERVIEW SECTION (Side-by-side cards)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -327,7 +379,9 @@ class _RoomsPageState extends State<RoomsPage> {
                           vacantBeds: floor1VacantBeds,
                           totalRooms: floor1TotalRooms,
                           isSelected: selectedFloor == 1,
-                          onTap: () => setState(() => selectedFloor = selectedFloor == 1 ? 0 : 1),
+                          onTap: () => setState(
+                            () => selectedFloor = selectedFloor == 1 ? 0 : 1,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -339,7 +393,9 @@ class _RoomsPageState extends State<RoomsPage> {
                           vacantBeds: floor2VacantBeds,
                           totalRooms: floor2TotalRooms,
                           isSelected: selectedFloor == 2,
-                          onTap: () => setState(() => selectedFloor = selectedFloor == 2 ? 0 : 2),
+                          onTap: () => setState(
+                            () => selectedFloor = selectedFloor == 2 ? 0 : 2,
+                          ),
                         ),
                       ),
                     ],
@@ -353,11 +409,17 @@ class _RoomsPageState extends State<RoomsPage> {
                 delegate: _StickyFilterBarDelegate(
                   height: isMobile ? 124.0 : 64.0,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
                     decoration: const BoxDecoration(
                       color: Color(0xFFFAFDF7),
                       border: Border(
-                        bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                        bottom: BorderSide(
+                          color: Color(0xFFC0DD97),
+                          width: 0.5,
+                        ),
                         top: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
                       ),
                     ),
@@ -387,25 +449,13 @@ class _RoomsPageState extends State<RoomsPage> {
                           )
                         : Row(
                             children: [
-                              Expanded(
-                                flex: 3,
-                                child: _buildSearchField(),
-                              ),
+                              Expanded(flex: 3, child: _buildSearchField()),
                               const SizedBox(width: 12),
-                              Expanded(
-                                flex: 2,
-                                child: _buildRoomTypeFilter(),
-                              ),
+                              Expanded(flex: 2, child: _buildRoomTypeFilter()),
                               const SizedBox(width: 12),
-                              Expanded(
-                                flex: 2,
-                                child: _buildFloorFilter(),
-                              ),
+                              Expanded(flex: 2, child: _buildFloorFilter()),
                               const SizedBox(width: 12),
-                              Expanded(
-                                flex: 2,
-                                child: _buildStatusFilter(),
-                              ),
+                              Expanded(flex: 2, child: _buildStatusFilter()),
                               const SizedBox(width: 12),
                               _buildResetButton(),
                             ],
@@ -415,8 +465,7 @@ class _RoomsPageState extends State<RoomsPage> {
               ),
 
               // MAIN AREA: GRID AND SIDEBAR
-              SliverFillRemaining(
-                hasScrollBody: true,
+              SliverToBoxAdapter(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -431,14 +480,18 @@ class _RoomsPageState extends State<RoomsPage> {
                                   Icon(
                                     Icons.meeting_room_outlined,
                                     size: 64,
-                                    color: const Color(0xFF639922).withOpacity(0.3),
+                                    color: const Color(
+                                      0xFF639922,
+                                    ).withOpacity(0.3),
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
                                     "No rooms match the criteria",
                                     style: TextStyle(
                                       fontSize: 16,
-                                      color: const Color(0xFF639922).withOpacity(0.6),
+                                      color: const Color(
+                                        0xFF639922,
+                                      ).withOpacity(0.6),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -454,14 +507,19 @@ class _RoomsPageState extends State<RoomsPage> {
                               ),
                             )
                           : GridView.builder(
-                              key: ValueKey('${selectedRoomType}_${selectedFloor}_${selectedStatus}_$searchQuery'),
-                              padding: const EdgeInsets.all(20),
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: crossAxisCount,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
-                                childAspectRatio: childAspectRatio,
+                              key: ValueKey(
+                                '${selectedRoomType}_${selectedFloor}_${selectedStatus}_$searchQuery',
                               ),
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(20),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: crossAxisCount,
+                                    crossAxisSpacing: 16,
+                                    mainAxisSpacing: 16,
+                                    childAspectRatio: childAspectRatio,
+                                  ),
                               itemCount: rooms.length,
                               itemBuilder: (context, index) {
                                 return RoomCard(room: rooms[index]);
@@ -473,24 +531,26 @@ class _RoomsPageState extends State<RoomsPage> {
                     if (isWideDesktop)
                       Container(
                         width: 320,
-                        padding: const EdgeInsets.only(right: 20, top: 20, bottom: 20),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            children: [
-                              _RoomStatisticsSidebar(
-                                totalRooms: totalRoomsCount,
-                                privateRooms: privateRoomsCount,
-                                generalRooms: generalRoomsCount,
-                                totalBeds: totalBeds,
-                                occupiedBeds: occupiedBeds,
-                                availableBeds: availableBeds,
-                                floor1Patients: floor1Patients,
-                                floor2Patients: floor2Patients,
-                              ),
-                              const SizedBox(height: 16),
-                              const CensusSummaryWidget(),
-                            ],
-                          ),
+                        padding: const EdgeInsets.only(
+                          right: 20,
+                          top: 20,
+                          bottom: 20,
+                        ),
+                        child: Column(
+                          children: [
+                            _RoomStatisticsSidebar(
+                              totalRooms: totalRoomsCount,
+                              privateRooms: privateRoomsCount,
+                              generalRooms: generalRoomsCount,
+                              totalBeds: totalBeds,
+                              occupiedBeds: occupiedBeds,
+                              availableBeds: availableBeds,
+                              floor1Patients: floor1Patients,
+                              floor2Patients: floor2Patients,
+                            ),
+                            const SizedBox(height: 16),
+                            const CensusSummaryWidget(),
+                          ],
                         ),
                       ),
                   ],
@@ -510,7 +570,11 @@ class _RoomsPageState extends State<RoomsPage> {
       decoration: InputDecoration(
         hintText: "Search rooms...",
         hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 13),
-        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF639922), size: 18),
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: Color(0xFF639922),
+          size: 18,
+        ),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -538,8 +602,16 @@ class _RoomsPageState extends State<RoomsPage> {
         child: DropdownButton<String>(
           value: selectedRoomType,
           isExpanded: true,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF27500A),
+            fontWeight: FontWeight.w600,
+          ),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF639922),
+            size: 18,
+          ),
           items: const [
             DropdownMenuItem(value: 'all', child: Text("All Types")),
             DropdownMenuItem(value: 'private', child: Text("Private Rooms")),
@@ -565,8 +637,16 @@ class _RoomsPageState extends State<RoomsPage> {
         child: DropdownButton<int>(
           value: selectedFloor,
           isExpanded: true,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF27500A),
+            fontWeight: FontWeight.w600,
+          ),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF639922),
+            size: 18,
+          ),
           items: const [
             DropdownMenuItem(value: 0, child: Text("All Floors")),
             DropdownMenuItem(value: 1, child: Text("First Floor")),
@@ -592,14 +672,28 @@ class _RoomsPageState extends State<RoomsPage> {
         child: DropdownButton<String>(
           value: selectedStatus,
           isExpanded: true,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF27500A), fontWeight: FontWeight.w600),
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF639922), size: 18),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF27500A),
+            fontWeight: FontWeight.w600,
+          ),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF639922),
+            size: 18,
+          ),
           items: const [
             DropdownMenuItem(value: 'all', child: Text("All Statuses")),
             DropdownMenuItem(value: 'available', child: Text("Available")),
             DropdownMenuItem(value: 'occupied', child: Text("Full")),
-            DropdownMenuItem(value: 'partially_occupied', child: Text("Partially Occupied")),
-            DropdownMenuItem(value: 'pending_discharge', child: Text("Pending Discharge")),
+            DropdownMenuItem(
+              value: 'partially_occupied',
+              child: Text("Partially Occupied"),
+            ),
+            DropdownMenuItem(
+              value: 'pending_discharge',
+              child: Text("Pending Discharge"),
+            ),
             DropdownMenuItem(value: 'maintenance', child: Text("Maintenance")),
           ],
           onChanged: (val) {
@@ -732,10 +826,14 @@ class _FloorStatCard extends StatelessWidget {
         height: 110,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11).withOpacity(0.06) : Colors.white,
+          color: isSelected
+              ? const Color(0xFF3B6D11).withOpacity(0.06)
+              : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
+            color: isSelected
+                ? const Color(0xFF3B6D11)
+                : const Color(0xFFC0DD97),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: [
@@ -751,7 +849,9 @@ class _FloorStatCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFF639922),
+                color: isSelected
+                    ? const Color(0xFF3B6D11)
+                    : const Color(0xFF639922),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(
@@ -773,7 +873,9 @@ class _FloorStatCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFF27500A),
+                      color: isSelected
+                          ? const Color(0xFF3B6D11)
+                          : const Color(0xFF27500A),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -835,10 +937,7 @@ class _FloorStatItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Color(0xFF639922),
-          ),
+          style: const TextStyle(fontSize: 10, color: Color(0xFF639922)),
         ),
       ],
     );
@@ -859,11 +958,12 @@ class _StickyFilterBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      color: const Color(0xFFF0F7EA),
-      child: child,
-    );
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(color: const Color(0xFFF0F7EA), child: child);
   }
 
   @override
@@ -896,8 +996,12 @@ class _RoomStatisticsSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double occupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0.0;
-    final double vacancyRate = totalBeds > 0 ? (availableBeds / totalBeds) * 100 : 0.0;
+    final double occupancyRate = totalBeds > 0
+        ? (occupiedBeds / totalBeds) * 100
+        : 0.0;
+    final double vacancyRate = totalBeds > 0
+        ? (availableBeds / totalBeds) * 100
+        : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -942,11 +1046,23 @@ class _RoomStatisticsSidebar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _buildStatRow("Occupancy Rate", "${occupancyRate.toStringAsFixed(1)}%", Colors.red.shade700),
+          _buildStatRow(
+            "Occupancy Rate",
+            "${occupancyRate.toStringAsFixed(1)}%",
+            Colors.red.shade700,
+          ),
           const SizedBox(height: 10),
-          _buildStatRow("Vacancy Rate", "${vacancyRate.toStringAsFixed(1)}%", const Color(0xFF3B6D11)),
+          _buildStatRow(
+            "Vacancy Rate",
+            "${vacancyRate.toStringAsFixed(1)}%",
+            const Color(0xFF3B6D11),
+          ),
           const SizedBox(height: 10),
-          _buildStatRow("Private / General Rooms", "$privateRooms / $generalRooms", const Color(0xFF0F6E56)),
+          _buildStatRow(
+            "Private / General Rooms",
+            "$privateRooms / $generalRooms",
+            const Color(0xFF0F6E56),
+          ),
           const SizedBox(height: 12),
           const Divider(height: 1, color: Color(0xFFE2E8F0)),
           const SizedBox(height: 12),
@@ -962,16 +1078,36 @@ class _RoomStatisticsSidebar extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("First Floor", style: TextStyle(fontSize: 12, color: Color(0xFF639922))),
-              Text("$floor1Patients Patients", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF27500A))),
+              const Text(
+                "First Floor",
+                style: TextStyle(fontSize: 12, color: Color(0xFF639922)),
+              ),
+              Text(
+                "$floor1Patients Patients",
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("Second Floor", style: TextStyle(fontSize: 12, color: Color(0xFF639922))),
-              Text("$floor2Patients Patients", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF27500A))),
+              const Text(
+                "Second Floor",
+                style: TextStyle(fontSize: 12, color: Color(0xFF639922)),
+              ),
+              Text(
+                "$floor2Patients Patients",
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF27500A),
+                ),
+              ),
             ],
           ),
         ],
@@ -985,10 +1121,7 @@ class _RoomStatisticsSidebar extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF639922),
-          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF639922)),
         ),
         Text(
           value,

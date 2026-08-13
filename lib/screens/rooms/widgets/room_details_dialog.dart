@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ngo/models/room_model.dart';
 import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/stay_model.dart';
+import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/rooms/widgets/create_stay_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/extend_stay_dialog.dart';
@@ -274,15 +275,30 @@ class RoomDetailsDialog extends StatelessWidget {
                           );
                         }
 
-                        return ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: stays.length,
-                          itemBuilder: (context, index) {
-                            final stay = stays[index];
-                            return _StayCard(
-                              stay: stay,
-                              roomType: room.roomType,
+                        return StreamBuilder<List<PatientModel>>(
+                          stream: ServiceLocator().patientService
+                              .getPatientsStream(),
+                          builder: (context, patientSnapshot) {
+                            final lobbyByPatientId = {
+                              for (final patient in patientSnapshot.data ?? [])
+                                patient.id:
+                                    patient.lobby ??
+                                    _lobbyFromNotes(patient.notes),
+                            };
+                            return ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: stays.length,
+                              itemBuilder: (context, index) {
+                                final stay = stays[index];
+                                return _StayCard(
+                                  stay: stay,
+                                  roomType: room.roomType,
+                                  lobby:
+                                      _lobbyFromNotes(stay.notes) ??
+                                      lobbyByPatientId[stay.patientId],
+                                );
+                              },
                             );
                           },
                         );
@@ -307,6 +323,14 @@ class RoomDetailsDialog extends StatelessWidget {
               '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}',
         )
         .join(' ');
+  }
+
+  String? _lobbyFromNotes(String? notes) {
+    if (notes == null) return null;
+    return RegExp(
+      r'Lobby:\s*([^\n]+)',
+      caseSensitive: false,
+    ).firstMatch(notes)?.group(1)?.trim();
   }
 }
 
@@ -562,8 +586,9 @@ class _InfoItem extends StatelessWidget {
 class _StayCard extends StatelessWidget {
   final StayModel stay;
   final String roomType;
+  final String? lobby;
 
-  const _StayCard({required this.stay, required this.roomType});
+  const _StayCard({required this.stay, required this.roomType, this.lobby});
 
   void _showExtendDialog(BuildContext context) {
     showDialog(
@@ -589,6 +614,7 @@ class _StayCard extends StatelessWidget {
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
             ),
             child: const Text("Complete"),
           ),
@@ -682,6 +708,22 @@ class _StayCard extends StatelessWidget {
                               color: Color(0xFF639922),
                             ),
                           ),
+                          if (lobby != null) ...[
+                            const SizedBox(width: 12),
+                            const Icon(
+                              Icons.weekend_outlined,
+                              size: 14,
+                              color: Color(0xFF639922),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              lobby!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF639922),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                   ],

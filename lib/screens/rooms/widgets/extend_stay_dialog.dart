@@ -13,7 +13,7 @@ class ExtendStayDialog extends StatefulWidget {
 
 class _ExtendStayDialogState extends State<ExtendStayDialog> {
   final TextEditingController reasonController = TextEditingController();
-  
+
   int additionalDays = 7;
   bool isLoading = false;
   Map<String, dynamic>? pricing;
@@ -48,15 +48,16 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
     if (pricing == null) return;
 
     if (widget.stay.roomType == 'private') {
-      final basePrice = (pricing!['privateRoomBasePrice'] ?? 600).toDouble();
-      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 2;
-      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200).toDouble();
-      
+      final basePrice = (pricing!['privateRoomBasePrice'] ?? 700).toDouble();
+      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 1;
+      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200)
+          .toDouble();
+
       additionalCost = basePrice * additionalDays;
-      final extras = widget.stay.attendantCount > includedAttendants
-          ? widget.stay.attendantCount - includedAttendants
+      final chargedAttendants = widget.stay.attendantCount > includedAttendants
+          ? widget.stay.attendantCount
           : 0;
-      additionalCost += extras * extraFee * additionalDays;
+      additionalCost += chargedAttendants * extraFee * additionalDays;
     } else {
       final bedPrice = (pricing!['generalRoomBedPrice'] ?? 150).toDouble();
       additionalCost = bedPrice * additionalDays;
@@ -71,8 +72,8 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
       await roomService.extendStay(
         stayId: widget.stay.id,
         additionalDays: additionalDays,
-        reason: reasonController.text.trim().isEmpty 
-            ? "Extended by admin" 
+        reason: reasonController.text.trim().isEmpty
+            ? "Extended by admin"
             : reasonController.text.trim(),
       );
 
@@ -95,7 +96,9 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -104,7 +107,9 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final newExpiryDate = widget.stay.effectiveExpiryDate.add(Duration(days: additionalDays));
+    final newExpiryDate = widget.stay.effectiveExpiryDate.add(
+      Duration(days: additionalDays),
+    );
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -190,8 +195,9 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                             const Text(
                               "Current Duration",
                               style: TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xFF97C459)),
+                                fontSize: 11,
+                                color: Color(0xFF97C459),
+                              ),
                             ),
                             Text(
                               "${widget.stay.totalDays} days",
@@ -231,7 +237,11 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          const Icon(Icons.history_rounded, size: 14, color: Color(0xFF639922)),
+                          const Icon(
+                            Icons.history_rounded,
+                            size: 14,
+                            color: Color(0xFF639922),
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             "Extended ${widget.stay.extensions.length} time(s) • +${widget.stay.totalExtendedDays} days",
@@ -279,7 +289,10 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F9F0),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                        border: Border.all(
+                          color: const Color(0xFFC0DD97),
+                          width: 1,
+                        ),
                       ),
                       child: Column(
                         children: [
@@ -389,17 +402,26 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                 maxLines: 2,
                 decoration: InputDecoration(
                   hintText: "Enter reason for extension...",
-                  hintStyle: const TextStyle(color: Color(0xFF97C459), fontSize: 14),
+                  hintStyle: const TextStyle(
+                    color: Color(0xFF97C459),
+                    fontSize: 14,
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF4F9F0),
                   contentPadding: const EdgeInsets.all(12),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFC0DD97),
+                      width: 1,
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF639922),
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
@@ -413,7 +435,10 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                     onPressed: isLoading ? null : () => Navigator.pop(context),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFF639922),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                     ),
                     child: const Text("Cancel"),
                   ),
@@ -426,7 +451,9 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Icon(Icons.check_rounded, size: 18),
@@ -435,7 +462,10 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                       backgroundColor: const Color(0xFF3B6D11),
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),

@@ -429,13 +429,12 @@ class RoomCard extends StatelessWidget {
   }
 
   Widget _buildLobbyVisualization() {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: [
-        _buildLobbyChip(label: 'Lobby 1'),
-        _buildLobbyChip(label: 'Lobby 2'),
-      ],
+    return const Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        'Lobby assignments are shown for assigned patients only.',
+        style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+      ),
     );
   }
 
