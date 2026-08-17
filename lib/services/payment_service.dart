@@ -25,6 +25,7 @@ class PaymentService {
 
       // 1. Save to global payments root (for the dashboard)
       final paymentId = await _rtdb.push(_path, data);
+      data['id'] = paymentId;
 
       // Also save to paymentHistory/ as requested for ledger
       await _rtdb.patch('paymentHistory/$paymentId', data);
@@ -105,6 +106,34 @@ class PaymentService {
       // Sort by date descending (newest first)
       payments.sort((a, b) => (b['date'] ?? 0).compareTo(a['date'] ?? 0));
       return payments;
+    });
+  }
+
+  Future<void> updateTransactionNumber(
+    String patientId,
+    String paymentId,
+    String transactionNumber,
+  ) async {
+    final value = transactionNumber.trim();
+    if (value.isEmpty) {
+      throw ArgumentError('Transaction number cannot be empty.');
+    }
+    await _rtdb.patch('$_path/$paymentId', {'transactionId': value});
+    final patient = await ServiceLocator().patientService.getPatient(patientId);
+    if (patient == null) return;
+    final payments = (patient.payments ?? []).map((payment) {
+      final data = payment.toMap();
+      // Old patient payment records did not store the generated global ID.
+      // Keep every matching placeholder in sync as well as the exact record.
+      if (payment.id == paymentId ||
+          payment.transactionId?.toUpperCase() == 'MANUAL_ONLINE') {
+        data['transactionId'] = value;
+      }
+      return data;
+    }).toList();
+    await ServiceLocator().patientService.updatePatient(patientId, {
+      'payments': payments,
+      'utiNumber': value,
     });
   }
 
@@ -218,9 +247,17 @@ class PaymentService {
       if (isPrivate) {
         const double p1Patient = 700.0, p1Attendant = 200.0;
         const double p2Patient = 900.0, p2Attendant = 300.0;
+        // The room price includes the patient and one attendant. Charge only
+        // attendants beyond that included person.
+        final phase1AttendantCharge = attendantCount > 1
+            ? (attendantCount - 1) * p1Attendant
+            : 0.0;
+        final phase2AttendantCharge = attendantCount > 1
+            ? (attendantCount - 1) * p2Attendant
+            : 0.0;
         grossCharges =
-            (phase1Days * (p1Patient + attendantCount * p1Attendant)) +
-            (phase2Days * (p2Patient + attendantCount * p2Attendant));
+            (phase1Days * (p1Patient + phase1AttendantCharge)) +
+            (phase2Days * (p2Patient + phase2AttendantCharge));
       } else {
         const double p1Rate = 200.0;
         const double p2Rate = 250.0;
@@ -267,6 +304,66 @@ class PaymentService {
         'paymentStatus': paymentStatus,
       });
     }
+  }
+
+  /// Calculates attendance from the registration date through discharge (or
+  /// today for an active patient). Missing daily records are automatically
+  /// present; a staff-entered Absent record is the only exception.
+  Future<void> recalculatePatientAttendanceAndBilling(
+    String patientId, {
+    bool updateBilling = true,
+  }) async {
+    final patientService = ServiceLocator().patientService;
+    final patient = await patientService.getPatient(patientId);
+    if (patient == null) return;
+
+    DateTime dateOnly(DateTime value) =>
+        DateTime(value.year, value.month, value.day);
+    final start = dateOnly(patient.registrationDate ?? patient.admissionDate);
+    final exit = patient.exitDate ?? patient.dischargeDate;
+    var end = dateOnly(exit ?? DateTime.now());
+    if (exit != null &&
+        (exit.hour < 9 || (exit.hour == 9 && exit.minute == 0))) {
+      end = end.subtract(const Duration(days: 1));
+    }
+
+    var present = 0;
+    var absent = 0;
+    for (
+      var day = start;
+      !day.isAfter(end);
+      day = day.add(const Duration(days: 1))
+    ) {
+      final key =
+          '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+      final record = await _rtdb.get('attendance/daily/$key/$patientId');
+      if (record is Map && record['status']?.toString() == 'Absent') {
+        absent++;
+      } else {
+        present++;
+      }
+    }
+
+    await patientService.updatePatient(patientId, {
+      'totalPresentDays': present,
+      'totalAbsentDays': absent,
+    });
+    if (updateBilling) await recalculateAllActivePatientsBilling();
+  }
+
+  /// Repairs historical records, including patients added before automatic
+  /// attendance was introduced.
+  Future<void> recalculateAllPatientsAttendanceAndBilling() async {
+    final patients = await ServiceLocator().patientService
+        .getPatientsStream()
+        .first;
+    for (final patient in patients) {
+      await recalculatePatientAttendanceAndBilling(
+        patient.id,
+        updateBilling: false,
+      );
+    }
+    await recalculateAllActivePatientsBilling();
   }
 
   // Called by `markAttendance` to incrementally update attendance charges.
@@ -384,9 +481,15 @@ class PaymentService {
     if (isPrivate) {
       const double p1Patient = 700.0, p1Attendant = 200.0;
       const double p2Patient = 900.0, p2Attendant = 300.0;
+      final phase1AttendantCharge = attendantCount > 1
+          ? (attendantCount - 1) * p1Attendant
+          : 0.0;
+      final phase2AttendantCharge = attendantCount > 1
+          ? (attendantCount - 1) * p2Attendant
+          : 0.0;
       grossCharges =
-          (phase1Days * (p1Patient + attendantCount * p1Attendant)) +
-          (phase2Days * (p2Patient + attendantCount * p2Attendant));
+          (phase1Days * (p1Patient + phase1AttendantCharge)) +
+          (phase2Days * (p2Patient + phase2AttendantCharge));
     } else {
       const double p1Rate = 200.0;
       const double p2Rate = 250.0;

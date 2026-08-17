@@ -55,8 +55,8 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
     if (pricing == null) return;
 
     if (widget.room.isPrivate) {
-      final basePrice = (pricing!['privateRoomBasePrice'] ?? 600).toDouble();
-      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 2;
+      final basePrice = (pricing!['privateRoomBasePrice'] ?? 700).toDouble();
+      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 1;
       final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200)
           .toDouble();
 

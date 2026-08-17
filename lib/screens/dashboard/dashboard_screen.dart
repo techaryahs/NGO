@@ -6,6 +6,8 @@ import '../../models/stay_model.dart';
 import '../../utils/bed_helper.dart';
 import '../../models/notification_model.dart';
 import '../../utils/responsive_layout.dart';
+import '../layout/widgets/top_bar.dart' show showNotificationPanel;
+import '../patients/patient_profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -256,15 +258,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 },
               ),
               if (notifications.length > 3)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    "+ ${notifications.length - 3} more alerts in notifications panel",
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFFF57C00),
-                      fontStyle: FontStyle.italic,
+                InkWell(
+                  onTap: () => showNotificationPanel(context, notifications),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      "+ ${notifications.length - 3} more alerts in notifications panel",
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFF57C00),
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
                   ),
                 ),
@@ -352,86 +358,101 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final dateStr =
                       '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
 
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color:
-                              index == (stays.length > 5 ? 4 : stays.length - 1)
-                              ? Colors.transparent
-                              : const Color(0xFFC0DD97),
-                          width: 0.5,
+                  return InkWell(
+                    onTap: () async {
+                      final patient = await ServiceLocator().patientService
+                          .getPatient(stay.patientId);
+                      if (patient != null && context.mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                PatientProfileScreen(patient: patient),
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color:
+                                index ==
+                                    (stays.length > 5 ? 4 : stays.length - 1)
+                                ? Colors.transparent
+                                : const Color(0xFFC0DD97),
+                            width: 0.5,
+                          ),
                         ),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: const Color(0xFFEAF3DE),
-                              radius: 18,
-                              child: Text(
-                                stay.patientName.isNotEmpty
-                                    ? stay.patientName[0].toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF3B6D11),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  stay.patientName,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: const Color(0xFFEAF3DE),
+                                radius: 18,
+                                child: Text(
+                                  stay.patientName.isNotEmpty
+                                      ? stay.patientName[0].toUpperCase()
+                                      : '?',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w600,
-                                    color: Color(0xFF27500A),
+                                    color: Color(0xFF3B6D11),
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  "Admitted: $dateStr",
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF639922),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    stay.patientName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF27500A),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    "Admitted: $dateStr",
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF639922),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
                             ),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(
-                              0xFF3B6D11,
-                            ).withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            stay.roomType == 'general'
-                                ? "${stay.roomNumber} (${BedHelper.getBedDisplayName(stay.bedNumber.toString().trim())})"
-                                : "${stay.roomNumber} (Private)",
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF3B6D11),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF3B6D11,
+                              ).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              stay.roomType == 'general'
+                                  ? "${stay.roomNumber} (${BedHelper.getBedDisplayName(stay.bedNumber.toString().trim())})"
+                                  : "${stay.roomNumber} (Private)",
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF3B6D11),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   );
                 },

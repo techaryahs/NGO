@@ -11,6 +11,7 @@ class PatientCard extends StatelessWidget {
   final VoidCallback? onDischarge;
   final VoidCallback? onPayNow;
   final VoidCallback? onRejoin;
+  final VoidCallback? onDelete;
 
   const PatientCard({
     super.key,
@@ -20,6 +21,7 @@ class PatientCard extends StatelessWidget {
     this.onDischarge,
     this.onPayNow,
     this.onRejoin,
+    this.onDelete,
   });
 
   @override
@@ -169,6 +171,8 @@ class PatientCard extends StatelessWidget {
                       onDischarge!();
                     } else if (value == 'rejoin' && onRejoin != null) {
                       onRejoin!();
+                    } else if (value == 'delete' && onDelete != null) {
+                      onDelete!();
                     }
                   },
                   itemBuilder: (context) => [
@@ -187,6 +191,8 @@ class PatientCard extends StatelessWidget {
                         value: 'rejoin',
                         child: Text('Rejoin'),
                       ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(value: 'delete', child: Text('Delete')),
                   ],
                 ),
               ],

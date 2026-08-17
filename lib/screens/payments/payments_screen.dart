@@ -26,8 +26,10 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     _tabController.addListener(_handleTabChanged);
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
     _paymentsStream = ServiceLocator().paymentService.getAllPaymentsStream();
-    // Trigger auto-calculation of attendance billing on dashboard load
-    ServiceLocator().paymentService.recalculateAllActivePatientsBilling();
+    // Repair historical totals and calculate each patient's present days from
+    // registration/discharge dates, regardless of whether a payment is due.
+    ServiceLocator().paymentService
+        .recalculateAllPatientsAttendanceAndBilling();
   }
 
   @override

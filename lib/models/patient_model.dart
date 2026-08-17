@@ -158,6 +158,9 @@ class PatientModel {
   final String? notes;
   final String? address;
 
+  /// Optional named lobby selected for this patient in a lobby room.
+  final String? lobby;
+
   /// Planned exit date; actual discharge remains in [dischargeDate].
   final DateTime? exitDate;
   final DateTime createdAt;
@@ -223,6 +226,7 @@ class PatientModel {
     this.photoFileName,
     this.notes,
     this.address,
+    this.lobby,
     this.exitDate,
     required this.createdAt,
     required this.updatedAt,
@@ -285,6 +289,7 @@ class PatientModel {
       'photoFileName': photoFileName,
       'notes': notes,
       'address': address,
+      'lobby': lobby,
       'exitDate': exitDate?.millisecondsSinceEpoch,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -356,6 +361,7 @@ class PatientModel {
       photoFileName: data['photoFileName']?.toString(),
       notes: data['notes']?.toString(),
       address: data['address']?.toString(),
+      lobby: data['lobby']?.toString(),
       exitDate: data['exitDate'] != null
           ? _parseDateTime(data['exitDate'])
           : null,
@@ -496,6 +502,7 @@ class PatientModel {
     String? photoFileName,
     String? notes,
     String? address,
+    String? lobby,
     DateTime? exitDate,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -551,6 +558,7 @@ class PatientModel {
       photoFileName: photoFileName ?? this.photoFileName,
       notes: notes ?? this.notes,
       address: address ?? this.address,
+      lobby: lobby ?? this.lobby,
       exitDate: exitDate ?? this.exitDate,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

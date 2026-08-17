@@ -34,6 +34,7 @@ class _AttendanceState extends State<Attendance>
   late Future<Map<String, Map<String, String>>> _weeklyData;
   late Future<Map<String, Map<String, String>>> _monthlyData;
   DateTime _selectedMonth = DateTime.now();
+  DateTime _selectedAttendanceDate = DateTime.now();
 
   late Stream<List<PatientModel>> _patientsStream;
   List<PatientModel>? _allPatients;
@@ -87,31 +88,35 @@ class _AttendanceState extends State<Attendance>
   }
 
   void _initRealtimeStreams() {
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    _patientSub?.cancel();
+    _attendantSub?.cancel();
+    final selectedDate = DateFormat(
+      'yyyy-MM-dd',
+    ).format(_selectedAttendanceDate);
 
     _patientSub = ServiceLocator().rtdbService
-        .stream('attendance/daily/$today')
+        .stream('attendance/daily/$selectedDate')
         .listen((data) {
+          final newStatus = <String, bool>{};
           if (data != null && data is Map) {
-            final newStatus = <String, bool>{};
             data.forEach((k, v) {
               if (v['status'] == 'Present') newStatus[k] = true;
               if (v['status'] == 'Absent') newStatus[k] = false;
             });
-            if (mounted) {
-              setState(() {
-                attendanceStatus.clear();
-                attendanceStatus.addAll(newStatus);
-              });
-            }
+          }
+          if (mounted) {
+            setState(() {
+              attendanceStatus.clear();
+              attendanceStatus.addAll(newStatus);
+            });
           }
         });
 
     _attendantSub = ServiceLocator().rtdbService
-        .stream('attendant_attendance/daily/$today')
+        .stream('attendant_attendance/daily/$selectedDate')
         .listen((data) {
+          final newStatus = <String, bool>{};
           if (data != null && data is Map) {
-            final newStatus = <String, bool>{};
             data.forEach((patientId, attendantsMap) {
               if (attendantsMap is Map) {
                 attendantsMap.forEach((attendantSafeKey, v) {
@@ -121,14 +126,57 @@ class _AttendanceState extends State<Attendance>
                 });
               }
             });
-            if (mounted) {
-              setState(() {
-                attendantAttendanceStatus.clear();
-                attendantAttendanceStatus.addAll(newStatus);
-              });
-            }
+          }
+          if (mounted) {
+            setState(() {
+              attendantAttendanceStatus.clear();
+              attendantAttendanceStatus.addAll(newStatus);
+            });
           }
         });
+
+    _backfillAutomaticAttendance();
+  }
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  bool _isPatientEligibleOnDate(PatientModel patient, DateTime date) {
+    final selectedDate = _dateOnly(date);
+    final registrationDate = _dateOnly(
+      patient.registrationDate ?? patient.admissionDate,
+    );
+    if (selectedDate.isBefore(registrationDate)) return false;
+
+    final exitDate = patient.exitDate ?? patient.dischargeDate;
+    if (exitDate == null)
+      return !selectedDate.isAfter(_dateOnly(DateTime.now()));
+    final includesExitDay =
+        exitDate.hour > 9 || (exitDate.hour == 9 && exitDate.minute > 0);
+    final lastEligibleDate = _dateOnly(
+      exitDate,
+    ).subtract(includesExitDay ? Duration.zero : const Duration(days: 1));
+    return !selectedDate.isAfter(lastEligibleDate);
+  }
+
+  Future<void> _backfillAutomaticAttendance() async {
+    await ServiceLocator().paymentService
+        .recalculateAllPatientsAttendanceAndBilling();
+  }
+
+  String get _selectedAttendanceDateLabel =>
+      DateFormat('dd MMM yyyy').format(_selectedAttendanceDate);
+
+  Future<void> _selectAttendanceDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedAttendanceDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null) return;
+    setState(() => _selectedAttendanceDate = picked);
+    _initRealtimeStreams();
   }
 
   void _refreshFutures() {
@@ -285,7 +333,7 @@ class _AttendanceState extends State<Attendance>
     String patientName,
     bool isPresent,
   ) async {
-    final dateObj = DateTime.now();
+    final dateObj = _selectedAttendanceDate;
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
 
     final bool? previousStatus = attendanceStatus[patientId];
@@ -301,13 +349,10 @@ class _AttendanceState extends State<Attendance>
             'timestamp': DateTime.now().toIso8601String(),
           });
 
-      // -- Billing Integration --
-      await ServiceLocator().paymentService.updatePatientBillingFromAttendance(
-        patientId: patientId,
-        dateMarked: dateObj,
-        isPresent: isPresent,
-        wasPresent: previousStatus,
-      );
+      // Attendance totals and billing are derived from the registration and
+      // exit dates, then adjusted for any manually marked absences.
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patientId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -341,12 +386,36 @@ class _AttendanceState extends State<Attendance>
     }
   }
 
+  /// Selecting the same status twice clears the manual entry. This restores
+  /// the automatic attendance calculation instead of leaving a stale record.
+  Future<void> toggleAttendance(
+    String patientId,
+    String patientName,
+    bool isPresent,
+  ) async {
+    if (attendanceStatus[patientId] == isPresent) {
+      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
+      setState(() => attendanceStatus.remove(patientId));
+      try {
+        await ServiceLocator().rtdbService.delete(
+          'attendance/daily/$today/$patientId',
+        );
+        await ServiceLocator().paymentService
+            .recalculatePatientAttendanceAndBilling(patientId);
+      } catch (_) {
+        if (mounted) setState(() => attendanceStatus[patientId] = isPresent);
+      }
+      return;
+    }
+    await markAttendance(patientId, patientName, isPresent);
+  }
+
   Future<void> markAttendantAttendance(
     String patientId,
     String attendantName,
     bool isPresent,
   ) async {
-    final dateObj = DateTime.now();
+    final dateObj = _selectedAttendanceDate;
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
     final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
     final String statusKey = '${patientId}_$attendantName';
@@ -394,6 +463,30 @@ class _AttendanceState extends State<Attendance>
         );
       }
     }
+  }
+
+  Future<void> toggleAttendantAttendance(
+    String patientId,
+    String attendantName,
+    bool isPresent,
+  ) async {
+    final statusKey = '${patientId}_$attendantName';
+    if (attendantAttendanceStatus[statusKey] == isPresent) {
+      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
+      final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
+      setState(() => attendantAttendanceStatus.remove(statusKey));
+      try {
+        await ServiceLocator().rtdbService.delete(
+          'attendant_attendance/daily/$today/$patientId/$safeKey',
+        );
+      } catch (_) {
+        if (mounted) {
+          setState(() => attendantAttendanceStatus[statusKey] = isPresent);
+        }
+      }
+      return;
+    }
+    await markAttendantAttendance(patientId, attendantName, isPresent);
   }
 
   // ── Layout & UI ──────────────────────────────────────────────────────────
@@ -458,6 +551,19 @@ class _AttendanceState extends State<Attendance>
               ),
               _buildSegmentedControl(),
             ],
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: _selectAttendanceDate,
+              icon: const Icon(Icons.calendar_today_outlined, size: 16),
+              label: Text(_selectedAttendanceDateLabel),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF3B6D11),
+                side: const BorderSide(color: Color(0xFFC0DD97)),
+              ),
+            ),
           ),
           const SizedBox(height: 20),
           _buildSearchAndSummary(),
@@ -532,14 +638,16 @@ class _AttendanceState extends State<Attendance>
 
         if (snapshot.hasData) {
           final patients = snapshot.data!
-              .where((p) => p.status == 'active' || p.status == 'Paid')
+              .where(
+                (p) => _isPatientEligibleOnDate(p, _selectedAttendanceDate),
+              )
               .toList();
           _allPatients = patients;
 
           if (_attendanceType == 'patient') {
             total = patients.length;
             for (var p in patients) {
-              if (attendanceStatus[p.id] == true) present++;
+              if (attendanceStatus[p.id] != false) present++;
               if (attendanceStatus[p.id] == false) absent++;
             }
           } else {
@@ -714,22 +822,22 @@ class _AttendanceState extends State<Attendance>
         //   ),
         // );
         return _PatientAttendanceCard(
-  patient: displayList[index],
-  status: attendanceStatus[displayList[index].id],
-  onMarkPresent: () => markAttendance(
-    displayList[index].id,
-    displayList[index].fullName,
-    true,
-  ),
-  onMarkAbsent: () => markAttendance(
-    displayList[index].id,
-    displayList[index].fullName,
-    false,
-  ),
-  attendantAttendanceStatus: attendantAttendanceStatus,
-  onMarkAttendantPresent: (patientId, attendantName, isPresent) =>
-      markAttendantAttendance(patientId, attendantName, isPresent),
-);
+          patient: displayList[index],
+          status: attendanceStatus[displayList[index].id],
+          onMarkPresent: () => toggleAttendance(
+            displayList[index].id,
+            displayList[index].fullName,
+            true,
+          ),
+          onMarkAbsent: () => toggleAttendance(
+            displayList[index].id,
+            displayList[index].fullName,
+            false,
+          ),
+          attendantAttendanceStatus: attendantAttendanceStatus,
+          onMarkAttendantPresent: (patientId, attendantName, isPresent) =>
+              toggleAttendantAttendance(patientId, attendantName, isPresent),
+        );
       },
     );
   }
@@ -779,12 +887,12 @@ class _AttendanceState extends State<Attendance>
         return _AttendantAttendanceCard(
           item: item,
           status: attendantAttendanceStatus[key],
-          onMarkPresent: () => markAttendantAttendance(
+          onMarkPresent: () => toggleAttendantAttendance(
             item.patient.id,
             item.attendant.name,
             true,
           ),
-          onMarkAbsent: () => markAttendantAttendance(
+          onMarkAbsent: () => toggleAttendantAttendance(
             item.patient.id,
             item.attendant.name,
             false,
@@ -959,29 +1067,55 @@ class _AttendanceState extends State<Attendance>
                     ),
                     ...dates.map((date) {
                       final s = e.value[date];
+                      final exitPatient = _allPatients
+                          ?.where((patient) => patient.fullName == e.key)
+                          .cast<PatientModel?>()
+                          .firstWhere((patient) {
+                            final exit = patient?.exitDate;
+                            if (exit == null ||
+                                (exit.hour == 0 && exit.minute == 0)) {
+                              return false;
+                            }
+                            return DateFormat('yyyy-MM-dd').format(exit) ==
+                                date;
+                          }, orElse: () => null);
+                      final exit = exitPatient?.exitDate;
                       if (s == null)
-                        return const DataCell(
-                          Text('-', style: TextStyle(color: Colors.grey)),
+                        return DataCell(
+                          exit == null
+                              ? const Text(
+                                  '-',
+                                  style: TextStyle(color: Colors.grey),
+                                )
+                              : _exitTimeLabel(exit),
                         );
                       return DataCell(
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: s == 'Present'
-                                ? Colors.green.withOpacity(0.15)
-                                : Colors.red.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            s == 'Present' ? 'P' : 'A',
-                            style: TextStyle(
-                              color: s == 'Present' ? Colors.green : Colors.red,
-                              fontWeight: FontWeight.bold,
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: s == 'Present'
+                                    ? Colors.green.withOpacity(0.15)
+                                    : Colors.red.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                s == 'Present' ? 'P' : 'A',
+                                style: TextStyle(
+                                  color: s == 'Present'
+                                      ? Colors.green
+                                      : Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (exit != null) _exitTimeLabel(exit),
+                          ],
                         ),
                       );
                     }),
@@ -994,6 +1128,18 @@ class _AttendanceState extends State<Attendance>
       ),
     );
   }
+
+  Widget _exitTimeLabel(DateTime exit) => Padding(
+    padding: const EdgeInsets.only(top: 3),
+    child: Text(
+      'Exit ${DateFormat('h:mm a').format(exit)}',
+      style: const TextStyle(
+        fontSize: 9,
+        color: Color(0xFFD32F2F),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
 
   // ── Shimmers ────────────────────────────────────────────────────────────
 
@@ -1253,7 +1399,8 @@ class _PatientAttendanceCard extends StatefulWidget {
   final VoidCallback onMarkPresent;
   final VoidCallback onMarkAbsent;
   final Map<String, bool> attendantAttendanceStatus;
-  final Function(String patientId, String attendantName, bool isPresent) onMarkAttendantPresent;
+  final Function(String patientId, String attendantName, bool isPresent)
+  onMarkAttendantPresent;
 
   const _PatientAttendanceCard({
     required this.patient,
@@ -1273,8 +1420,13 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
 
   @override
   Widget build(BuildContext context) {
-    final hasAttendants = widget.patient.attendants != null &&
+    final hasAttendants =
+        widget.patient.attendants != null &&
         widget.patient.attendants!.isNotEmpty;
+    final exit = widget.patient.exitDate;
+    final hasKnownExitTime =
+        exit != null &&
+        (exit.hour != 0 || exit.minute != 0 || exit.second != 0);
     String initials = widget.patient.fullName.isNotEmpty
         ? widget.patient.fullName[0].toUpperCase()
         : '?';
@@ -1293,7 +1445,11 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
           width: 1.5,
         ),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       padding: const EdgeInsets.all(16),
@@ -1315,24 +1471,28 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
               //   ),
               // ),
               CircleAvatar(
-        radius: 24,
-        backgroundColor: const Color(0xFFE8F5E9),
-        backgroundImage: widget.patient.photoDataUrl != null
-            ? MemoryImage(base64Decode(
-                widget.patient.photoDataUrl!.contains(',')
-                    ? widget.patient.photoDataUrl!.split(',').last
-                    : widget.patient.photoDataUrl!,
-              ))
-            : null,
-        child: widget.patient.photoDataUrl == null
-            ? Text(initials,
-                style: const TextStyle(
-                  color: Color(0xFF3B6D11),
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ))
-            : null,
-      ),
+                radius: 24,
+                backgroundColor: const Color(0xFFE8F5E9),
+                backgroundImage: widget.patient.photoDataUrl != null
+                    ? MemoryImage(
+                        base64Decode(
+                          widget.patient.photoDataUrl!.contains(',')
+                              ? widget.patient.photoDataUrl!.split(',').last
+                              : widget.patient.photoDataUrl!,
+                        ),
+                      )
+                    : null,
+                child: widget.patient.photoDataUrl == null
+                    ? Text(
+                        initials,
+                        style: const TextStyle(
+                          color: Color(0xFF3B6D11),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    : null,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -1353,21 +1513,41 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                       spacing: 8,
                       runSpacing: 4,
                       children: [
-                        _InfoChip(Icons.phone, widget.patient.contactNumber ?? 'No contact'),
+                        _InfoChip(
+                          Icons.phone,
+                          widget.patient.contactNumber ?? 'No contact',
+                        ),
                         if (widget.patient.roomNumber != null)
-                          _InfoChip(Icons.meeting_room, 'Room ${widget.patient.roomNumber}'),
-                        if (widget.patient.bedLabels != null && widget.patient.bedLabels!.isNotEmpty)
+                          _InfoChip(
+                            Icons.meeting_room,
+                            'Room ${widget.patient.roomNumber}',
+                          ),
+                        if (widget.patient.bedLabels != null &&
+                            widget.patient.bedLabels!.isNotEmpty)
                           _InfoChip(
                             Icons.bed,
                             widget.patient.bedLabels!
-                                .map((b) => BedHelper.getBedDisplayName(
-                                      b,
-                                      roomIdentifier: widget.patient.roomNumber,
-                                    ))
+                                .map(
+                                  (b) => BedHelper.getBedDisplayName(
+                                    b,
+                                    roomIdentifier: widget.patient.roomNumber,
+                                  ),
+                                )
                                 .join(', '),
                           ),
-                        _InfoChip(Icons.check_circle_outline, 'Present: ${widget.patient.totalPresentDays}'),
-                        _InfoChip(Icons.cancel_outlined, 'Absent: ${widget.patient.totalAbsentDays}'),
+                        _InfoChip(
+                          Icons.check_circle_outline,
+                          'Present: ${widget.patient.totalPresentDays}',
+                        ),
+                        _InfoChip(
+                          Icons.cancel_outlined,
+                          'Absent: ${widget.patient.totalAbsentDays}',
+                        ),
+                        if (hasKnownExitTime)
+                          _InfoChip(
+                            Icons.exit_to_app,
+                            'Exit ${DateFormat('dd MMM, h:mm a').format(exit)}',
+                          ),
                       ],
                     ),
                   ],
@@ -1375,7 +1555,10 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
               ),
               if (widget.status != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: widget.status!
                         ? Colors.green.withOpacity(0.1)
@@ -1422,9 +1605,13 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
           if (hasAttendants) ...[
             const SizedBox(height: 12),
             GestureDetector(
-              onTap: () => setState(() => _attendantsExpanded = !_attendantsExpanded),
+              onTap: () =>
+                  setState(() => _attendantsExpanded = !_attendantsExpanded),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF4F9F0),
                   borderRadius: BorderRadius.circular(10),
@@ -1432,7 +1619,11 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.people_outline, size: 16, color: Color(0xFF3B6D11)),
+                    const Icon(
+                      Icons.people_outline,
+                      size: 16,
+                      color: Color(0xFF3B6D11),
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Attendants (${widget.patient.attendants!.length})',
@@ -1496,11 +1687,15 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                             radius: 16,
                             backgroundColor: const Color(0xFFE3F2FD),
                             backgroundImage: attendant.photoDataUrl != null
-                                ? MemoryImage(base64Decode(
-                                    attendant.photoDataUrl!.contains(',')
-                                        ? attendant.photoDataUrl!.split(',').last
-                                        : attendant.photoDataUrl!,
-                                  ))
+                                ? MemoryImage(
+                                    base64Decode(
+                                      attendant.photoDataUrl!.contains(',')
+                                          ? attendant.photoDataUrl!
+                                                .split(',')
+                                                .last
+                                          : attendant.photoDataUrl!,
+                                    ),
+                                  )
                                 : null,
                             child: attendant.photoDataUrl == null
                                 ? Text(

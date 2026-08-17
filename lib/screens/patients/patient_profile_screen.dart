@@ -825,6 +825,14 @@ class _OverviewTab extends StatelessWidget {
 
   const _OverviewTab({required this.patient});
 
+  String? get _lobby {
+    if (patient.lobby?.trim().isNotEmpty == true) return patient.lobby!.trim();
+    return RegExp(
+      r'Lobby:\s*([^\n]+)',
+      caseSensitive: false,
+    ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -1198,12 +1206,26 @@ class _OverviewTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _InfoField(
-            label: "Assigned Beds",
-            value: bedLabels,
-            icon: Icons.bed_outlined,
-            fullWidth: true,
-          ),
+          if (_lobby == null)
+            _InfoField(
+              label: "Assigned Beds",
+              value: bedLabels,
+              icon: Icons.bed_outlined,
+              fullWidth: true,
+            )
+          else
+            _Row2(
+              _InfoField(
+                label: "Assigned Beds",
+                value: bedLabels,
+                icon: Icons.bed_outlined,
+              ),
+              _InfoField(
+                label: 'Assigned Lobby',
+                value: _lobby!,
+                icon: Icons.weekend_outlined,
+              ),
+            ),
         ],
       ),
     );
@@ -1439,10 +1461,72 @@ class _Row2 extends StatelessWidget {
 }
 
 // ── 2. Payment History Tab ──
-class _PaymentHistoryTab extends StatelessWidget {
+class _PaymentHistoryTab extends StatefulWidget {
   final PatientModel patient;
 
   const _PaymentHistoryTab({required this.patient});
+
+  @override
+  State<_PaymentHistoryTab> createState() => _PaymentHistoryTabState();
+}
+
+class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
+  Future<void> _editTransactionNumber(
+    Map<String, dynamic> payment,
+    String currentNumber,
+  ) async {
+    final controller = TextEditingController(text: currentNumber);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit transaction number'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Transaction / UTI number',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final paymentId = payment['id']?.toString();
+    if (value == null || paymentId == null) return;
+    try {
+      await ServiceLocator().paymentService.updateTransactionNumber(
+        widget.patient.id,
+        paymentId,
+        value,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Transaction number updated.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not update transaction number: $error'),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1457,7 +1541,7 @@ class _PaymentHistoryTab extends StatelessWidget {
 
         final allPayments = snapshot.data ?? [];
         final globalPatientPayments = allPayments
-            .where((p) => p['patientId'] == patient.id)
+            .where((p) => p['patientId'] == widget.patient.id)
             .toList();
         // Keep the patient record and global ledger in sync for display.
         // Older imports may exist only on the patient, while later payments
@@ -1469,7 +1553,7 @@ class _PaymentHistoryTab extends StatelessWidget {
             .toSet();
         final patientPayments = [
           ...globalPatientPayments,
-          ...(patient.payments ?? [])
+          ...(widget.patient.payments ?? [])
               .where((payment) => !globalPaymentIds.contains(payment.id))
               .map((payment) => payment.toMap()),
         ];
@@ -1583,11 +1667,15 @@ class _PaymentHistoryTab extends StatelessWidget {
                     payment['date'] ?? 0,
                   );
                   final method = payment['method']?.toString() ?? "CASH";
+                  final storedTransaction = payment['transactionId']
+                      ?.toString()
+                      .trim();
                   final transactionNumber =
-                      payment['transactionId']?.toString().trim().isNotEmpty ==
-                          true
-                      ? payment['transactionId'].toString()
-                      : patient.utiNumber;
+                      storedTransaction != null &&
+                          storedTransaction.isNotEmpty &&
+                          storedTransaction.toUpperCase() != 'MANUAL_ONLINE'
+                      ? storedTransaction
+                      : widget.patient.utiNumber ?? storedTransaction;
                   final amount = (payment['amount'] ?? 0).toDouble();
                   final isExcelImport = (payment['notes']?.toString() ?? '')
                       .toLowerCase()
@@ -1693,6 +1781,17 @@ class _PaymentHistoryTab extends StatelessWidget {
                                 ),
                               ),
                           ],
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: Color(0xFF3B6D11),
+                          ),
+                          tooltip: 'Edit transaction number',
+                          onPressed: () => _editTransactionNumber(
+                            payment,
+                            transactionNumber ?? '',
+                          ),
                         ),
                       ],
                     ),
@@ -2055,6 +2154,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                       patientData: patientData,
                       attendantData: attendantData,
                       patientName: widget.patient.fullName,
+                      exitDate: widget.patient.exitDate,
                     ),
                   ),
                   const SizedBox(width: 28),
@@ -2354,7 +2454,9 @@ class _StaysTab extends StatelessWidget {
     final attendantsCount = patient.attendants?.length ?? stay.attendantCount;
     final isPrivateRoom = stay.roomType.toLowerCase() == 'private';
     final baseCost = (isPrivateRoom ? 700.0 : 200.0) * stayDays;
-    final extraAttendantCost = attendantsCount * 200.0 * stayDays;
+    final extraAttendantCost = isPrivateRoom && attendantsCount > 1
+        ? (attendantsCount - 1) * 200.0 * stayDays
+        : 0.0;
     final totalCost = baseCost + extraAttendantCost;
     final daysRemaining = exitDate.difference(DateTime.now()).inDays;
 
@@ -2583,7 +2685,9 @@ class _StaysTab extends StatelessWidget {
           ),
         )
         .inDays;
-    if (exitDate.hour >= 9) days++;
+    if (exitDate.hour > 9 || (exitDate.hour == 9 && exitDate.minute > 0)) {
+      days++;
+    }
     return days.clamp(1, 3650);
   }
 
@@ -2825,11 +2929,13 @@ class _CalendarView extends StatefulWidget {
   final Map<String, Map<String, dynamic>> patientData;
   final Map<String, dynamic> attendantData;
   final String patientName;
+  final DateTime? exitDate;
 
   const _CalendarView({
     required this.patientData,
     required this.attendantData,
     required this.patientName,
+    required this.exitDate,
   });
 
   @override
@@ -2948,11 +3054,18 @@ class _CalendarViewState extends State<_CalendarView> {
                 normalizedStatus == 'false' ||
                 patientRecord?['isPresent'] == false;
             final hasData = patientStatus != null || hasAttendantData;
+            final exit = widget.exitDate;
+            final isExitDate =
+                exit != null &&
+                exit.year == _currentMonth.year &&
+                exit.month == _currentMonth.month &&
+                exit.day == day &&
+                (exit.hour != 0 || exit.minute != 0 || exit.second != 0);
 
             return InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () {
-                if (!hasData) return;
+                if (!hasData && !isExitDate) return;
                 setState(() {
                   _hoveredDate = _hoveredDate == dateStr ? null : dateStr;
                 });
@@ -2968,58 +3081,73 @@ class _CalendarViewState extends State<_CalendarView> {
                     width: isSelected ? 1.5 : 0.8,
                   ),
                 ),
-                child: Center(
-                  child: isPresent
-                      // Green filled circle for present
-                      ? Container(
-                          width: 26,
-                          height: 26,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF3B6D11),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              "$day",
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Center(
+                      child: isPresent
+                          ? Container(
+                              width: 26,
+                              height: 26,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF3B6D11),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '$day',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : isAbsent
+                          ? Container(
+                              width: 26,
+                              height: 26,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFFD32F2F),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '$day',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFFD32F2F),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              '$day',
                               style: const TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF27500A),
                               ),
                             ),
-                          ),
-                        )
-                      : isAbsent
-                      // Red outlined circle for absent
-                      ? Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xFFD32F2F),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              "$day",
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFFD32F2F),
-                              ),
-                            ),
-                          ),
-                        )
-                      : Text(
-                          "$day",
+                    ),
+                    if (isExitDate)
+                      Positioned(
+                        bottom: 1,
+                        child: Text(
+                          'Exit ${DateFormat('h:mm a').format(exit)}',
                           style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF27500A),
+                            fontSize: 6.5,
+                            color: Color(0xFFD32F2F),
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
+                      ),
+                  ],
                 ),
               ),
             );

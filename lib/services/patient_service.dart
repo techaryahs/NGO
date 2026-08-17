@@ -165,6 +165,7 @@ class PatientService {
     String? photoFileName,
     String? notes,
     String? address,
+    String? lobby,
     DateTime? exitDate,
     required String createdBy,
     // New fields
@@ -237,6 +238,7 @@ class PatientService {
         photoFileName: photoFileName,
         notes: notes,
         address: address,
+        lobby: lobby,
         exitDate: exitDate,
         createdAt: now,
         updatedAt: now,
@@ -434,6 +436,48 @@ class PatientService {
   /// Permanently deletes a patient record.
   Future<void> deletePatient(String patientId) async {
     try {
+      // Release every active stay before removing the patient so beds and room
+      // census data cannot retain an orphaned occupant.
+      final activeStays = await ServiceLocator().roomService
+          .getStaysByPatientStream(patientId)
+          .first;
+      for (final stay in activeStays.where((stay) => stay.status == 'active')) {
+        await ServiceLocator().roomService.completeStay(stay.id);
+      }
+
+      // Attendance is keyed by date, so remove this patient's records from
+      // every date (including attendant attendance) in one root patch.
+      final attendance = await _rtdb.get('attendance/daily');
+      final attendantAttendance = await _rtdb.get('attendant_attendance/daily');
+      final cleanup = <String, dynamic>{};
+      if (attendance is Map) {
+        attendance.forEach((date, records) {
+          if (records is Map && records.containsKey(patientId)) {
+            cleanup['attendance/daily/$date/$patientId'] = null;
+          }
+        });
+      }
+      if (attendantAttendance is Map) {
+        attendantAttendance.forEach((date, records) {
+          if (records is Map && records.containsKey(patientId)) {
+            cleanup['attendant_attendance/daily/$date/$patientId'] = null;
+          }
+        });
+      }
+      // Payment dashboards read these global collections, while the patient
+      // record holds the detailed payment list. Remove matching ledger rows.
+      for (final path in const ['payments', 'paymentHistory']) {
+        final payments = await _rtdb.get(path);
+        if (payments is Map) {
+          payments.forEach((paymentId, payment) {
+            if (payment is Map &&
+                payment['patientId']?.toString() == patientId) {
+              cleanup['$path/$paymentId'] = null;
+            }
+          });
+        }
+      }
+      if (cleanup.isNotEmpty) await _rtdb.patch('', cleanup);
       await _rtdb.delete('$_patientsPath/$patientId');
     } catch (e) {
       throw Exception('Failed to delete patient: $e');

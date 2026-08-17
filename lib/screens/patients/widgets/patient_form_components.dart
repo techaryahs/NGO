@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../utils/bed_helper.dart';
 
 import '../../../models/bed_model.dart';
@@ -90,6 +91,8 @@ class PatientFormField extends StatelessWidget {
   final TextEditingController? controller;
   final VoidCallback? onTap;
   final int maxLines;
+  final List<TextInputFormatter>? inputFormatters;
+  final bool enabled;
 
   const PatientFormField({
     super.key,
@@ -100,6 +103,8 @@ class PatientFormField extends StatelessWidget {
     this.controller,
     this.onTap,
     this.maxLines = 1,
+    this.inputFormatters,
+    this.enabled = true,
   });
 
   @override
@@ -119,10 +124,12 @@ class PatientFormField extends StatelessWidget {
         const SizedBox(height: 5),
         TextField(
           controller: controller,
+          enabled: enabled,
           readOnly: isDate,
           onTap: onTap,
           keyboardType: isDate ? TextInputType.datetime : keyboard,
           maxLines: maxLines,
+          inputFormatters: inputFormatters,
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           decoration: InputDecoration(
             hintText: isDate ? 'DD / MM / YYYY' : hint,

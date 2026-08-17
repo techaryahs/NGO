@@ -70,6 +70,46 @@ class _PatientsScreenState extends State<PatientsScreen> {
     );
   }
 
+  Future<void> _confirmDeletePatient(PatientModel patient) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete patient?'),
+        content: Text(
+          'Delete ${patient.fullName} permanently? Their room assignment, attendance and attendant attendance will also be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD32F2F),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ServiceLocator().patientService.deletePatient(patient.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Patient deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not delete patient: $e')));
+      }
+    }
+  }
+
   Future<void> _handlePayNow(PatientModel patient) async {
     final result = await showPatientPaymentDialog(
       context: context,
@@ -1229,6 +1269,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                         }
                       },
                       onPayNow: () => _handlePayNow(patient),
+                      onDelete: () => _confirmDeletePatient(patient),
                       onRejoin: () async {
                         if (patient.dischargeDate == null) return;
 
