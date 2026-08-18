@@ -137,6 +137,31 @@ class PatientService {
     }
   }
 
+  /// Firebase push IDs are unique, but each registration number must also
+  /// identify exactly one patient record.
+  Future<PatientModel?> getPatientByRegistrationNumber(
+    String registrationNumber, {
+    String? excludingPatientId,
+  }) async {
+    final normalized = registrationNumber.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+
+    final data = await _rtdb.get(_patientsPath);
+    if (data is! Map) return null;
+    for (final entry in Map<String, dynamic>.from(data).entries) {
+      if (entry.key == excludingPatientId || entry.value is! Map) continue;
+      final storedNumber =
+          (entry.value['registrationNumber']?.toString() ?? '').trim();
+      if (storedNumber.toLowerCase() == normalized) {
+        return PatientModel.fromMap(
+          entry.key,
+          Map<String, dynamic>.from(entry.value),
+        );
+      }
+    }
+    return null;
+  }
+
   // ===========================================================================
   // CREATE — Add new patient
   // ===========================================================================

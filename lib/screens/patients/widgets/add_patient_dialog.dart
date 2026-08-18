@@ -129,9 +129,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       // Only show available beds for selection
       _availableBeds = room?.beds.where((b) => b.isAvailable).toList() ?? [];
 
-      // For private rooms, automatically select ALL beds
-      if (room != null && room.isPrivate) {
-        _selectedBeds = List.from(room.beds);
+      // Private rooms can have two patient beds; reserve one bed per patient.
+      if (room != null && room.isPrivate && _availableBeds.isNotEmpty) {
+        _selectedBeds = [_availableBeds.first];
       }
     });
   }
@@ -394,6 +394,19 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       return;
     }
 
+    final registrationNumber = _registrationNumberController.text.trim();
+    if (registrationNumber.isNotEmpty) {
+      final existing = await ServiceLocator()
+          .patientService
+          .getPatientByRegistrationNumber(registrationNumber);
+      if (existing != null) {
+        _showError(
+          'Registration number $registrationNumber already belongs to ${existing.fullName}. Edit that patient instead.',
+        );
+        return;
+      }
+    }
+
     // Show payment dialog before saving.
     final result = await showPatientPaymentDialog(
       context: context,
@@ -429,8 +442,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         throw Exception('Selected room no longer exists');
       }
 
-      // Additional check for private rooms - ensure room is not occupied
-      if (room.isPrivate && room.derivedOccupancyStatus != 'available') {
+      // A private room remains available until each configured bed is used.
+      if (room.isPrivate && !room.hasAvailableBeds) {
         throw Exception(
           'Private room ${room.roomIdentifier} is no longer available. Please select another room.',
         );

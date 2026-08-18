@@ -5,44 +5,56 @@ part of 'room_service.dart';
 /// Ensures Room and Stay statuses are fully synchronized and self-healed.
 extension RoomServiceReconciliation on RoomService {
   // --- Reconciliations ---
-  
+
   Future<bool> reconcileRoomStatus(String roomId) async {
     try {
       final room = await getRoom(roomId);
       if (room == null) return false;
 
       final staysData = await rtdb.get(staysPath);
-      final List<StayModel> activeStays = parseStaysFromData(staysData)
-          .where((s) => s.roomId == roomId && s.status == 'active')
-          .toList();
+      final List<StayModel> activeStays = parseStaysFromData(
+        staysData,
+      ).where((s) => s.roomId == roomId && s.status == 'active').toList();
 
       final hasActiveStay = activeStays.isNotEmpty;
       final updates = <String, dynamic>{};
 
       if (room.isPrivate) {
-        final shouldBeOccupied = hasActiveStay;
-        final correctStatus = shouldBeOccupied ? 'occupied' : 'available';
-        final correctAttendants = shouldBeOccupied ? activeStays.fold(0, (sum, s) => sum + s.attendantCount) : 0;
+        final correctStatus = activeStays.length >= room.actualTotalBeds
+            ? 'occupied'
+            : (hasActiveStay ? 'partially_occupied' : 'available');
+        final correctAttendants = activeStays.fold(
+          0,
+          (sum, s) => sum + s.attendantCount,
+        );
 
         if (room.status != correctStatus) updates['status'] = correctStatus;
-        if (room.currentAttendants != correctAttendants) updates['currentAttendants'] = correctAttendants;
+        if (room.currentAttendants != correctAttendants)
+          updates['currentAttendants'] = correctAttendants;
 
         if (room.beds.isNotEmpty) {
-          final bedStatus = shouldBeOccupied ? 'occupied' : 'available';
-          final needsBedUpdate = room.beds.any((b) => b.status != bedStatus);
+          final activeStayIds = activeStays.map((stay) => stay.id).toSet();
+          final needsBedUpdate = room.beds.any(
+            (bed) =>
+                (bed.currentStayId != null &&
+                !activeStayIds.contains(bed.currentStayId)),
+          );
           if (needsBedUpdate) {
             final fixedBeds = room.beds.map((b) {
-              if (shouldBeOccupied) {
-                return b.copyWith(
-                  status: 'occupied',
-                  currentPatientId: activeStays.first.patientId,
-                  currentStayId: activeStays.first.id,
-                );
+              if (b.currentStayId != null &&
+                  activeStayIds.contains(b.currentStayId)) {
+                return b;
               }
-              return b.copyWith(status: 'available', clearPatientId: true, clearStayId: true);
+              return b.copyWith(
+                status: 'available',
+                clearPatientId: true,
+                clearStayId: true,
+              );
             }).toList();
             updates['beds'] = bedsToRtdbMap(fixedBeds);
-            updates['occupiedBeds'] = shouldBeOccupied ? fixedBeds.length : 0;
+            updates['occupiedBeds'] = fixedBeds
+                .where((bed) => bed.status == 'occupied')
+                .length;
           }
         }
       } else {

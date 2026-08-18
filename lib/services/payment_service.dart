@@ -226,18 +226,25 @@ class PaymentService {
   //     });
   //   }
   // }
-  Future<void> recalculateAllActivePatientsBilling() async {
+  Future<void> recalculateAllActivePatientsBilling({String? patientId}) async {
     final patientService = ServiceLocator().patientService;
     final allPatients = await patientService.getPatientsStream().first;
 
-    for (final patient in allPatients) {
+    final patients = patientId == null
+        ? allPatients
+        : allPatients.where((patient) => patient.id == patientId);
+    for (final patient in patients) {
       final isPrivate = patient.roomNumber != null
           ? RoomModel.isPrivateRoomIdentifier(patient.roomNumber!)
           : patient.advanceBilledAmount >= 3500.0;
 
       final int attendantCount = patient.attendants?.length ?? 0;
       final int occupantCount = 1 + attendantCount;
-      final int totalPresent = patient.totalPresentDays;
+      // Room charges cover every calendar day in the registered stay. An
+      // absence remains visible in attendance, but does not waive the room
+      // and attendant charge for that day.
+      final int totalPresent =
+          patient.totalPresentDays + patient.totalAbsentDays;
 
       // ── Two-slab calculation ──────────────────────────────────────────
       final int phase1Days = totalPresent.clamp(0, 60);
@@ -266,13 +273,13 @@ class PaymentService {
             (phase2Days * occupantCount * p2Rate);
       }
 
-      // Advance is a payment credit, not a day offset
-      // attendanceCharges = gross - advance (can't go below 0)
-      final double newCharges = (grossCharges - patient.advanceBilledAmount)
-          .clamp(0.0, double.infinity);
-
-      // Total bill = advance already billed + extra attendance charges
-      final double totalBill = patient.advanceBilledAmount + newCharges;
+      // The admission estimate is not an extra charge. Once attendance exceeds
+      // it, only the difference is stored as an additional charge.
+      final double totalBill = grossCharges;
+      final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
+        0.0,
+        double.infinity,
+      );
 
       double totalPaid = 0;
       if (patient.payments != null) {
@@ -348,7 +355,9 @@ class PaymentService {
       'totalPresentDays': present,
       'totalAbsentDays': absent,
     });
-    if (updateBilling) await recalculateAllActivePatientsBilling();
+    if (updateBilling) {
+      await recalculateAllActivePatientsBilling(patientId: patientId);
+    }
   }
 
   /// Repairs historical records, including patients added before automatic
@@ -474,8 +483,9 @@ class PaymentService {
     final int occupantCount = 1 + attendantCount;
 
     // ── Two-slab calculation ──────────────────────────────────────────
-    final int phase1Days = newPresent.clamp(0, 60);
-    final int phase2Days = (newPresent - 60).clamp(0, 999999);
+    final int totalStayDays = newPresent + newAbsent;
+    final int phase1Days = totalStayDays.clamp(0, 60);
+    final int phase2Days = (totalStayDays - 60).clamp(0, 999999);
 
     double grossCharges;
     if (isPrivate) {
@@ -498,11 +508,11 @@ class PaymentService {
           (phase2Days * occupantCount * p2Rate);
     }
 
-    // Advance is a payment credit subtracted from gross
-    final double newCharges = (grossCharges - patient.advanceBilledAmount)
-        .clamp(0.0, double.infinity);
-
-    final double totalBill = patient.advanceBilledAmount + newCharges;
+    final double totalBill = grossCharges;
+    final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
+      0.0,
+      double.infinity,
+    );
 
     double totalPaid = 0;
     if (patient.payments != null) {
@@ -528,7 +538,7 @@ class PaymentService {
     await patientService.updatePatient(patientId, {
       'totalPresentDays': newPresent,
       'totalAbsentDays': newAbsent,
-      'isAdvancePeriod': newPresent < 60,
+      'isAdvancePeriod': totalStayDays < 60,
       'attendanceCharges': newCharges,
       'totalPaidAmount': totalPaid,
       'currentDueAmount': currentDue,

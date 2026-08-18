@@ -22,9 +22,20 @@ class PatientsScreen extends StatefulWidget {
 
 class _PatientsScreenState extends State<PatientsScreen> {
   final _searchController = TextEditingController();
+  late final Stream<List<PatientModel>> _patientsStream;
+  static const _pageSize = 25;
+  int _visiblePatients = _pageSize;
 
   String _selectedFilter = 'all'; // 'all', 'active', 'inactive', 'discharged'
   String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Preserve one subscription while filtering so searches never briefly
+    // render an empty list while a new REST stream starts.
+    _patientsStream = ServiceLocator().patientService.getPatientsStream();
+  }
 
   @override
   void dispose() {
@@ -148,22 +159,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
     }
   }
 
-  Stream<List<PatientModel>> _getPatientsStream() {
-    if (_searchQuery.isNotEmpty) {
-      return ServiceLocator().patientService.searchPatients(_searchQuery);
-    }
-
-    if (_selectedFilter == 'active') {
-      return ServiceLocator().patientService.getPatientsByStatus('active');
-    } else if (_selectedFilter == 'inactive') {
-      return ServiceLocator().patientService.getPatientsByStatus('inactive');
-    } else if (_selectedFilter == 'discharged') {
-      return ServiceLocator().patientService.getPatientsByStatus('discharged');
-    }
-
-    return ServiceLocator().patientService.getPatientsStream();
-  }
-
   // List<PatientModel> _filterPatients(List<PatientModel> patients) {
   //   if (_selectedFilter == 'all') return patients;
   //   if (_selectedFilter == 'active') {
@@ -188,6 +183,19 @@ class _PatientsScreenState extends State<PatientsScreen> {
           .toList();
     } else {
       filtered = patients.where((p) => p.status == _selectedFilter).toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.trim().toLowerCase();
+      filtered = filtered
+          .where(
+            (patient) =>
+                patient.searchKey.contains(query) ||
+                patient.contactNumber.contains(query) ||
+                (patient.registrationNumber?.toLowerCase().contains(query) ??
+                    false),
+          )
+          .toList();
     }
 
     // Sort: active/paid first, discharged/others below
@@ -830,7 +838,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
         children: [
           // Header with stats
           StreamBuilder<List<PatientModel>>(
-            stream: ServiceLocator().patientService.getPatientsStream(),
+            // Share the broadcast stream with the list to avoid a second
+            // full patient download while filtering or searching.
+            stream: _patientsStream,
             builder: (context, snapshot) {
               final allPatients = snapshot.data ?? [];
               final countedPatients = allPatients
@@ -1094,7 +1104,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   child: TextField(
                     controller: _searchController,
                     onChanged: (value) {
-                      setState(() => _searchQuery = value.toLowerCase());
+                      setState(() {
+                        _searchQuery = value.toLowerCase();
+                        _visiblePatients = _pageSize;
+                      });
                     },
                     decoration: InputDecoration(
                       hintText: 'Search patients by name...',
@@ -1110,7 +1123,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
                               icon: const Icon(Icons.clear_rounded),
                               onPressed: () {
                                 _searchController.clear();
-                                setState(() => _searchQuery = '');
+                                setState(() {
+                                  _searchQuery = '';
+                                  _visiblePatients = _pageSize;
+                                });
                               },
                             )
                           : null,
@@ -1174,7 +1190,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
           // Patients List
           Expanded(
             child: StreamBuilder<List<PatientModel>>(
-              stream: _getPatientsStream(),
+              stream: _patientsStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -1240,11 +1256,27 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   );
                 }
 
+                final visiblePatients = patients
+                    .take(_visiblePatients)
+                    .toList();
+                final hasMore = visiblePatients.length < patients.length;
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  itemCount: patients.length,
+                  itemCount: visiblePatients.length + (hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
-                    final patient = patients[index];
+                    if (index == visiblePatients.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              setState(() => _visiblePatients += _pageSize),
+                          child: Text(
+                            'Load more (${patients.length - visiblePatients.length} remaining)',
+                          ),
+                        ),
+                      );
+                    }
+                    final patient = visiblePatients[index];
                     return PatientCard(
                       patient: patient,
                       onTap: () => _showPatientDetails(patient),

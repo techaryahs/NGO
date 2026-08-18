@@ -70,6 +70,7 @@ class _AttendanceState extends State<Attendance>
       if (_selectedTabIndex != _tabController.index) {
         setState(() {
           _selectedTabIndex = _tabController.index;
+          _loadSelectedTabData();
           _fadeCtrl.forward(from: 0);
         });
       }
@@ -83,7 +84,9 @@ class _AttendanceState extends State<Attendance>
     });
 
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
-    _refreshFutures();
+    // Daily is the opening view. Reports load only when their tabs open.
+    _weeklyData = Future.value(<String, Map<String, String>>{});
+    _monthlyData = Future.value(<String, Map<String, String>>{});
     _initRealtimeStreams();
   }
 
@@ -135,7 +138,8 @@ class _AttendanceState extends State<Attendance>
           }
         });
 
-    _backfillAutomaticAttendance();
+    // Keep opening this screen read-only. Recalculating every patient's full
+    // history here caused hundreds of REST calls and blocked the UI.
   }
 
   DateTime _dateOnly(DateTime date) =>
@@ -159,11 +163,6 @@ class _AttendanceState extends State<Attendance>
     return !selectedDate.isAfter(lastEligibleDate);
   }
 
-  Future<void> _backfillAutomaticAttendance() async {
-    await ServiceLocator().paymentService
-        .recalculateAllPatientsAttendanceAndBilling();
-  }
-
   String get _selectedAttendanceDateLabel =>
       DateFormat('dd MMM yyyy').format(_selectedAttendanceDate);
 
@@ -179,9 +178,16 @@ class _AttendanceState extends State<Attendance>
     _initRealtimeStreams();
   }
 
+  void _loadSelectedTabData() {
+    if (_selectedTabIndex == 1) {
+      _weeklyData = fetchWeeklyAttendance(_attendanceType);
+    } else if (_selectedTabIndex == 2) {
+      _monthlyData = fetchMonthlyAttendance(_selectedMonth, _attendanceType);
+    }
+  }
+
   void _refreshFutures() {
-    _weeklyData = fetchWeeklyAttendance(_attendanceType);
-    _monthlyData = fetchMonthlyAttendance(_selectedMonth, _attendanceType);
+    _loadSelectedTabData();
   }
 
   @override
@@ -205,7 +211,6 @@ class _AttendanceState extends State<Attendance>
 
   Future<void> _loadMore() async {
     setState(() => _isLoadingMore = true);
-    await Future.delayed(const Duration(milliseconds: 200));
     setState(() {
       if (_attendanceType == 'patient') {
         _currentPatientLimit += _pageSize;

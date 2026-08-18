@@ -274,9 +274,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               .toList() ??
           [];
 
-      // For private rooms, automatically select ALL beds
-      if (room != null && room.isPrivate) {
-        _selectedBeds = List.from(room.beds);
+      if (room != null && room.isPrivate && _availableBeds.isNotEmpty) {
+        _selectedBeds = [_availableBeds.first];
       }
     });
   }
@@ -470,6 +469,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
+      final registrationNumber = _registrationNumberController.text.trim();
+      if (registrationNumber.isNotEmpty) {
+        final existing = await patientService.getPatientByRegistrationNumber(
+          registrationNumber,
+          excludingPatientId: widget.patient.id,
+        );
+        if (existing != null) {
+          throw Exception(
+            'Registration number $registrationNumber already belongs to ${existing.fullName}.',
+          );
+        }
+      }
 
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
@@ -632,12 +643,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           await roomService.updateStayAttendantCount(
             stayId,
             structuredAttendants.length,
-          );
-        }
-        if (_selectedRoom?.isPrivate == true) {
-          await ServiceLocator().rtdbService.patch(
-            'rooms/${_selectedRoom!.id}',
-            {'currentAttendants': structuredAttendants.length},
           );
         }
       }
@@ -1222,7 +1227,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                       if (room.id == widget.patient.roomId)
                                         return true;
                                       if (room.isPrivate)
-                                        return room.occupiedCount == 0;
+                                        return room.hasAvailableBeds;
                                       return room.occupiedCount <
                                           room.actualTotalBeds;
                                     },

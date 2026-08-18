@@ -78,7 +78,6 @@ class RoomModel {
     final total = actualTotalBeds;
 
     if (occupied == 0) return 'available';
-    if (isPrivate) return 'occupied';
     if (occupied >= total) return 'occupied';
     return 'partially_occupied';
   }

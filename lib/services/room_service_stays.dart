@@ -56,9 +56,12 @@ extension RoomServiceStays on RoomService {
       BedModel? targetBed;
 
       if (resolvedRoomType == 'private') {
-        if (room.occupiedCount > 0)
-          throw Exception('Private room already occupied by another patient');
-
+        final projectedAttendants = room.currentAttendants + attendantCount;
+        if (projectedAttendants > room.maxAttendants) {
+          throw Exception(
+            'Private room attendant limit exceeded (${room.maxAttendants})',
+          );
+        }
         if (bedId != null)
           targetBed = room.beds.where((b) => b.id == bedId).firstOrNull;
         targetBed ??= room.beds
@@ -114,16 +117,14 @@ extension RoomServiceStays on RoomService {
         createdBy: createdBy,
       );
 
-      final nextOccupiedCount = resolvedRoomType == 'private'
-          ? room.beds.length
-          : room.actualOccupiedBeds + 1; // Projecting new occupancy
+      final nextOccupiedCount = room.actualOccupiedBeds + 1;
 
       // Perform atomic multipath update to sync stay + bed + room status
       final updates = <String, dynamic>{
         'stays/$stayId': stay.toMap(),
         'rooms/$roomId/occupiedBeds': nextOccupiedCount,
         'rooms/$roomId/currentAttendants': resolvedRoomType == 'private'
-            ? attendantCount
+            ? room.currentAttendants + attendantCount
             : room.currentAttendants,
         'rooms/$roomId/expectedVacancyDate':
             expectedDischargeDate.millisecondsSinceEpoch,
@@ -131,18 +132,7 @@ extension RoomServiceStays on RoomService {
         'rooms/$roomId/updatedAt': now.millisecondsSinceEpoch,
       };
 
-      if (resolvedRoomType == 'private') {
-        final fixedBeds = room.beds
-            .map(
-              (b) => b.copyWith(
-                status: 'occupied',
-                currentPatientId: patientId,
-                currentStayId: stayId,
-              ),
-            )
-            .toList();
-        updates['rooms/$roomId/beds'] = bedsToRtdbMap(fixedBeds);
-      } else {
+      {
         final fixedBeds = room.beds.map((b) {
           if (b.id == targetBed!.id) {
             return b.copyWith(
@@ -247,9 +237,9 @@ extension RoomServiceStays on RoomService {
       if (targetBed == null)
         throw Exception('No assigned bed found for this stay');
 
-      final nextOccupiedCount = room.isPrivate
-          ? 0
-          : (room.actualOccupiedBeds > 0 ? room.actualOccupiedBeds - 1 : 0);
+      final nextOccupiedCount = room.actualOccupiedBeds > 0
+          ? room.actualOccupiedBeds - 1
+          : 0;
       final now = DateTime.now();
 
       final updates = <String, dynamic>{
@@ -257,24 +247,15 @@ extension RoomServiceStays on RoomService {
         'stays/$stayId/updatedAt': now.millisecondsSinceEpoch,
         'rooms/${room.id}/occupiedBeds': nextOccupiedCount,
         'rooms/${room.id}/currentAttendants': room.isPrivate
-            ? 0
+            ? (room.currentAttendants > stay.attendantCount
+                  ? room.currentAttendants - stay.attendantCount
+                  : 0)
             : room.currentAttendants,
         'rooms/${room.id}/lastUpdated': now.millisecondsSinceEpoch,
         'rooms/${room.id}/updatedAt': now.millisecondsSinceEpoch,
       };
 
-      if (room.isPrivate) {
-        final fixedBeds = room.beds
-            .map(
-              (b) => b.copyWith(
-                status: 'available',
-                clearPatientId: true,
-                clearStayId: true,
-              ),
-            )
-            .toList();
-        updates['rooms/${room.id}/beds'] = bedsToRtdbMap(fixedBeds);
-      } else {
+      {
         final fixedBeds = room.beds.map((b) {
           if (b.id == targetBed.id) {
             return b.copyWith(
@@ -358,12 +339,33 @@ extension RoomServiceStays on RoomService {
       attendantCount: attendantCount,
       pricing: await getPricing(),
     );
-    await rtdb.patch('$staysPath/$stayId', {
+    final updates = <String, dynamic>{
       'attendantCount': attendantCount,
       'baseCost': costs.baseCost,
       'extraAttendantCost': costs.extraAttendantCost,
       'totalCost': costs.totalCost,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    });
+    };
+    if (stay.roomType == 'private') {
+      final room = await getRoom(stay.roomId);
+      if (room != null) {
+        final projectedAttendants =
+            room.currentAttendants - stay.attendantCount + attendantCount;
+        if (projectedAttendants < 0 ||
+            projectedAttendants > room.maxAttendants) {
+          throw Exception(
+            'Private room attendant limit exceeded (${room.maxAttendants})',
+          );
+        }
+        final rootUpdates = <String, dynamic>{
+          for (final entry in updates.entries)
+            'stays/$stayId/${entry.key}': entry.value,
+          'rooms/${stay.roomId}/currentAttendants': projectedAttendants,
+        };
+        await rtdb.patch('', rootUpdates);
+        return;
+      }
+    }
+    await rtdb.patch('$staysPath/$stayId', updates);
   }
 }

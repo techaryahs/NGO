@@ -53,10 +53,7 @@ extension RoomServiceRooms on RoomService {
   Stream<List<RoomModel>> getAvailableRoomsStream() {
     return streamRooms().map((rooms) {
       return rooms.where((room) {
-        if (room.isPrivate) {
-          return room.occupiedCount == 0;
-        }
-        return room.occupiedCount < room.actualTotalBeds;
+        return room.hasAvailableBeds;
       }).toList();
     });
   }
@@ -276,9 +273,7 @@ extension RoomServiceRooms on RoomService {
       );
     }
 
-    final isFull = room.isPrivate
-        ? occupiedCount > 0
-        : occupiedCount >= room.actualTotalBeds;
+    final isFull = occupiedCount >= room.actualTotalBeds;
     if (isFull) {
       return RoomStatusMeta(
         dbStatus: 'occupied',
@@ -287,7 +282,7 @@ extension RoomServiceRooms on RoomService {
       );
     }
 
-    if (occupiedCount > 0 && !room.isPrivate) {
+    if (occupiedCount > 0) {
       return RoomStatusMeta(
         dbStatus:
             'partially_occupied', // Using 'partially_occupied' for accuracy, although original just used available
