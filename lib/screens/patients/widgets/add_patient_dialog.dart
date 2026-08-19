@@ -613,7 +613,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
       // Lobby placements do not create room stays or occupy room beds.
       if (_selectedRoom?.isPrivate == true) {
-        // Private room: 1 patient + attendants, single stay for the room
+        // Private room: one stay for this patient's assigned bed. A second
+        // patient may use another available private-room bed.
         await roomService.createStay(
           patientId: patientId,
           patientName: _patientNameController.text.trim(),
@@ -1142,7 +1143,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                               children: [
                                 Expanded(
                                   child: PatientFormDropdown(
-                                    label: 'Lobby (optional)',
+                                    label: 'Lobby',
                                     hint: _selectedFloor == null
                                         ? 'Select floor first'
                                         : _selectedRoom != null

@@ -82,6 +82,10 @@ class _AttendanceState extends State<Attendance>
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
+        // Each search starts at the first page so matching patients are
+        // immediately visible, even after the user has paged through a list.
+        _currentPatientLimit = _pageSize;
+        _currentAttendantLimit = _pageSize;
       });
     });
 
@@ -166,21 +170,21 @@ class _AttendanceState extends State<Attendance>
       DateTime(date.year, date.month, date.day);
 
   bool _isPatientEligibleOnDate(PatientModel patient, DateTime date) {
+    // Daily marking is only for currently active admissions. Discharged,
+    // transferred, and inactive records remain available in reports, but
+    // cannot be accidentally marked again from the daily screen.
+    if (patient.status != 'active' && patient.status != 'Paid') return false;
     final selectedDate = _dateOnly(date);
     final registrationDate = _dateOnly(
       patient.registrationDate ?? patient.admissionDate,
     );
     if (selectedDate.isBefore(registrationDate)) return false;
 
-    final exitDate = patient.exitDate ?? patient.dischargeDate;
-    if (exitDate == null)
-      return !selectedDate.isAfter(_dateOnly(DateTime.now()));
-    final includesExitDay =
-        exitDate.hour > 9 || (exitDate.hour == 9 && exitDate.minute > 0);
-    final lastEligibleDate = _dateOnly(
-      exitDate,
-    ).subtract(includesExitDay ? Duration.zero : const Duration(days: 1));
-    return !selectedDate.isAfter(lastEligibleDate);
+    // [exitDate] is a planned stay end, not proof that the patient has left.
+    // The status check above is the source of truth for actual discharge, so
+    // active patients remain available for attendance after a planned exit
+    // date until staff discharge them.
+    return !selectedDate.isAfter(_dateOnly(DateTime.now()));
   }
 
   String get _selectedAttendanceDateLabel =>
@@ -194,8 +198,10 @@ class _AttendanceState extends State<Attendance>
       lastDate: DateTime.now(),
     );
     if (picked == null) return;
-    setState(() => _selectedAttendanceDate = picked);
     setState(() {
+      _selectedAttendanceDate = picked;
+      _currentPatientLimit = _pageSize;
+      _currentAttendantLimit = _pageSize;
       _allPatients = _patientSource
           .where(
             (patient) =>
@@ -239,7 +245,12 @@ class _AttendanceState extends State<Attendance>
   }
 
   Future<void> _loadMore() async {
+    if (_isLoadingMore) return;
     setState(() => _isLoadingMore = true);
+    // A short frame gives the footer feedback before rendering the next page,
+    // keeping long attendance lists responsive.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
     setState(() {
       if (_attendanceType == 'patient') {
         _currentPatientLimit += _pageSize;
@@ -826,17 +837,33 @@ class _AttendanceState extends State<Attendance>
     }
 
     final displayList = filtered.take(_currentPatientLimit).toList();
+    final hasMore = displayList.length < filtered.length;
 
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      itemCount: displayList.length + (_isLoadingMore ? 1 : 0),
+      itemCount: displayList.length + (hasMore || _isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == displayList.length) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: _isLoadingMore
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Color(0xFF3B6D11),
+                      ),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: _loadMore,
+                      icon: const Icon(Icons.expand_more_rounded),
+                      label: Text(
+                        'Show ${((filtered.length - displayList.length).clamp(0, _pageSize))} more patients',
+                      ),
+                    ),
             ),
           );
         }

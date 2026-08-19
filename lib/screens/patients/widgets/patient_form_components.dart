@@ -450,7 +450,9 @@ class PatientBedSelection extends StatelessWidget {
                             selected: isSelected,
                             onSelected: (selected) {
                               if (isPrivateRoom) {
-                                // Private room = only one room booking
+                                // One patient occupies one private-room bed. Private
+                                // rooms are configured with two beds, so a second
+                                // patient can use the remaining available bed.
                                 if (selected) {
                                   onChanged?.call([bed]);
                                 } else {
@@ -509,7 +511,7 @@ class PatientBedSelection extends StatelessWidget {
                     Expanded(
                       child: Text(
                         isPrivateRoom
-                            ? 'Private room books the entire room (all beds automatically selected)'
+                            ? 'Each patient uses one private-room bed. A second patient can use another available bed.'
                             : 'You can select multiple beds for patient + attendants',
                         style: const TextStyle(
                           fontSize: 11,

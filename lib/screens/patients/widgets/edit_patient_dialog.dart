@@ -4,6 +4,7 @@ import '../../../models/patient_model.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../services/service_locator.dart';
+import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -43,8 +44,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   late TextEditingController _panCardController;
   late TextEditingController _aadhaarCardController;
   late TextEditingController _utiNumberController;
+  int? _selectedFloor;
   String? _selectedLobby;
-  static const _lobbyOptions = ['Lobby 1', 'Lobby 2'];
+  static const Map<int, List<String>> _lobbyOptionsByFloor = {
+    1: ['1D Lobby 1', '1D Lobby 2', '1B Lobby 1', '1B Lobby 2'],
+    2: ['2E Lobby 1', '2E Lobby 2', '2B Lobby 1', '2B Lobby 2'],
+  };
 
   final List<_AttendantEntry> _attendants = [];
 
@@ -175,6 +180,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     );
     _selectedLobby =
         widget.patient.lobby ?? _lobbyFromNotes(widget.patient.notes);
+    _selectedFloor = widget.patient.floor;
     _selectedDateOfBirth = widget.patient.dateOfBirth;
     _selectedRegistrationDate = widget.patient.registrationDate;
     _selectedExitDate = widget.patient.exitDate;
@@ -215,6 +221,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               .firstOrNull;
           if (currentRoom != null) {
             _selectedRoom = currentRoom;
+            _selectedFloor ??= currentRoom.floor;
 
             // Collect all beds from active stays
             for (final stay in activeStays) {
@@ -258,9 +265,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   void _onRoomSelected(RoomModel? room) {
     setState(() {
       _selectedRoom = room;
-      if (room == null || !BedHelper.isLobbyRoom(room.roomIdentifier)) {
-        _selectedLobby = null;
-      }
       // Only reset beds if changing to a different room
       if (room?.id != widget.patient.roomId) {
         _selectedBeds = [];
@@ -279,6 +283,46 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
     });
   }
+
+  void _onFloorSelected(String? value) {
+    setState(() {
+      _selectedFloor = value == null ? null : int.tryParse(value);
+      _selectedLobby = null;
+      _selectedRoom = null;
+      _selectedBeds = [];
+      _availableBeds = [];
+    });
+  }
+
+  void _clearLobby() => setState(() => _selectedLobby = null);
+
+  void _clearRoom() => setState(() {
+    _selectedRoom = null;
+    _selectedBeds = [];
+    _availableBeds = [];
+  });
+
+  int get _plannedStayDays {
+    if (_selectedExitDate == null) return 7;
+    final start = _selectedRegistrationDate ?? widget.patient.admissionDate;
+    var days = _selectedExitDate!
+        .difference(DateTime(start.year, start.month, start.day))
+        .inDays;
+    if (_selectedExitDate!.hour > 9 ||
+        (_selectedExitDate!.hour == 9 && _selectedExitDate!.minute > 0)) {
+      days++;
+    }
+    return days.clamp(1, 3650);
+  }
+
+  double get _estimatedTotal =>
+      PricingHelper.calculateDailyCharge(
+        _selectedRoom?.isPrivate ?? false,
+        _attendants
+            .where((a) => a.nameController.text.trim().isNotEmpty)
+            .length,
+      ) *
+      _plannedStayDays;
 
   String? _lobbyFromNotes(String? notes) {
     if (notes == null) return null;
@@ -463,6 +507,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _showError('Please enter at least one attendant name');
       return;
     }
+    if (_selectedFloor == null) {
+      _showError('Please select a floor');
+      return;
+    }
+    if (_selectedRoom == null && _selectedLobby == null) {
+      _showError('Please select either a lobby or a room');
+      return;
+    }
+    if (_selectedRoom != null && _selectedBeds.isEmpty) {
+      _showError('Please select a bed');
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -537,11 +593,13 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             ? null
             : _utiNumberController.text.trim(),
         'lobby': _selectedLobby,
+        // Keep the advance, due amount, and payment dashboard aligned with
+        // the selected room type and the current stay dates.
+        'advanceBilledAmount': _estimatedTotal,
       };
 
       // Handle room/bed change
-      final roomChanged =
-          _selectedRoom != null && _selectedRoom!.id != widget.patient.roomId;
+      final roomChanged = _selectedRoom?.id != widget.patient.roomId;
       bool bedsChanged = false;
       if (_selectedBeds.length != _currentStayIds.length) {
         bedsChanged = true;
@@ -556,59 +614,30 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
 
       if (roomChanged || bedsChanged) {
-        if (_selectedRoom == null || _selectedBeds.isEmpty) {
-          _showError('Please select room and at least one bed');
-          setState(() => _isLoading = false);
-          return;
-        }
-
-        // Concurrency check: Re-fetch room to verify beds are still available
-        final room = await roomService.getRoom(_selectedRoom!.id);
-        if (room == null) {
-          throw Exception('Selected room no longer exists');
-        }
-
-        // Check all selected beds
-        for (final selectedBed in _selectedBeds) {
-          final bed = room.beds
-              .where((b) => b.id == selectedBed.id)
-              .firstOrNull;
-          if (bed == null ||
-              (!bed.isAvailable &&
-                  !_currentStayIds.contains(bed.currentStayId))) {
-            throw Exception(
-              '${BedHelper.getBedDisplayName(selectedBed.bedLabel)} is no longer available. Please reselect beds.',
-            );
-          }
-        }
-
         // Complete all old stays
         for (final stayId in _currentStayIds) {
           await roomService.completeStay(stayId);
         }
 
-        // Create new stays for selected bed(s)
-        final currentUser = ServiceLocator().authRestService.currentUser;
-        if (_selectedRoom!.isPrivate) {
-          // For private rooms, we only need to create one stay which reserves the whole room
-          final bed = _selectedBeds.first;
-          await roomService.createStay(
-            patientId: widget.patient.id,
-            patientName: _patientNameController.text.trim(),
-            roomId: _selectedRoom!.id,
-            roomNumber: _selectedRoom!.roomIdentifier,
-            roomType: _selectedRoom!.roomType,
-            admissionDate: widget.patient.admissionDate,
-            durationDays: 7, // Default duration
-            attendantCount: structuredAttendants.length,
-            bedId: bed.id,
-            bedLabel: bed.bedLabel,
-            notes: _selectedBeds.length > 1
-                ? 'Multiple beds: ${_selectedBeds.map((b) => BedHelper.getBedDisplayName(b.bedLabel)).join(", ")}'
-                : 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
-            createdBy: currentUser?.uid ?? 'system',
-          );
-        } else {
+        if (_selectedRoom != null) {
+          // Re-fetch after completing old stays so the two-bed private-room
+          // capacity and every selected bed are checked against live data.
+          final room = await roomService.getRoom(_selectedRoom!.id);
+          if (room == null) throw Exception('Selected room no longer exists');
+          for (final selectedBed in _selectedBeds) {
+            final bed = room.beds
+                .where((b) => b.id == selectedBed.id)
+                .firstOrNull;
+            if (bed == null || !bed.isAvailable) {
+              throw Exception(
+                '${BedHelper.getBedDisplayName(selectedBed.bedLabel)} is no longer available. Please reselect beds.',
+              );
+            }
+          }
+
+          final currentUser = ServiceLocator().authRestService.currentUser;
+          // Each selected bed creates a stay. A private room normally has two
+          // beds, allowing two patients while retaining independent billing.
           for (final bed in _selectedBeds) {
             await roomService.createStay(
               patientId: widget.patient.id,
@@ -617,7 +646,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               roomNumber: _selectedRoom!.roomIdentifier,
               roomType: _selectedRoom!.roomType,
               admissionDate: widget.patient.admissionDate,
-              durationDays: 7, // Default duration
+              durationDays: _plannedStayDays,
               attendantCount: structuredAttendants.length,
               bedId: bed.id,
               bedLabel: bed.bedLabel,
@@ -627,12 +656,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           }
         }
 
-        // Update patient room info
-        updates['roomId'] = _selectedRoom!.id;
-        updates['roomNumber'] = _selectedRoom!.roomIdentifier;
-        updates['floor'] = _selectedRoom!.floor;
-        updates['bedIds'] = _selectedBeds.map((b) => b.id).toList();
-        updates['bedLabels'] = _selectedBeds.map((b) => b.bedLabel).toList();
+        // Lobby placements deliberately do not create a stay or occupy a bed.
+        updates['roomId'] = _selectedRoom?.id;
+        updates['roomNumber'] = _selectedRoom?.roomIdentifier;
+        updates['floor'] = _selectedFloor;
+        updates['bedIds'] = _selectedBeds.isEmpty
+            ? null
+            : _selectedBeds.map((b) => b.id).toList();
+        updates['bedLabels'] = _selectedBeds.isEmpty
+            ? null
+            : _selectedBeds.map((b) => b.bedLabel).toList();
+      } else {
+        updates['floor'] = _selectedFloor;
       }
 
       await patientService.updatePatient(widget.patient.id, updates);
@@ -1219,77 +1254,115 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  PatientRoomDropdown(
-                                    label: "Room",
-                                    rooms: _availableRooms,
-                                    selectedRoom: _selectedRoom,
-                                    isRoomEnabled: (room) {
-                                      if (room.id == widget.patient.roomId)
-                                        return true;
-                                      if (room.isPrivate)
-                                        return room.hasAvailableBeds;
-                                      return room.occupiedCount <
-                                          room.actualTotalBeds;
-                                    },
-                                    itemBuilder: (room, enabled) {
-                                      String subtitle;
-                                      if (room.id == widget.patient.roomId) {
-                                        subtitle = ' - Current';
-                                      } else if (!enabled &&
-                                          room.expectedVacancyDate != null) {
-                                        final date = room.expectedVacancyDate!;
-                                        subtitle =
-                                            ' - Expected Free: ${date.day}/${date.month}/${date.year}';
-                                      } else if (!enabled) {
-                                        subtitle = ' - Full';
-                                      } else if (room.isPrivate) {
-                                        subtitle = ' - Available';
-                                      } else {
-                                        subtitle =
-                                            ' - ${room.actualAvailableBeds} beds available';
-                                      }
-                                      return Text(
-                                        '${room.roomIdentifier}$subtitle',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: enabled
-                                              ? const Color(0xFF27500A)
-                                              : const Color(0xFF999999),
+                                  PatientFormDropdown(
+                                    label: 'Floor',
+                                    hint: 'Select floor first',
+                                    items: const ['1', '2'],
+                                    value: _selectedFloor?.toString(),
+                                    onChanged: _onFloorSelected,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Expanded(
+                                        child: PatientFormDropdown(
+                                          label: 'Lobby',
+                                          hint: _selectedFloor == null
+                                              ? 'Select floor first'
+                                              : _selectedRoom != null
+                                              ? 'Clear room to select a lobby'
+                                              : 'Select lobby placement',
+                                          items: _selectedFloor == null
+                                              ? const []
+                                              : _lobbyOptionsByFloor[_selectedFloor]!,
+                                          value: _selectedLobby,
+                                          onChanged:
+                                              _selectedFloor != null &&
+                                                  _selectedRoom == null
+                                              ? (value) => setState(
+                                                  () => _selectedLobby = value,
+                                                )
+                                              : null,
                                         ),
-                                      );
-                                    },
-                                    onChanged: _onRoomSelected,
+                                      ),
+                                      if (_selectedLobby != null)
+                                        const SizedBox(width: 8),
+                                      if (_selectedLobby != null)
+                                        IconButton(
+                                          tooltip: 'Clear lobby selection',
+                                          onPressed: _clearLobby,
+                                          icon: const Icon(Icons.close_rounded),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Expanded(
+                                        child: PatientRoomDropdown(
+                                          label: 'Room',
+                                          rooms: _selectedFloor == null
+                                              ? const []
+                                              : _availableRooms
+                                                    .where(
+                                                      (room) =>
+                                                          room.floor ==
+                                                          _selectedFloor,
+                                                    )
+                                                    .toList(),
+                                          selectedRoom: _selectedRoom,
+                                          onChanged:
+                                              _selectedFloor != null &&
+                                                  _selectedLobby == null
+                                              ? _onRoomSelected
+                                              : null,
+                                          isRoomEnabled: (room) =>
+                                              room.id ==
+                                                  widget.patient.roomId ||
+                                              room.hasAvailableBeds,
+                                        ),
+                                      ),
+                                      if (_selectedRoom != null)
+                                        const SizedBox(width: 8),
+                                      if (_selectedRoom != null)
+                                        IconButton(
+                                          tooltip: 'Clear room selection',
+                                          onPressed: _clearRoom,
+                                          icon: const Icon(Icons.close_rounded),
+                                        ),
+                                    ],
                                   ),
                                   if (_selectedRoom != null) ...[
                                     const SizedBox(height: 12),
-                                    PatientFormDropdown(
-                                      label: 'Lobby',
-                                      hint: 'Select lobby',
-                                      items: _lobbyOptions,
-                                      value: _selectedLobby,
-                                      onChanged:
-                                          BedHelper.isLobbyRoom(
-                                            _selectedRoom!.roomIdentifier,
-                                          )
-                                          ? (value) => setState(
-                                              () => _selectedLobby = value,
-                                            )
-                                          : null,
-                                    ),
-                                    const SizedBox(height: 12),
                                     PatientBedSelection(
-                                      label: "Bed",
+                                      label: 'Bed',
                                       beds: _availableBeds,
                                       selectedBeds: _selectedBeds,
-                                      isPrivateRoom:
-                                          _selectedRoom?.isPrivate ?? false,
-                                      onChanged: (beds) {
-                                        setState(() => _selectedBeds = beds);
-                                      },
+                                      isPrivateRoom: _selectedRoom!.isPrivate,
+                                      roomIdentifier:
+                                          _selectedRoom!.roomIdentifier,
+                                      onChanged: (beds) =>
+                                          setState(() => _selectedBeds = beds),
                                     ),
                                   ],
                                 ],
                               ),
+                      ),
+                      const SizedBox(height: 20),
+                      _PaymentSummary(
+                        bedsCount: _selectedLobby != null
+                            ? 1
+                            : _selectedBeds.length,
+                        attendantsCount: _attendants
+                            .where(
+                              (a) => a.nameController.text.trim().isNotEmpty,
+                            )
+                            .length,
+                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
+                        roomIdentifier: _selectedRoom?.roomIdentifier,
+                        days: _plannedStayDays,
                       ),
                       const SizedBox(height: 20),
                       _buildAttendantDetails(),
@@ -1427,9 +1500,8 @@ class _PaymentSummary extends StatelessWidget {
   final int attendantsCount;
   final bool isPrivateRoom;
   final String? roomIdentifier;
+  final int days;
 
-  static const double _bedRatePerDay = 500.0; // ₹ per bed per day
-  static const double _attendantRatePerDay = 150.0; // ₹ per attendant per day
   static const int _defaultDays = 7; // default stay duration
 
   const _PaymentSummary({
@@ -1437,6 +1509,7 @@ class _PaymentSummary extends StatelessWidget {
     required this.attendantsCount,
     required this.isPrivateRoom,
     this.roomIdentifier,
+    this.days = _defaultDays,
   });
 
   String _fmt(double amount) {
@@ -1451,10 +1524,10 @@ class _PaymentSummary extends StatelessWidget {
     if (roomIdentifier == null) return const SizedBox.shrink();
 
     final bedTotal = isPrivateRoom
-        ? (700.0 * _defaultDays)
-        : (bedsCount * 600.0 * _defaultDays);
+        ? (700.0 * days)
+        : (bedsCount * (1 + attendantsCount) * 200.0 * days);
     final attendantTotal = isPrivateRoom
-        ? (attendantsCount > 1 ? attendantsCount * 200.0 * _defaultDays : 0.0)
+        ? ((attendantsCount - 1).clamp(0, attendantsCount) * 200.0 * days)
         : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
@@ -1507,7 +1580,7 @@ class _PaymentSummary extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    '$_defaultDays-day estimate',
+                    '$days-day estimate',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -1527,21 +1600,21 @@ class _PaymentSummary extends StatelessWidget {
                   icon: Icons.bed_outlined,
                   label: isPrivateRoom
                       ? 'Private Room'
-                      : 'Grouped Beds ($bedsCount)',
+                      : 'Grouped Beds ($bedsCount, ${1 + attendantsCount} occupants)',
                   count: isPrivateRoom ? 1 : bedsCount,
-                  rate: isPrivateRoom ? 700.0 : 600.0,
+                  rate: isPrivateRoom ? 700.0 : (1 + attendantsCount) * 200.0,
                   total: bedTotal,
-                  days: _defaultDays,
+                  days: days,
                 ),
-                if (isPrivateRoom) ...[
+                if (isPrivateRoom && attendantsCount > 1) ...[
                   const SizedBox(height: 8),
                   _SummaryRow(
                     icon: Icons.person_outline_rounded,
-                    label: 'Attendants',
-                    count: attendantsCount,
+                    label: 'Extra attendants',
+                    count: attendantsCount - 1,
                     rate: 200.0,
                     total: attendantTotal,
-                    days: _defaultDays,
+                    days: days,
                   ),
                 ],
               ],
