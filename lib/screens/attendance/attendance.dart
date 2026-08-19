@@ -37,10 +37,12 @@ class _AttendanceState extends State<Attendance>
   DateTime _selectedAttendanceDate = DateTime.now();
 
   late Stream<List<PatientModel>> _patientsStream;
+  List<PatientModel> _patientSource = const [];
   List<PatientModel>? _allPatients;
 
   StreamSubscription? _patientSub;
   StreamSubscription? _attendantSub;
+  StreamSubscription<List<PatientModel>>? _patientsDataSub;
 
   // Pagination
   static const int _pageSize = 15;
@@ -84,6 +86,18 @@ class _AttendanceState extends State<Attendance>
     });
 
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    _patientsDataSub = _patientsStream.listen((patients) {
+      if (!mounted) return;
+      setState(() {
+        _patientSource = patients;
+        _allPatients = _patientSource
+            .where(
+              (patient) =>
+                  _isPatientEligibleOnDate(patient, _selectedAttendanceDate),
+            )
+            .toList();
+      });
+    });
     // Daily is the opening view. Reports load only when their tabs open.
     _weeklyData = Future.value(<String, Map<String, String>>{});
     _monthlyData = Future.value(<String, Map<String, String>>{});
@@ -98,7 +112,10 @@ class _AttendanceState extends State<Attendance>
     ).format(_selectedAttendanceDate);
 
     _patientSub = ServiceLocator().rtdbService
-        .stream('attendance/daily/$selectedDate')
+        .stream(
+          'attendance/daily/$selectedDate',
+          pollInterval: const Duration(seconds: 10),
+        )
         .listen((data) {
           final newStatus = <String, bool>{};
           if (data != null && data is Map) {
@@ -116,7 +133,10 @@ class _AttendanceState extends State<Attendance>
         });
 
     _attendantSub = ServiceLocator().rtdbService
-        .stream('attendant_attendance/daily/$selectedDate')
+        .stream(
+          'attendant_attendance/daily/$selectedDate',
+          pollInterval: const Duration(seconds: 10),
+        )
         .listen((data) {
           final newStatus = <String, bool>{};
           if (data != null && data is Map) {
@@ -175,6 +195,14 @@ class _AttendanceState extends State<Attendance>
     );
     if (picked == null) return;
     setState(() => _selectedAttendanceDate = picked);
+    setState(() {
+      _allPatients = _patientSource
+          .where(
+            (patient) =>
+                _isPatientEligibleOnDate(patient, _selectedAttendanceDate),
+          )
+          .toList();
+    });
     _initRealtimeStreams();
   }
 
@@ -194,6 +222,7 @@ class _AttendanceState extends State<Attendance>
   void dispose() {
     _patientSub?.cancel();
     _attendantSub?.cancel();
+    _patientsDataSub?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     _fadeCtrl.dispose();
@@ -264,8 +293,14 @@ class _AttendanceState extends State<Attendance>
         : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
-    for (final date in dates) {
-      final data = await ServiceLocator().rtdbService.get('$pathPrefix/$date');
+    final dailyResults = await Future.wait(
+      dates.map(
+        (date) => ServiceLocator().rtdbService.get('$pathPrefix/$date'),
+      ),
+    );
+    for (var index = 0; index < dates.length; index++) {
+      final date = dates[index];
+      final data = dailyResults[index];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((_, v) {
@@ -304,8 +339,14 @@ class _AttendanceState extends State<Attendance>
         : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
-    for (final date in dates) {
-      final data = await ServiceLocator().rtdbService.get('$pathPrefix/$date');
+    final dailyResults = await Future.wait(
+      dates.map(
+        (date) => ServiceLocator().rtdbService.get('$pathPrefix/$date'),
+      ),
+    );
+    for (var index = 0; index < dates.length; index++) {
+      final date = dates[index];
+      final data = dailyResults[index];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((_, v) {
@@ -634,94 +675,81 @@ class _AttendanceState extends State<Attendance>
   }
 
   Widget _buildSearchAndSummary() {
-    return StreamBuilder<List<PatientModel>>(
-      stream: _patientsStream,
-      builder: (context, snapshot) {
-        int total = 0;
-        int present = 0;
-        int absent = 0;
+    int total = 0;
+    int present = 0;
+    int absent = 0;
+    final patients = _allPatients ?? const <PatientModel>[];
 
-        if (snapshot.hasData) {
-          final patients = snapshot.data!
-              .where(
-                (p) => _isPatientEligibleOnDate(p, _selectedAttendanceDate),
-              )
-              .toList();
-          _allPatients = patients;
-
-          if (_attendanceType == 'patient') {
-            total = patients.length;
-            for (var p in patients) {
-              if (attendanceStatus[p.id] != false) present++;
-              if (attendanceStatus[p.id] == false) absent++;
-            }
-          } else {
-            for (var p in patients) {
-              if (p.attendants != null) {
-                total += p.attendants!.length;
-                for (var a in p.attendants!) {
-                  final status = attendantAttendanceStatus['${p.id}_${a.name}'];
-                  if (status == true) present++;
-                  if (status == false) absent++;
-                }
-              }
-            }
-          }
+    if (_attendanceType == 'patient') {
+      total = patients.length;
+      for (final patient in patients) {
+        if (attendanceStatus[patient.id] != false) present++;
+        if (attendanceStatus[patient.id] == false) absent++;
+      }
+    } else {
+      for (final patient in patients) {
+        for (final attendant
+            in patient.attendants ?? const <AttendantModel>[]) {
+          total++;
+          final status =
+              attendantAttendanceStatus['${patient.id}_${attendant.name}'];
+          if (status == true) present++;
+          if (status == false) absent++;
         }
+      }
+    }
 
-        return Column(
+    return Column(
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
           children: [
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _SummaryCard(
-                  title: 'Total',
-                  count: total.toString(),
-                  color: const Color(0xFF2E4A1F),
-                ),
-                _SummaryCard(
-                  title: 'Present',
-                  count: present.toString(),
-                  color: const Color(0xFF3B6D11),
-                ),
-                _SummaryCard(
-                  title: 'Absent',
-                  count: absent.toString(),
-                  color: const Color(0xFFD32F2F),
-                ),
-              ],
+            _SummaryCard(
+              title: 'Total',
+              count: total.toString(),
+              color: const Color(0xFF2E4A1F),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search by name...',
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF3B6D11)),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          FocusScope.of(context).unfocus();
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFFF4F9F0),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 0,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
+            _SummaryCard(
+              title: 'Present',
+              count: present.toString(),
+              color: const Color(0xFF3B6D11),
+            ),
+            _SummaryCard(
+              title: 'Absent',
+              count: absent.toString(),
+              color: const Color(0xFFD32F2F),
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Search by name...',
+            prefixIcon: const Icon(Icons.search, color: Color(0xFF3B6D11)),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                      FocusScope.of(context).unfocus();
+                    },
+                  )
+                : null,
+            filled: true,
+            fillColor: const Color(0xFFF4F9F0),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 0,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

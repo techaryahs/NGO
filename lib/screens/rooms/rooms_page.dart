@@ -5,6 +5,7 @@ import 'package:ngo/screens/rooms/widgets/pricing_settings_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/census_summary_widget.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/models/room_model.dart';
+import 'package:ngo/models/patient_model.dart';
 
 class RoomsPage extends StatefulWidget {
   const RoomsPage({super.key});
@@ -464,6 +465,14 @@ class _RoomsPageState extends State<RoomsPage> {
                 ),
               ),
 
+              SliverToBoxAdapter(
+                child: _LobbyAssignments(
+                  patientsStream: ServiceLocator().patientService
+                      .getPatientsStream(),
+                  selectedFloor: selectedFloor,
+                ),
+              ),
+
               // MAIN AREA: GRID AND SIDEBAR
               SliverToBoxAdapter(
                 child: Row(
@@ -716,6 +725,80 @@ class _RoomsPageState extends State<RoomsPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         backgroundColor: Colors.red.shade50.withOpacity(0.4),
       ),
+    );
+  }
+}
+
+class _LobbyAssignments extends StatelessWidget {
+  final Stream<List<PatientModel>> patientsStream;
+  final int selectedFloor;
+
+  const _LobbyAssignments({
+    required this.patientsStream,
+    required this.selectedFloor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<PatientModel>>(
+      stream: patientsStream,
+      builder: (context, snapshot) {
+        final patients =
+            (snapshot.data ?? const <PatientModel>[])
+                .where(
+                  (patient) =>
+                      patient.lobby != null &&
+                      patient.lobby!.trim().isNotEmpty &&
+                      (patient.status == 'active' ||
+                          patient.status == 'Paid') &&
+                      (selectedFloor == 0 || patient.floor == selectedFloor),
+                )
+                .toList()
+              ..sort((a, b) => a.lobby!.compareTo(b.lobby!));
+
+        if (patients.isEmpty) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC0DD97)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Lobby placements',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: patients
+                    .map(
+                      (patient) => Chip(
+                        avatar: const Icon(
+                          Icons.weekend_outlined,
+                          size: 18,
+                          color: Color(0xFF3B6D11),
+                        ),
+                        label: Text('${patient.lobby} • ${patient.fullName}'),
+                        backgroundColor: const Color(0xFFF4F9F0),
+                        side: const BorderSide(color: Color(0xFFC0DD97)),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
