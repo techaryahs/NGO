@@ -81,8 +81,8 @@ class PaymentService {
   /// Stream of all payments for the global dashboard.
   /// Retrieves from the dedicated root for maximum performance.
   Stream<List<Map<String, dynamic>>> getAllPaymentsStream() {
-    return _rtdb.stream(_path).map((snapshot) {
-      if (snapshot == null) return [];
+    return _rtdb.stream(_path).map<List<Map<String, dynamic>>>((snapshot) {
+      if (snapshot == null) return <Map<String, dynamic>>[];
       final List<Map<String, dynamic>> payments = [];
 
       if (snapshot is Map) {
