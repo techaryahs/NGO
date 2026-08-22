@@ -88,16 +88,25 @@ class PaymentService {
       if (snapshot is Map) {
         snapshot.forEach((key, value) {
           if (value is Map) {
-            payments.add({'id': key, ...Map<String, dynamic>.from(value)});
+            final data = Map<String, dynamic>.from(value);
+            payments.add({
+              ...data,
+              '_localId': data['id']?.toString(),
+              // The Firebase collection key is the authoritative ID used for
+              // editing. Older rows also contain a local `id` field.
+              'id': key,
+            });
           }
         });
       } else if (snapshot is List) {
         for (int i = 0; i < snapshot.length; i++) {
           final value = snapshot[i];
           if (value is Map) {
+            final data = Map<String, dynamic>.from(value);
             payments.add({
+              ...data,
+              '_localId': data['id']?.toString(),
               'id': i.toString(),
-              ...Map<String, dynamic>.from(value),
             });
           }
         }
@@ -106,6 +115,36 @@ class PaymentService {
       // Sort by date descending (newest first)
       payments.sort((a, b) => (b['date'] ?? 0).compareTo(a['date'] ?? 0));
       return payments;
+    }).asBroadcastStream();
+  }
+
+  Future<void> updatePaymentDetails(
+    String patientId,
+    String paymentId,
+    String transactionNumber,
+    DateTime paymentDate,
+    {String? embeddedPaymentId}
+  ) async {
+    final value = transactionNumber.trim();
+    final updates = <String, dynamic>{
+      'transactionId': value.isEmpty ? null : value,
+      'date': paymentDate.millisecondsSinceEpoch,
+    };
+    await _rtdb.patch('$_path/$paymentId', updates);
+    await _rtdb.patch('paymentHistory/$paymentId', updates);
+    final patient = await ServiceLocator().patientService.getPatient(patientId);
+    if (patient == null) return;
+    final payments = (patient.payments ?? []).map((payment) {
+      final data = payment.toMap();
+      // Update only the selected embedded transaction. Updating every
+      // MANUAL_ONLINE placeholder caused one number to appear on all rows.
+      if (payment.id == paymentId || payment.id == embeddedPaymentId) {
+        data.addAll(updates);
+      }
+      return data;
+    }).toList();
+    await ServiceLocator().patientService.updatePatient(patientId, {
+      'payments': payments,
     });
   }
 
@@ -114,27 +153,12 @@ class PaymentService {
     String paymentId,
     String transactionNumber,
   ) async {
-    final value = transactionNumber.trim();
-    if (value.isEmpty) {
-      throw ArgumentError('Transaction number cannot be empty.');
-    }
-    await _rtdb.patch('$_path/$paymentId', {'transactionId': value});
-    final patient = await ServiceLocator().patientService.getPatient(patientId);
-    if (patient == null) return;
-    final payments = (patient.payments ?? []).map((payment) {
-      final data = payment.toMap();
-      // Old patient payment records did not store the generated global ID.
-      // Keep every matching placeholder in sync as well as the exact record.
-      if (payment.id == paymentId ||
-          payment.transactionId?.toUpperCase() == 'MANUAL_ONLINE') {
-        data['transactionId'] = value;
-      }
-      return data;
-    }).toList();
-    await ServiceLocator().patientService.updatePatient(patientId, {
-      'payments': payments,
-      'utiNumber': value,
-    });
+    final payment = await _rtdb.get('$_path/$paymentId');
+    final timestamp = payment is Map ? payment['date'] : null;
+    final date = timestamp is int
+        ? DateTime.fromMillisecondsSinceEpoch(timestamp)
+        : DateTime.now();
+    await updatePaymentDetails(patientId, paymentId, transactionNumber, date);
   }
 
   /// Get total summary stats from the global root
@@ -273,9 +297,12 @@ class PaymentService {
             (phase2Days * occupantCount * p2Rate);
       }
 
-      // The admission estimate is not an extra charge. Once attendance exceeds
-      // it, only the difference is stored as an additional charge.
-      final double totalBill = grossCharges;
+      // The admission estimate is the minimum committed stay charge. Do not
+      // replace it with a smaller elapsed-day amount immediately after a lobby
+      // or room admission; accumulated charges take over once they exceed it.
+      final double totalBill = grossCharges < patient.advanceBilledAmount
+          ? patient.advanceBilledAmount
+          : grossCharges;
       final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
         0.0,
         double.infinity,
@@ -508,7 +535,9 @@ class PaymentService {
           (phase2Days * occupantCount * p2Rate);
     }
 
-    final double totalBill = grossCharges;
+    final double totalBill = grossCharges < patient.advanceBilledAmount
+        ? patient.advanceBilledAmount
+        : grossCharges;
     final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
       0.0,
       double.infinity,

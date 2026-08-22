@@ -23,6 +23,7 @@ class PatientsScreen extends StatefulWidget {
 class _PatientsScreenState extends State<PatientsScreen> {
   final _searchController = TextEditingController();
   late final Stream<List<PatientModel>> _patientsStream;
+  late final Stream<List<RoomModel>> _roomsStream;
   static const _pageSize = 25;
   int _visiblePatients = _pageSize;
 
@@ -35,6 +36,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
     // Preserve one subscription while filtering so searches never briefly
     // render an empty list while a new REST stream starts.
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    _roomsStream = ServiceLocator().roomService.getRoomsStream();
   }
 
   @override
@@ -854,7 +856,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
               final totalPeopleCount = patientCount + attendeeCount;
 
               return StreamBuilder<List<RoomModel>>(
-                stream: ServiceLocator().roomService.getRoomsStream(),
+                stream: _roomsStream,
                 builder: (context, roomsSnapshot) {
                   final rooms = roomsSnapshot.data ?? [];
                   final totalBeds = rooms.fold<int>(
@@ -1040,47 +1042,81 @@ class _PatientsScreenState extends State<PatientsScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            _StatCard(
-                              label: "Total People",
-                              value: totalPeopleCount.toString(),
-                              icon: Icons.groups_2_outlined,
-                              color: const Color(0xFF3B6D11),
-                            ),
-                            _StatCard(
-                              label: "Patients",
-                              value: patientCount.toString(),
-                              icon: Icons.person_rounded,
-                              color: const Color(0xFF639922),
-                            ),
-                            _StatCard(
-                              label: "Attendees",
-                              value: attendeeCount.toString(),
-                              icon: Icons.people_outline_rounded,
-                              color: const Color(0xFF0F6E56),
-                            ),
-                            _StatCard(
-                              label: "Beds",
-                              value: totalBeds.toString(),
-                              icon: Icons.bed_outlined,
-                              color: const Color(0xFF3B6D11),
-                            ),
-                            _StatCard(
-                              label: "Occupied",
-                              value: occupiedBeds.toString(),
-                              icon: Icons.bed_rounded,
-                              color: const Color(0xFFD66A1F),
-                            ),
-                            _StatCard(
-                              label: "Available",
-                              value: availableBeds.toString(),
-                              icon: Icons.event_available_outlined,
-                              color: const Color(0xFF757575),
-                            ),
-                          ],
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final cards = <Widget>[
+                              _StatCard(
+                                label: "Total People",
+                                value: totalPeopleCount.toString(),
+                                icon: Icons.groups_2_outlined,
+                                color: const Color(0xFF3B6D11),
+                              ),
+                              _StatCard(
+                                label: "Patients",
+                                value: patientCount.toString(),
+                                icon: Icons.person_rounded,
+                                color: const Color(0xFF639922),
+                              ),
+                              _StatCard(
+                                label: "Attendees",
+                                value: attendeeCount.toString(),
+                                icon: Icons.people_outline_rounded,
+                                color: const Color(0xFF0F6E56),
+                              ),
+                              _StatCard(
+                                label: "Beds",
+                                value: totalBeds.toString(),
+                                icon: Icons.bed_outlined,
+                                color: const Color(0xFF3B6D11),
+                              ),
+                              _StatCard(
+                                label: "Occupied",
+                                value: occupiedBeds.toString(),
+                                icon: Icons.bed_rounded,
+                                color: const Color(0xFFD66A1F),
+                              ),
+                              _StatCard(
+                                label: "Available",
+                                value: availableBeds.toString(),
+                                icon: Icons.event_available_outlined,
+                                color: const Color(0xFF757575),
+                              ),
+                            ];
+
+                            const spacing = 10.0;
+                            const minimumCardWidth = 150.0;
+                            final oneLineWidth =
+                                (minimumCardWidth * cards.length) +
+                                (spacing * (cards.length - 1));
+
+                            if (constraints.maxWidth >= oneLineWidth) {
+                              return Row(
+                                children: [
+                                  for (
+                                    var index = 0;
+                                    index < cards.length;
+                                    index++
+                                  ) ...[
+                                    if (index > 0)
+                                      const SizedBox(width: spacing),
+                                    Expanded(child: cards[index]),
+                                  ],
+                                ],
+                              );
+                            }
+
+                            return Wrap(
+                              spacing: spacing,
+                              runSpacing: spacing,
+                              children: [
+                                for (final card in cards)
+                                  SizedBox(
+                                    width: minimumCardWidth,
+                                    child: card,
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -1305,16 +1341,18 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       onRejoin: () async {
                         if (patient.dischargeDate == null) return;
 
-                        final remainingDays = patient.dischargeDate!
-                            .add(const Duration(days: 15))
-                            .difference(DateTime.now())
-                            .inDays;
+                        final rejoinDate = patient.dischargeDate!.add(
+                          const Duration(days: 15),
+                        );
+                        final remaining = rejoinDate.difference(DateTime.now());
+                        final remainingDays = (remaining.inMinutes / 1440).ceil();
 
-                        if (remainingDays > 0) {
+                        if (!remaining.isNegative) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
-                                '$remainingDays days left before patient can rejoin',
+                                'This patient can rejoin after the 15-day discharge waiting period '
+                                '(${remainingDays.clamp(1, 15)} day(s) remaining).',
                               ),
                               backgroundColor: const Color(0xFFD32F2F),
                             ),
@@ -1388,52 +1426,49 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 160, maxWidth: 180),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color, size: 20),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F9F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 23,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 23,
+                    fontWeight: FontWeight.w700,
+                    color: color,
                   ),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF639922),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF639922),
                   ),
-                ],
-              ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

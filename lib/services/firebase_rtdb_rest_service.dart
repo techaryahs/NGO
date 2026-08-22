@@ -11,21 +11,26 @@ import 'package:http/http.dart' as http;
 class FirebaseRTDBRestService {
   final String projectId;
   final String databaseUrl;
-  
+
   // Callback to get auth token
   Future<String?> Function()? getAuthToken;
-  
+
   // Polling interval for simulating realtime listeners (in seconds)
-  static const int _pollingInterval = 2;
-  
+  static const int _pollingInterval = 10;
+
   // Active stream controllers for cleanup
   final Map<String, StreamController> _activeControllers = {};
+
+  // Keep the latest successful value per path so moving between screens does
+  // not flash an empty state while the same Firebase data is downloaded again.
+  final Map<String, dynamic> _latestValues = {};
 
   FirebaseRTDBRestService({
     required this.projectId,
     String? databaseUrl,
     this.getAuthToken,
-  }) : databaseUrl = databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com';
+  }) : databaseUrl =
+           databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com';
 
   /// Get the current user's ID token for authenticated requests
   Future<String?> _getIdToken() async {
@@ -54,19 +59,28 @@ class FirebaseRTDBRestService {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
-      
-      final response = await http.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Request timeout - check your internet connection');
-        },
-      );
-      
+
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw Exception(
+                'Request timeout - check your internet connection',
+              );
+            },
+          );
+
       if (response.statusCode == 200) {
-        if (response.body == 'null') return null;
-        return json.decode(response.body);
+        final value = response.body == 'null'
+            ? null
+            : json.decode(response.body);
+        _latestValues[path] = value;
+        return value;
       } else {
-        throw Exception('GET failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'GET failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to GET $path: $e');
@@ -82,15 +96,17 @@ class FirebaseRTDBRestService {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
-      
+
       final response = await http.put(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(data),
       );
-      
+
       if (response.statusCode != 200) {
-        throw Exception('PUT failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'PUT failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to PUT $path: $e');
@@ -106,15 +122,17 @@ class FirebaseRTDBRestService {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
-      
+
       final response = await http.patch(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(updates),
       );
-      
+
       if (response.statusCode != 200) {
-        throw Exception('PATCH failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'PATCH failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to PATCH $path: $e');
@@ -131,18 +149,20 @@ class FirebaseRTDBRestService {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
-      
+
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(data),
       );
-      
+
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
         return result['name'] as String; // Firebase returns {"name": "pushKey"}
       } else {
-        throw Exception('POST failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'POST failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to POST $path: $e');
@@ -158,11 +178,13 @@ class FirebaseRTDBRestService {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
-      
+
       final response = await http.delete(Uri.parse(url));
-      
+
       if (response.statusCode != 200) {
-        throw Exception('DELETE failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'DELETE failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to DELETE $path: $e');
@@ -174,50 +196,53 @@ class FirebaseRTDBRestService {
   // ===========================================================================
 
   /// Create a stream that polls the database for changes
-  /// 
+  ///
   /// This simulates Firebase's onValue listener by polling every N seconds.
   /// For production, consider using Server-Sent Events (SSE) for true realtime.
   Stream<dynamic> stream(String path, {Duration? pollInterval}) {
     final interval = pollInterval ?? Duration(seconds: _pollingInterval);
     final controllerId = '${path}_${DateTime.now().millisecondsSinceEpoch}';
-    
+
     late StreamController<dynamic> controller;
     Timer? timer;
     dynamic lastValue;
+    var isFetching = false;
+
+    Future<void> fetchLatest() async {
+      // Slow connections must not create a queue of overlapping full-database
+      // downloads. The next timer tick will retry after this request finishes.
+      if (isFetching || controller.isClosed) return;
+      isFetching = true;
+      try {
+        final value = await get(path).timeout(const Duration(seconds: 10));
+        if (!controller.isClosed &&
+            json.encode(value) != json.encode(lastValue)) {
+          lastValue = value;
+          controller.add(value);
+        }
+      } catch (_) {
+        // Keep showing the last successful value. A temporary Wi-Fi or
+        // Firebase failure must never replace real data with an empty screen.
+      } finally {
+        isFetching = false;
+      }
+    }
 
     controller = StreamController<dynamic>(
       onListen: () {
-        // Initial fetch with timeout
-        get(path).timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => null,
-        ).then((value) {
-          if (!controller.isClosed) {
-            lastValue = value;
-            controller.add(value);
-          }
-        }).catchError((error) {
-          if (!controller.isClosed) {
-            // Emit null to show empty state instead of error
-            controller.add(null);
-          }
-        });
+        // Repaint immediately with the most recently fetched value. The
+        // network request below still runs so the UI remains up to date.
+        if (_latestValues.containsKey(path)) {
+          lastValue = _latestValues[path];
+          controller.add(lastValue);
+        }
+
+        // Refresh in the background without clearing the cached value.
+        fetchLatest();
 
         // Start polling
         timer = Timer.periodic(interval, (t) {
-          get(path).then((value) {
-            if (!controller.isClosed) {
-              // Only emit if value changed
-              if (json.encode(value) != json.encode(lastValue)) {
-                lastValue = value;
-                controller.add(value);
-              }
-            }
-          }).catchError((error) {
-            if (!controller.isClosed) {
-              // Don't emit error, just skip this poll cycle
-            }
-          });
+          fetchLatest();
         });
       },
       onCancel: () {
@@ -235,7 +260,7 @@ class FirebaseRTDBRestService {
   // ===========================================================================
 
   /// Query with orderBy and equalTo filters
-  /// 
+  ///
   /// Note: REST API queries are limited compared to SDK.
   /// For complex queries, fetch all data and filter client-side.
   Future<dynamic> query(
@@ -251,7 +276,7 @@ class FirebaseRTDBRestService {
       final token = await _getIdToken();
       final cleanPath = path.startsWith('/') ? path.substring(1) : path;
       var url = '$databaseUrl/$cleanPath.json';
-      
+
       final params = <String, String>{};
       if (token != null) params['auth'] = token;
       if (orderBy != null) params['orderBy'] = '"$orderBy"';
@@ -266,18 +291,20 @@ class FirebaseRTDBRestService {
       }
       if (limitToFirst != null) params['limitToFirst'] = '$limitToFirst';
       if (limitToLast != null) params['limitToLast'] = '$limitToLast';
-      
+
       if (params.isNotEmpty) {
         url += '?' + params.entries.map((e) => '${e.key}=${e.value}').join('&');
       }
-      
+
       final response = await http.get(Uri.parse(url));
-      
+
       if (response.statusCode == 200) {
         if (response.body == 'null') return null;
         return json.decode(response.body);
       } else {
-        throw Exception('Query failed: ${response.statusCode} - ${response.body}');
+        throw Exception(
+          'Query failed: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
       throw Exception('Failed to query $path: $e');
@@ -292,8 +319,9 @@ class FirebaseRTDBRestService {
     Duration? pollInterval,
   }) {
     final interval = pollInterval ?? Duration(seconds: _pollingInterval);
-    final controllerId = '${path}_query_${DateTime.now().millisecondsSinceEpoch}';
-    
+    final controllerId =
+        '${path}_query_${DateTime.now().millisecondsSinceEpoch}';
+
     late StreamController<dynamic> controller;
     Timer? timer;
     dynamic lastValue;
@@ -301,31 +329,35 @@ class FirebaseRTDBRestService {
     controller = StreamController<dynamic>(
       onListen: () {
         // Initial fetch
-        query(path, orderBy: orderBy, equalTo: equalTo).then((value) {
-          if (!controller.isClosed) {
-            lastValue = value;
-            controller.add(value);
-          }
-        }).catchError((error) {
-          if (!controller.isClosed) {
-            controller.addError(error);
-          }
-        });
-
-        // Start polling
-        timer = Timer.periodic(interval, (t) {
-          query(path, orderBy: orderBy, equalTo: equalTo).then((value) {
-            if (!controller.isClosed) {
-              if (json.encode(value) != json.encode(lastValue)) {
+        query(path, orderBy: orderBy, equalTo: equalTo)
+            .then((value) {
+              if (!controller.isClosed) {
                 lastValue = value;
                 controller.add(value);
               }
-            }
-          }).catchError((error) {
-            if (!controller.isClosed) {
-              controller.addError(error);
-            }
-          });
+            })
+            .catchError((error) {
+              if (!controller.isClosed) {
+                controller.addError(error);
+              }
+            });
+
+        // Start polling
+        timer = Timer.periodic(interval, (t) {
+          query(path, orderBy: orderBy, equalTo: equalTo)
+              .then((value) {
+                if (!controller.isClosed) {
+                  if (json.encode(value) != json.encode(lastValue)) {
+                    lastValue = value;
+                    controller.add(value);
+                  }
+                }
+              })
+              .catchError((error) {
+                if (!controller.isClosed) {
+                  controller.addError(error);
+                }
+              });
         });
       },
       onCancel: () {

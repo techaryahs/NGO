@@ -1471,50 +1471,139 @@ class _PaymentHistoryTab extends StatefulWidget {
 }
 
 class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
-  Future<void> _editTransactionNumber(
+  final Map<String, Map<String, dynamic>> _paymentOverrides = {};
+  late final Stream<List<Map<String, dynamic>>> _paymentsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _paymentsStream = ServiceLocator().paymentService.getAllPaymentsStream();
+  }
+
+  Future<void> _editPaymentDetails(
     Map<String, dynamic> payment,
     String currentNumber,
   ) async {
     final controller = TextEditingController(text: currentNumber);
-    final value = await showDialog<String>(
+    final rawDate = payment['date'];
+    var selectedDate = rawDate is int
+        ? DateTime.fromMillisecondsSinceEpoch(rawDate)
+        : DateTime.now();
+    final shouldSave = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit transaction number'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Transaction / UTI number',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3B6D11),
-              foregroundColor: Colors.white,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit payment transaction'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Transaction / UTI number',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.calendar_today_outlined),
+                        label: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: dialogContext,
+                            initialDate: selectedDate,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime.now().add(const Duration(days: 365)),
+                          );
+                          if (picked == null) return;
+                          setDialogState(() {
+                            selectedDate = DateTime(
+                              picked.year,
+                              picked.month,
+                              picked.day,
+                              selectedDate.hour,
+                              selectedDate.minute,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.access_time_outlined),
+                        label: Text(DateFormat('hh:mm a').format(selectedDate)),
+                        onPressed: () async {
+                          final picked = await showTimePicker(
+                            context: dialogContext,
+                            initialTime: TimeOfDay.fromDateTime(selectedDate),
+                          );
+                          if (picked == null) return;
+                          setDialogState(() {
+                            selectedDate = DateTime(
+                              selectedDate.year,
+                              selectedDate.month,
+                              selectedDate.day,
+                              picked.hour,
+                              picked.minute,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            child: const Text('Save'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3B6D11),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
       ),
     );
-    controller.dispose();
     final paymentId = payment['id']?.toString();
-    if (value == null || paymentId == null) return;
+    if (shouldSave != true || paymentId == null) {
+      controller.dispose();
+      return;
+    }
+    final transactionNumber = controller.text;
+    controller.dispose();
     try {
-      await ServiceLocator().paymentService.updateTransactionNumber(
+      await ServiceLocator().paymentService.updatePaymentDetails(
         widget.patient.id,
         paymentId,
-        value,
+        transactionNumber,
+        selectedDate,
+        embeddedPaymentId: payment['_localId']?.toString(),
       );
       if (mounted) {
+        setState(() {
+          _paymentOverrides[paymentId] = {
+            'transactionId': transactionNumber.trim().isEmpty
+                ? null
+                : transactionNumber.trim(),
+            'date': selectedDate.millisecondsSinceEpoch,
+          };
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction number updated.')),
+          const SnackBar(content: Text('Payment transaction updated.')),
         );
       }
     } catch (error) {
@@ -1531,11 +1620,24 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: ServiceLocator().paymentService.getAllPaymentsStream(),
+      stream: _paymentsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Color(0xFF3B6D11)),
+                SizedBox(height: 14),
+                Text(
+                  'Loading payment history...',
+                  style: TextStyle(
+                    color: Color(0xFF639922),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           );
         }
 
@@ -1551,10 +1653,18 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
             .map((payment) => payment['id']?.toString())
             .whereType<String>()
             .toSet();
+        final globalLocalPaymentIds = globalPatientPayments
+            .map((payment) => payment['_localId']?.toString())
+            .whereType<String>()
+            .toSet();
         final patientPayments = [
           ...globalPatientPayments,
           ...(widget.patient.payments ?? [])
-              .where((payment) => !globalPaymentIds.contains(payment.id))
+              .where(
+                (payment) =>
+                    !globalPaymentIds.contains(payment.id) &&
+                    !globalLocalPaymentIds.contains(payment.id),
+              )
               .map((payment) => payment.toMap()),
         ];
 
@@ -1662,7 +1772,13 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                 itemCount: patientPayments.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
-                  final payment = patientPayments[index];
+                  final storedPayment = patientPayments[index];
+                  final paymentId = storedPayment['id']?.toString();
+                  final payment = <String, dynamic>{
+                    ...storedPayment,
+                    if (paymentId != null)
+                      ...?_paymentOverrides[paymentId],
+                  };
                   final date = DateTime.fromMillisecondsSinceEpoch(
                     payment['date'] ?? 0,
                   );
@@ -1675,7 +1791,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                           storedTransaction.isNotEmpty &&
                           storedTransaction.toUpperCase() != 'MANUAL_ONLINE'
                       ? storedTransaction
-                      : widget.patient.utiNumber ?? storedTransaction;
+                      : null;
                   final amount = (payment['amount'] ?? 0).toDouble();
                   final isExcelImport = (payment['notes']?.toString() ?? '')
                       .toLowerCase()
@@ -1787,8 +1903,8 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                             Icons.edit_outlined,
                             color: Color(0xFF3B6D11),
                           ),
-                          tooltip: 'Edit transaction number',
-                          onPressed: () => _editTransactionNumber(
+                          tooltip: 'Edit transaction number, date and time',
+                          onPressed: () => _editPaymentDetails(
                             payment,
                             transactionNumber ?? '',
                           ),

@@ -18,6 +18,9 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   late final Stream<List<Map<String, dynamic>>> _paymentsStream;
   final _searchController = TextEditingController();
   String _searchQuery = "";
+  static const int _pageSize = 20;
+  int _visibleBilling = _pageSize;
+  int _visibleLedger = _pageSize;
 
   @override
   void initState() {
@@ -41,6 +44,10 @@ class _PaymentsScreenState extends State<PaymentsScreen>
 
   void _handleTabChanged() {
     if (_tabController.indexIsChanging) {
+      setState(() {
+        _visibleBilling = _pageSize;
+        _visibleLedger = _pageSize;
+      });
       _clearSearch();
     }
   }
@@ -48,7 +55,11 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   void _clearSearch() {
     if (_searchQuery.isEmpty && _searchController.text.isEmpty) return;
     _searchController.clear();
-    setState(() => _searchQuery = "");
+    setState(() {
+      _searchQuery = "";
+      _visibleBilling = _pageSize;
+      _visibleLedger = _pageSize;
+    });
   }
 
   void _showQRDialog(BuildContext context) {
@@ -195,7 +206,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
       stream: _patientsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const _PaymentsLoader(message: 'Loading patient billing...');
         }
 
         final allPatients = snapshot.data ?? [];
@@ -217,6 +228,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
           ].map((value) => value.toLowerCase());
           return fields.any((value) => value.contains(query));
         }).toList();
+        final visiblePatients = filtered.take(_visibleBilling).toList();
+        final hasMorePatients = visiblePatients.length < filtered.length;
 
         final totalDue = activePatients.fold<double>(
           0.0,
@@ -261,10 +274,21 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                         ),
                       )
                     : ListView.separated(
-                        itemCount: filtered.length,
+                        itemCount:
+                            visiblePatients.length + (hasMorePatients ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          return _PatientBillingTile(patient: filtered[index]);
+                          if (index == visiblePatients.length) {
+                            return _LoadMorePaymentsButton(
+                              remaining: filtered.length - visiblePatients.length,
+                              onPressed: () => setState(
+                                () => _visibleBilling += _pageSize,
+                              ),
+                            );
+                          }
+                          return _PatientBillingTile(
+                            patient: visiblePatients[index],
+                          );
                         },
                       ),
               ),
@@ -282,7 +306,9 @@ class _PaymentsScreenState extends State<PaymentsScreen>
       stream: _paymentsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const _PaymentsLoader(
+            message: 'Loading transaction ledger...',
+          );
         }
 
         final payments = snapshot.data ?? [];
@@ -308,6 +334,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
           ].map((value) => value?.toString().toLowerCase() ?? '');
           return fields.any((value) => value.contains(query));
         }).toList();
+        final visiblePayments = filtered.take(_visibleLedger).toList();
+        final hasMorePayments = visiblePayments.length < filtered.length;
 
         final total = payments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
         final cash = payments
@@ -372,10 +400,20 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                         ),
                       )
                     : ListView.separated(
-                        itemCount: filtered.length,
+                        itemCount:
+                            visiblePayments.length + (hasMorePayments ? 1 : 0),
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          return _PaymentTile(payment: filtered[index]);
+                          if (index == visiblePayments.length) {
+                            return _LoadMorePaymentsButton(
+                              remaining:
+                                  filtered.length - visiblePayments.length,
+                              onPressed: () => setState(
+                                () => _visibleLedger += _pageSize,
+                              ),
+                            );
+                          }
+                          return _PaymentTile(payment: visiblePayments[index]);
                         },
                       ),
               ),
@@ -392,7 +430,11 @@ class _PaymentsScreenState extends State<PaymentsScreen>
       child: TextField(
         controller: _searchController,
         onChanged: (value) {
-          setState(() => _searchQuery = value);
+          setState(() {
+            _searchQuery = value;
+            _visibleBilling = _pageSize;
+            _visibleLedger = _pageSize;
+          });
         },
         decoration: InputDecoration(
           hintText: hint,
@@ -430,6 +472,71 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             vertical: 14,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LoadMorePaymentsButton extends StatelessWidget {
+  final int remaining;
+  final VoidCallback onPressed;
+
+  const _LoadMorePaymentsButton({
+    required this.remaining,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final nextCount = remaining.clamp(0, _PaymentsScreenState._pageSize);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.expand_more_rounded),
+          label: Text(
+            'Load $nextCount more ($remaining remaining)',
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF3B6D11),
+            side: const BorderSide(color: Color(0xFF97C459)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentsLoader extends StatelessWidget {
+  final String message;
+
+  const _PaymentsLoader({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 38,
+            height: 38,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: Color(0xFF3B6D11),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            message,
+            style: const TextStyle(
+              color: Color(0xFF639922),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -490,13 +597,21 @@ class _SummaryCard extends StatelessWidget {
 
 // ── Patient Billing Tile ────────────────────────────────────────────────────
 
-class _PatientBillingTile extends StatelessWidget {
+class _PatientBillingTile extends StatefulWidget {
   final PatientModel patient;
 
   const _PatientBillingTile({required this.patient});
 
   @override
+  State<_PatientBillingTile> createState() => _PatientBillingTileState();
+}
+
+class _PatientBillingTileState extends State<_PatientBillingTile> {
+  bool _isProcessing = false;
+
+  @override
   Widget build(BuildContext context) {
+    final patient = widget.patient;
     final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final configuredBill =
         patient.advanceBilledAmount + patient.attendanceCharges;
@@ -637,7 +752,9 @@ class _PatientBillingTile extends StatelessWidget {
               const SizedBox(height: 8),
               if ((patient.currentDueAmount ?? 0.0) > 0)
                 ElevatedButton(
-                  onPressed: () async {
+                  onPressed: _isProcessing
+                      ? null
+                      : () async {
                     final result = await showPatientPaymentDialog(
                       context: context,
                       patientName: patient.fullName,
@@ -653,12 +770,15 @@ class _PatientBillingTile extends StatelessWidget {
                     );
 
                     if (result != null && result.payment != null) {
-                      await ServiceLocator().patientService.recordPayment(
-                        patient.id,
-                        result.payment!,
-                      );
-                      await ServiceLocator().patientService
-                          .updatePatient(patient.id, {
+                      setState(() => _isProcessing = true);
+                      try {
+                        await ServiceLocator().patientService.recordPayment(
+                          patient.id,
+                          result.payment!,
+                        );
+                        await ServiceLocator().patientService.updatePatient(
+                          patient.id,
+                          {
                             'paymentPending':
                                 result.payment!.paymentStatus == "Pending",
                             'paymentStatus': result.payment!.paymentStatus,
@@ -667,15 +787,19 @@ class _PatientBillingTile extends StatelessWidget {
                                 : 'active',
                             'totalPaidAmount': result.payment!.paidAmount,
                             'currentDueAmount': result.payment!.pendingAmount,
-                          });
-
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Payment successfully recorded!'),
-                            backgroundColor: Color(0xFF3B6D11),
-                          ),
+                          },
                         );
+
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Payment successfully recorded!'),
+                              backgroundColor: Color(0xFF3B6D11),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => _isProcessing = false);
                       }
                     }
                   },
@@ -692,7 +816,16 @@ class _PatientBillingTile extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
-                  child: const Text("Pay Now", style: TextStyle(fontSize: 12)),
+                  child: _isProcessing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text("Pay Now", style: TextStyle(fontSize: 12)),
                 )
               else
                 const Padding(

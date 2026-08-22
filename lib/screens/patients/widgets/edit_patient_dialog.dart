@@ -502,11 +502,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_attendants.isEmpty ||
-        _attendants.first.nameController.text.trim().isEmpty) {
-      _showError('Please enter at least one attendant name');
-      return;
-    }
     if (_selectedFloor == null) {
       _showError('Please select a floor');
       return;

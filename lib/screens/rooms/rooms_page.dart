@@ -15,6 +15,7 @@ class RoomsPage extends StatefulWidget {
 }
 
 class _RoomsPageState extends State<RoomsPage> {
+  bool _showLobby = false;
   String selectedRoomType = 'all'; // 'all', 'private', 'general'
   int selectedFloor = 0; // 0 = all floors, 1 = Floor 1, 2 = Floor 2
   String selectedStatus =
@@ -114,6 +115,23 @@ class _RoomsPageState extends State<RoomsPage> {
           }
 
           final allRooms = roomsSnapshot.data ?? [];
+
+          if (_showLobby) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: _buildPageHeader(showRoomActions: false),
+                ),
+                Expanded(
+                  child: _LobbyManagementView(
+                    patientsStream: ServiceLocator().patientService
+                        .getPatientsStream(),
+                  ),
+                ),
+              ],
+            );
+          }
           var rooms = List<RoomModel>.from(allRooms);
 
           // Calculate overall stats on the global database
@@ -214,68 +232,7 @@ class _RoomsPageState extends State<RoomsPage> {
                     top: 20,
                     bottom: 8,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "Room Management",
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF27500A),
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => PricingSettingsDialog(),
-                              );
-                            },
-                            icon: const Icon(
-                              Icons.attach_money_rounded,
-                              size: 18,
-                            ),
-                            label: const Text("Pricing"),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF3B6D11),
-                              side: const BorderSide(
-                                color: Color(0xFF3B6D11),
-                                width: 1.5,
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _showAddRoomDialog,
-                            icon: const Icon(Icons.add_rounded, size: 18),
-                            label: const Text("Add Room"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF3B6D11),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  child: _buildPageHeader(showRoomActions: true),
                 ),
               ),
 
@@ -572,6 +529,63 @@ class _RoomsPageState extends State<RoomsPage> {
     );
   }
 
+  Widget _buildPageHeader({required bool showRoomActions}) {
+    return Row(
+      children: [
+        const Text(
+          'Room Management',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF27500A),
+          ),
+        ),
+        const SizedBox(width: 28),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Rooms'), icon: Icon(Icons.bed_outlined)),
+            ButtonSegment(value: true, label: Text('Lobby'), icon: Icon(Icons.weekend_outlined)),
+          ],
+          selected: {_showLobby},
+          onSelectionChanged: (value) => setState(() => _showLobby = value.first),
+          style: ButtonStyle(
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? Colors.white
+                  : const Color(0xFF3B6D11),
+            ),
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? const Color(0xFF3B6D11)
+                  : Colors.white,
+            ),
+          ),
+        ),
+        const Spacer(),
+        if (showRoomActions) ...[
+          OutlinedButton.icon(
+            onPressed: () => showDialog(
+              context: context,
+              builder: (context) => PricingSettingsDialog(),
+            ),
+            icon: const Icon(Icons.attach_money_rounded, size: 18),
+            label: const Text('Pricing'),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: _showAddRoomDialog,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Add Room'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildSearchField() {
     return TextField(
       controller: searchController,
@@ -799,6 +813,155 @@ class _LobbyAssignments extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _LobbyManagementView extends StatelessWidget {
+  final Stream<List<PatientModel>> patientsStream;
+
+  const _LobbyManagementView({required this.patientsStream});
+
+  static const lobbyOptions = <int, List<String>>{
+    1: ['1D Lobby 1', '1D Lobby 2', '1B Lobby 1', '1B Lobby 2'],
+    2: ['2E Lobby 1', '2E Lobby 2', '2B Lobby 1', '2B Lobby 2'],
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<PatientModel>>(
+      stream: patientsStream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+          );
+        }
+        final activePatients = snapshot.data!
+            .where(
+              (patient) =>
+                  patient.lobby?.trim().isNotEmpty == true &&
+                  (patient.status.toLowerCase() == 'active' ||
+                      patient.status.toLowerCase() == 'paid'),
+            )
+            .toList();
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final floor in [1, 2]) ...[
+                if (floor == 2) const SizedBox(width: 20),
+                Expanded(
+                  child: _LobbyFloorColumn(
+                    floor: floor,
+                    lobbyNames: lobbyOptions[floor]!,
+                    patients: activePatients,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LobbyFloorColumn extends StatelessWidget {
+  final int floor;
+  final List<String> lobbyNames;
+  final List<PatientModel> patients;
+
+  const _LobbyFloorColumn({
+    required this.floor,
+    required this.lobbyNames,
+    required this.patients,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Floor $floor',
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF27500A),
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (final lobbyName in lobbyNames) ...[
+          _LobbyPlacementCard(
+            lobbyName: lobbyName,
+            patients: patients
+                .where(
+                  (patient) =>
+                      patient.floor == floor &&
+                      patient.lobby?.trim() == lobbyName,
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _LobbyPlacementCard extends StatelessWidget {
+  final String lobbyName;
+  final List<PatientModel> patients;
+
+  const _LobbyPlacementCard({required this.lobbyName, required this.patients});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 150),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFC0DD97)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.weekend_outlined, color: Color(0xFF3B6D11)),
+              const SizedBox(width: 8),
+              Text(
+                lobbyName,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF27500A),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          if (patients.isEmpty)
+            const Text('Available', style: TextStyle(color: Color(0xFF639922)))
+          else
+            for (final patient in patients)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFFE8F3DE),
+                  child: Text(patient.fullName.isEmpty ? '?' : patient.fullName[0]),
+                ),
+                title: Text(patient.fullName),
+                subtitle: Text(patient.registrationNumber ?? 'Active patient'),
+              ),
+        ],
+      ),
     );
   }
 }

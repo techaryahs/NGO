@@ -304,14 +304,14 @@ class _AttendanceState extends State<Attendance>
         : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
-    final dailyResults = await Future.wait(
-      dates.map(
-        (date) => ServiceLocator().rtdbService.get('$pathPrefix/$date'),
-      ),
-    );
+    // Fetch the parent once instead of issuing seven simultaneous requests.
+    final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
+    final dailyMap = allDailyData is Map
+        ? Map<String, dynamic>.from(allDailyData)
+        : <String, dynamic>{};
     for (var index = 0; index < dates.length; index++) {
       final date = dates[index];
-      final data = dailyResults[index];
+      final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((_, v) {
@@ -350,14 +350,16 @@ class _AttendanceState extends State<Attendance>
         : 'attendant_attendance/daily';
     final result = <String, Map<String, String>>{};
 
-    final dailyResults = await Future.wait(
-      dates.map(
-        (date) => ServiceLocator().rtdbService.get('$pathPrefix/$date'),
-      ),
-    );
+    // Fetch all daily records once and select this month's dates locally.
+    // The previous implementation launched up to 31 requests at the same
+    // time, which was slow and unreliable on ordinary Wi-Fi connections.
+    final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
+    final dailyMap = allDailyData is Map
+        ? Map<String, dynamic>.from(allDailyData)
+        : <String, dynamic>{};
     for (var index = 0; index < dates.length; index++) {
       final date = dates[index];
-      final data = dailyResults[index];
+      final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((_, v) {
@@ -1071,121 +1073,49 @@ class _AttendanceState extends State<Attendance>
     Map<String, Map<String, String>> data,
     List<String> dates,
   ) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD6E8C8)),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SingleChildScrollView(
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFE8F5E9)),
-              columnSpacing: 24,
-              border: TableBorder(
-                horizontalInside: BorderSide(color: Colors.grey.shade200),
-                verticalInside: BorderSide(color: Colors.grey.shade200),
+    return _StickyAttendanceTable(
+      data: data,
+      dates: dates,
+      monthLabel: _monthShort,
+      cellBuilder: (name, date, status) {
+        DateTime? exit;
+        for (final patient in _allPatients ?? const <PatientModel>[]) {
+          if (patient.fullName == name &&
+              patient.exitDate != null &&
+              DateFormat('yyyy-MM-dd').format(patient.exitDate!) == date) {
+            exit = patient.exitDate;
+            break;
+          }
+        }
+        if (status == null) {
+          return exit == null
+              ? const Text('-', style: TextStyle(color: Colors.grey))
+              : _exitTimeLabel(exit);
+        }
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: status == 'Present'
+                    ? Colors.green.withOpacity(0.15)
+                    : Colors.red.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(6),
               ),
-              columns: [
-                const DataColumn(
-                  label: Text(
-                    'Name',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2E4A1F),
-                    ),
-                  ),
+              child: Text(
+                status == 'Present' ? 'P' : 'A',
+                style: TextStyle(
+                  color: status == 'Present' ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
                 ),
-                ...dates.map((d) {
-                  final dt = DateTime.parse(d);
-                  return DataColumn(
-                    label: Text(
-                      '${dt.day} ${_monthShort(dt.month)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E4A1F),
-                      ),
-                    ),
-                  );
-                }),
-              ],
-              rows: data.entries.map((e) {
-                return DataRow(
-                  cells: [
-                    DataCell(
-                      Text(
-                        e.key,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    ...dates.map((date) {
-                      final s = e.value[date];
-                      final exitPatient = _allPatients
-                          ?.where((patient) => patient.fullName == e.key)
-                          .cast<PatientModel?>()
-                          .firstWhere((patient) {
-                            final exit = patient?.exitDate;
-                            if (exit == null ||
-                                (exit.hour == 0 && exit.minute == 0)) {
-                              return false;
-                            }
-                            return DateFormat('yyyy-MM-dd').format(exit) ==
-                                date;
-                          }, orElse: () => null);
-                      final exit = exitPatient?.exitDate;
-                      if (s == null)
-                        return DataCell(
-                          exit == null
-                              ? const Text(
-                                  '-',
-                                  style: TextStyle(color: Colors.grey),
-                                )
-                              : _exitTimeLabel(exit),
-                        );
-                      return DataCell(
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: s == 'Present'
-                                    ? Colors.green.withOpacity(0.15)
-                                    : Colors.red.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                s == 'Present' ? 'P' : 'A',
-                                style: TextStyle(
-                                  color: s == 'Present'
-                                      ? Colors.green
-                                      : Colors.red,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            if (exit != null) _exitTimeLabel(exit),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                );
-              }).toList(),
+              ),
             ),
-          ),
-        ),
-      ),
+            if (exit != null) _exitTimeLabel(exit),
+          ],
+        );
+      },
     );
   }
 
@@ -1242,6 +1172,232 @@ class _AttendanceState extends State<Attendance>
 // ─────────────────────────────────────────────────────────────────────────────
 // Components
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _StickyAttendanceTable extends StatefulWidget {
+  final Map<String, Map<String, String>> data;
+  final List<String> dates;
+  final String Function(int month) monthLabel;
+  final Widget Function(String name, String date, String? status) cellBuilder;
+
+  const _StickyAttendanceTable({
+    required this.data,
+    required this.dates,
+    required this.monthLabel,
+    required this.cellBuilder,
+  });
+
+  @override
+  State<_StickyAttendanceTable> createState() => _StickyAttendanceTableState();
+}
+
+class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
+  static const nameWidth = 280.0;
+  static const cellWidth = 96.0;
+  static const headerHeight = 64.0;
+  static const rowHeight = 72.0;
+  final horizontalController = ScrollController();
+  final verticalController = ScrollController();
+  final headerController = ScrollController();
+  final namesController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    horizontalController.addListener(_syncHeader);
+    verticalController.addListener(_syncNames);
+  }
+
+  void _syncHeader() {
+    if (!headerController.hasClients) return;
+    headerController.jumpTo(
+      horizontalController.offset.clamp(
+        0.0,
+        headerController.position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _syncNames() {
+    if (!namesController.hasClients) return;
+    namesController.jumpTo(
+      verticalController.offset.clamp(
+        0.0,
+        namesController.position.maxScrollExtent,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    horizontalController.dispose();
+    verticalController.dispose();
+    headerController.dispose();
+    namesController.dispose();
+    super.dispose();
+  }
+
+  Widget _borderedCell({required double width, required Widget child, Color? color}) {
+    return Container(
+      width: width,
+      height: rowHeight,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: color ?? Colors.white,
+        border: Border(
+          right: BorderSide(color: Colors.grey.shade200),
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = widget.data.entries.toList();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD6E8C8)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            Positioned(
+              left: nameWidth,
+              top: headerHeight,
+              right: 0,
+              bottom: 0,
+              child: Scrollbar(
+                controller: horizontalController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: horizontalController,
+                  scrollDirection: Axis.horizontal,
+                  child: SingleChildScrollView(
+                    controller: verticalController,
+                    child: Column(
+                      children: [
+                        for (final entry in entries)
+                          Row(
+                            children: [
+                              for (final date in widget.dates)
+                                _borderedCell(
+                                  width: cellWidth,
+                                  child: widget.cellBuilder(
+                                    entry.key,
+                                    date,
+                                    entry.value[date],
+                                  ),
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: nameWidth,
+              top: 0,
+              right: 0,
+              height: headerHeight,
+              child: ClipRect(
+                child: SingleChildScrollView(
+                  controller: headerController,
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Row(
+                      children: [
+                        for (final date in widget.dates)
+                          Container(
+                          width: cellWidth,
+                          height: headerHeight,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            border: Border(
+                              right: BorderSide(color: Colors.grey.shade200),
+                              bottom: BorderSide(color: Colors.grey.shade300),
+                            ),
+                          ),
+                          child: Builder(
+                            builder: (context) {
+                              final value = DateTime.parse(date);
+                              return Text(
+                                '${value.day} ${widget.monthLabel(value.month)}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2E4A1F),
+                                ),
+                              );
+                            },
+                          ),
+                          ),
+                      ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: headerHeight,
+              width: nameWidth,
+              bottom: 0,
+              child: ClipRect(
+                child: SingleChildScrollView(
+                  controller: namesController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Column(
+                      children: [
+                        for (final entry in entries)
+                          _borderedCell(
+                          width: nameWidth,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          ),
+                      ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              width: nameWidth,
+              height: headerHeight,
+              child: Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 30),
+                color: const Color(0xFFE8F5E9),
+                child: const Text(
+                  'Name',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2E4A1F),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SummaryCard extends StatelessWidget {
   final String title;
