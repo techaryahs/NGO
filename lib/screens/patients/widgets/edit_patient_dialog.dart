@@ -545,6 +545,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
+      final isRejoining =
+          widget.patient.status.toLowerCase() == 'discharged' &&
+          _selectedRoom != null;
+      final currentAdmissionDate = isRejoining
+          ? (_selectedRegistrationDate ?? DateTime.now())
+          : widget.patient.admissionDate;
 
       final structuredAttendants = <AttendantModel>[];
       for (final att in _attendants) {
@@ -602,6 +608,20 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         // the selected room type and the current stay dates.
         'advanceBilledAmount': _estimatedTotal,
       };
+      if (isRejoining) {
+        updates.addAll({
+          'status': 'active',
+          'admissionDate': currentAdmissionDate.millisecondsSinceEpoch,
+          'dischargeDate': null,
+          'totalPresentDays': 0,
+          'totalAbsentDays': 0,
+          'attendanceCharges': 0.0,
+          'totalPaidAmount': 0.0,
+          'currentDueAmount': _estimatedTotal,
+          'paymentPending': _estimatedTotal > 0,
+          'paymentStatus': _estimatedTotal > 0 ? 'Unpaid' : 'Paid',
+        });
+      }
 
       // Handle room/bed change
       final roomChanged = _selectedRoom?.id != widget.patient.roomId;
@@ -650,7 +670,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               roomId: _selectedRoom!.id,
               roomNumber: _selectedRoom!.roomIdentifier,
               roomType: _selectedRoom!.roomType,
-              admissionDate: widget.patient.admissionDate,
+              admissionDate: currentAdmissionDate,
               durationDays: _plannedStayDays,
               attendantCount: structuredAttendants.length,
               bedId: bed.id,

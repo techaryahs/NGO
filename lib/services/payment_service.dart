@@ -29,6 +29,31 @@ class PaymentService {
 
   PaymentService(this._rtdb);
 
+  double _currentCyclePaymentTotal(PatientModel patient) {
+    final payments = patient.payments;
+    if (payments == null) return patient.totalPaidAmount ?? 0;
+
+    return payments.fold<double>(0, (total, payment) {
+      if (payment.date.isBefore(patient.admissionDate)) return total;
+      return total + payment.amount;
+    });
+  }
+
+  double _paymentTotalFromMap(List<dynamic> payments, DateTime cycleStart) {
+    return payments.fold<double>(0, (total, payment) {
+      if (payment is! Map) return total;
+      final amount = (payment['amount'] ?? 0).toDouble();
+      final rawDate = payment['date'];
+      final date = rawDate is int
+          ? DateTime.fromMillisecondsSinceEpoch(rawDate)
+          : DateTime.fromMillisecondsSinceEpoch(
+              int.tryParse(rawDate?.toString() ?? '') ?? 0,
+            );
+      if (date.isBefore(cycleStart)) return total;
+      return total + amount;
+    });
+  }
+
   /// Records a new payment and links it to a patient.
   /// This stores the payment in a global collection for fast retrieval across all patients.
   Future<String> recordPayment({
@@ -59,10 +84,16 @@ class PaymentService {
         currentPayments.add(data);
 
         // Auto-recalculate pending amounts for this patient
-        double totalPaid = 0;
-        for (var p in currentPayments) {
-          totalPaid += (p['amount'] ?? 0).toDouble();
-        }
+        final rawAdmissionDate = patientData['admissionDate'];
+        final admissionDate = rawAdmissionDate is int
+            ? DateTime.fromMillisecondsSinceEpoch(rawAdmissionDate)
+            : DateTime.fromMillisecondsSinceEpoch(
+                int.tryParse(rawAdmissionDate?.toString() ?? '') ?? 0,
+              );
+        final totalPaid = _paymentTotalFromMap(
+          currentPayments,
+          admissionDate,
+        );
 
         final advanceBilled = (patientData['advanceBilledAmount'] ?? 0)
             .toDouble();
@@ -325,14 +356,7 @@ class PaymentService {
         double.infinity,
       );
 
-      double totalPaid = 0;
-      if (patient.payments != null) {
-        for (var p in patient.payments!) {
-          totalPaid += p.amount;
-        }
-      } else {
-        totalPaid = patient.totalPaidAmount ?? 0;
-      }
+      final totalPaid = _currentCyclePaymentTotal(patient);
 
       double currentDue = totalBill - totalPaid;
       if (currentDue < 0) currentDue = 0;
@@ -561,14 +585,7 @@ class PaymentService {
       double.infinity,
     );
 
-    double totalPaid = 0;
-    if (patient.payments != null) {
-      for (var p in patient.payments!) {
-        totalPaid += p.amount;
-      }
-    } else {
-      totalPaid = patient.totalPaidAmount ?? 0;
-    }
+    final totalPaid = _currentCyclePaymentTotal(patient);
 
     double currentDue = totalBill - totalPaid;
     if (currentDue < 0) currentDue = 0;

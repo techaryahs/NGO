@@ -12,14 +12,24 @@ import 'widgets/payment_dialog.dart';
 import '../../utils/bed_helper.dart';
 import 'utils/patient_info_download.dart';
 
-double _patientPaymentTotal(PatientModel patient) {
-  final paymentHistoryTotal = (patient.payments ?? []).fold<double>(
-    0,
-    (total, payment) => total + payment.amount,
-  );
+double _patientPaymentTotal(
+  PatientModel patient, {
+  DateTime? from,
+  DateTime? through,
+}) {
+  final payments = patient.payments;
+  final paymentHistoryTotal = (payments ?? []).fold<double>(0, (
+    total,
+    payment,
+  ) {
+    if (from != null && payment.date.isBefore(from)) return total;
+    if (through != null && payment.date.isAfter(through)) return total;
+    return total + payment.amount;
+  });
+
   return paymentHistoryTotal > 0
       ? paymentHistoryTotal
-      : (patient.totalPaidAmount ?? 0);
+      : (payments == null ? (patient.totalPaidAmount ?? 0) : 0);
 }
 
 class PatientProfileScreen extends StatefulWidget {
@@ -88,7 +98,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
       bedsCount: currentPatient.bedIds?.length ?? 1,
       attendantsCount: currentPatient.attendants?.length ?? 0,
       roomIdentifier: currentPatient.roomNumber,
-      alreadyPaid: _patientPaymentTotal(currentPatient),
+      alreadyPaid: _patientPaymentTotal(
+        currentPatient,
+        from: currentPatient.admissionDate,
+      ),
       showPayLater: false,
       totalBillOverride:
           currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
@@ -1073,7 +1086,7 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildFinancialSummary() {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final paidAmount = _patientPaymentTotal(patient);
+    final paidAmount = _patientPaymentTotal(patient, from: patient.admissionDate);
     final total = paidAmount + (patient.currentDueAmount ?? 0);
     return _Section(
       label: "Financial Summary",
@@ -2838,6 +2851,11 @@ class _StaysTab extends StatelessWidget {
         ? stay.updatedAt
         : stay.effectiveExpiryDate;
     final disStr = dateFmt.format(completionDate);
+    final paidAmount = _patientPaymentTotal(
+      patient,
+      from: stay.admissionDate,
+      through: completionDate,
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2885,13 +2903,20 @@ class _StaysTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                currencyFmt.format(stay.totalCost),
+                "Paid ${currencyFmt.format(paidAmount)}",
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                   color: Color(0xFF639922),
                 ),
               ),
+              if (stay.totalCost > 0) ...[
+                const SizedBox(height: 2),
+                Text(
+                  "Bill ${currencyFmt.format(stay.totalCost)}",
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
               const SizedBox(height: 2),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
