@@ -197,7 +197,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
     }
     placements.sort((a, b) {
       if (a.isPreviousBed != b.isPreviousBed) return a.isPreviousBed ? -1 : 1;
-      if (a.room == null != (b.room == null)) return a.room == null ? 1 : -1;
+      final aHasRoom = a.room != null;
+      final bHasRoom = b.room != null;
+      if (aHasRoom != bHasRoom) return aHasRoom ? -1 : 1;
       return a.label.compareTo(b.label);
     });
 
