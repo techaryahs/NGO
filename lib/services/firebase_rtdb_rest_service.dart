@@ -87,6 +87,44 @@ class FirebaseRTDBRestService {
     }
   }
 
+  /// Fetch children whose RTDB keys fall within an inclusive range.
+  ///
+  /// This is useful for date-keyed collections and avoids downloading the
+  /// collection's complete history when only one admission period is needed.
+  Future<dynamic> getByKeyRange(
+    String path, {
+    required String startKey,
+    required String endKey,
+  }) async {
+    try {
+      final token = await _getIdToken();
+      final baseUrl = Uri.parse(_buildUrl(path));
+      final query = <String, String>{
+        'orderBy': json.encode(r'$key'),
+        'startAt': json.encode(startKey),
+        'endAt': json.encode(endKey),
+        if (token != null) 'auth': token,
+      };
+      final response = await http
+          .get(baseUrl.replace(queryParameters: query))
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw Exception(
+              'Request timeout - check your internet connection',
+            ),
+          );
+
+      if (response.statusCode == 200) {
+        return response.body == 'null' ? null : json.decode(response.body);
+      }
+      throw Exception(
+        'GET range failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      throw Exception('Failed to GET range $path: $e');
+    }
+  }
+
   // ===========================================================================
   // PUT — Write/Replace data
   // ===========================================================================
@@ -366,6 +404,89 @@ class FirebaseRTDBRestService {
       },
     );
 
+    _activeControllers[controllerId] = controller;
+    return controller.stream;
+  }
+
+  /// Poll a child-indexed query for several exact values and merge the maps.
+  /// This avoids downloading an entire large collection when the UI needs only
+  /// a few statuses (for example, active patients on the Payments page).
+  Stream<dynamic> queryAnyStream(
+    String path, {
+    required String orderBy,
+    required List<dynamic> equalToAny,
+    Duration? pollInterval,
+  }) {
+    final interval = pollInterval ?? Duration(seconds: _pollingInterval);
+    final cacheKey = '$path|$orderBy|${json.encode(equalToAny)}';
+    final controllerId =
+        '${cacheKey}_${DateTime.now().millisecondsSinceEpoch}';
+
+    late StreamController<dynamic> controller;
+    Timer? timer;
+    dynamic lastValue;
+    var isFetching = false;
+
+    Future<void> fetchLatest() async {
+      if (isFetching || controller.isClosed) return;
+      isFetching = true;
+      try {
+        final merged = <String, dynamic>{};
+        try {
+          final results = await Future.wait(
+            equalToAny.map(
+              (value) => query(path, orderBy: orderBy, equalTo: value),
+            ),
+          );
+          for (final result in results) {
+            if (result is Map) {
+              result.forEach((key, value) => merged[key.toString()] = value);
+            }
+          }
+        } catch (_) {
+          // A deployed RTDB may not yet contain the requested `.indexOn`.
+          // Fall back to one unfiltered read and apply the exact same filter
+          // locally so screens remain usable until the rules are deployed.
+          final allValues = await get(path);
+          if (allValues is Map) {
+            allValues.forEach((key, value) {
+              if (value is Map && equalToAny.contains(value[orderBy])) {
+                merged[key.toString()] = value;
+              }
+            });
+          }
+        }
+        _latestValues[cacheKey] = merged;
+        if (!controller.isClosed &&
+            json.encode(merged) != json.encode(lastValue)) {
+          lastValue = merged;
+          controller.add(merged);
+        }
+      } catch (error, stackTrace) {
+        // Retain cached data during a temporary failure, but surface an
+        // initial failure so screens do not remain on a spinner forever.
+        if (!_latestValues.containsKey(cacheKey) && !controller.isClosed) {
+          controller.addError(error, stackTrace);
+        }
+      } finally {
+        isFetching = false;
+      }
+    }
+
+    controller = StreamController<dynamic>(
+      onListen: () {
+        if (_latestValues.containsKey(cacheKey)) {
+          lastValue = _latestValues[cacheKey];
+          controller.add(lastValue);
+        }
+        fetchLatest();
+        timer = Timer.periodic(interval, (_) => fetchLatest());
+      },
+      onCancel: () {
+        timer?.cancel();
+        _activeControllers.remove(controllerId);
+      },
+    );
     _activeControllers[controllerId] = controller;
     return controller.stream;
   }

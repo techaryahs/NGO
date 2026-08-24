@@ -15,20 +15,22 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late final Stream<List<PatientModel>> _patientsStream;
-  late final Stream<List<Map<String, dynamic>>> _paymentsStream;
+  Stream<List<Map<String, dynamic>>>? _paymentsStream;
   final _searchController = TextEditingController();
   String _searchQuery = "";
   static const int _pageSize = 20;
   int _visibleBilling = _pageSize;
   int _visibleLedger = _pageSize;
+  int _selectedTab = 0;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChanged);
-    _patientsStream = ServiceLocator().patientService.getPatientsStream();
-    _paymentsStream = ServiceLocator().paymentService.getAllPaymentsStream();
+    _patientsStream = ServiceLocator().patientService.getPatientsByStatuses(
+      const ['active', 'Paid', 'paid'],
+    );
     // Billing is recalculated when a patient is admitted, edited, or their
     // attendance changes. Avoid a full historical recalculation on every
     // visit to Payments because it can make the whole application sluggish.
@@ -43,13 +45,19 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   }
 
   void _handleTabChanged() {
-    if (_tabController.indexIsChanging) {
-      setState(() {
-        _visibleBilling = _pageSize;
-        _visibleLedger = _pageSize;
-      });
-      _clearSearch();
+    final nextTab = _tabController.index;
+    if (nextTab == _selectedTab) return;
+    if (nextTab == 1) {
+      _paymentsStream ??=
+          ServiceLocator().paymentService.getAllPaymentsStream();
     }
+    _searchController.clear();
+    setState(() {
+      _selectedTab = nextTab;
+      _searchQuery = '';
+      _visibleBilling = _pageSize;
+      _visibleLedger = _pageSize;
+    });
   }
 
   void _clearSearch() {
@@ -189,9 +197,14 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             ),
           ),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [_buildPatientBillingTab(), _buildLedgerTab()],
+            child: IndexedStack(
+              index: _selectedTab,
+              children: [
+                _buildPatientBillingTab(),
+                _paymentsStream == null
+                    ? const SizedBox.shrink()
+                    : _buildLedgerTab(),
+              ],
             ),
           ),
         ],
@@ -205,13 +218,22 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     return StreamBuilder<List<PatientModel>>(
       stream: _patientsStream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.hasError) {
+          return _PaymentsError(
+            message: 'Patient billing could not be loaded.',
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const _PaymentsLoader(message: 'Loading patient billing...');
         }
 
         final allPatients = snapshot.data ?? [];
         final activePatients = allPatients
-            .where((p) => p.status == 'active' || p.status == 'Paid')
+            .where((p) {
+              final status = p.status.toLowerCase();
+              return status == 'active' || status == 'paid';
+            })
             .toList();
 
         final query = _searchQuery.trim().toLowerCase();
@@ -302,10 +324,17 @@ class _PaymentsScreenState extends State<PaymentsScreen>
   // ── Ledger Tab ────────────────────────────────────────────────────────────
 
   Widget _buildLedgerTab() {
+    _paymentsStream ??= ServiceLocator().paymentService.getAllPaymentsStream();
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _paymentsStream,
+      stream: _paymentsStream!,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.hasError) {
+          return const _PaymentsError(
+            message: 'Transaction ledger could not be loaded.',
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const _PaymentsLoader(
             message: 'Loading transaction ledger...',
           );
@@ -536,6 +565,26 @@ class _PaymentsLoader extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentsError extends StatelessWidget {
+  final String message;
+
+  const _PaymentsError({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 42, color: Colors.grey),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(color: Colors.grey)),
         ],
       ),
     );

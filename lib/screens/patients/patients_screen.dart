@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../models/patient_model.dart';
 import '../../services/service_locator.dart';
 import '../../models/room_model.dart';
+import '../../models/bed_model.dart';
+import '../../models/stay_model.dart';
 import '../../utils/bed_helper.dart';
 import 'widgets/patient_card.dart';
 import 'widgets/add_patient_dialog.dart';
@@ -158,6 +160,234 @@ class _PatientsScreenState extends State<PatientsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<_RejoinPlacement?> _chooseRejoinPlacement(
+    PatientModel patient,
+  ) async {
+    final roomService = ServiceLocator().roomService;
+    final results = await Future.wait<dynamic>([
+      roomService.getRoomsStream().first,
+      roomService.getStaysByPatientStream(patient.id).first,
+    ]);
+    final rooms = results[0] as List<RoomModel>;
+    final stays = List<StayModel>.from(results[1] as List<StayModel>)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final previousStay = stays.where((stay) => stay.bedId != null).firstOrNull;
+
+    final placements = <_RejoinPlacement>[
+      const _RejoinPlacement.unassigned(),
+    ];
+    for (final room in rooms) {
+      if (room.status == 'maintenance' || room.status == 'unavailable') {
+        continue;
+      }
+      for (final bed in room.beds.where((bed) => bed.isAvailable)) {
+        final isPrevious = previousStay?.roomId == room.id &&
+            previousStay?.bedId == bed.id;
+        placements.add(
+          _RejoinPlacement.bed(
+            room: room,
+            bed: bed,
+            isPreviousBed: isPrevious,
+          ),
+        );
+      }
+    }
+    placements.sort((a, b) {
+      if (a.isPreviousBed != b.isPreviousBed) return a.isPreviousBed ? -1 : 1;
+      if (a.room == null != (b.room == null)) return a.room == null ? 1 : -1;
+      return a.label.compareTo(b.label);
+    });
+
+    const lobbyNames = [
+      '1D Lobby 1',
+      '1D Lobby 2',
+      '1B Lobby 1',
+      '1B Lobby 2',
+      '2E Lobby 1',
+      '2E Lobby 2',
+      '2B Lobby 1',
+      '2B Lobby 2',
+    ];
+    placements.addAll(
+      lobbyNames.map(
+        (name) => _RejoinPlacement.lobby(
+          name,
+          isPreviousLobby: patient.lobby?.trim() == name,
+        ),
+      ),
+    );
+
+    if (!mounted) return null;
+    var selected = placements.firstWhere(
+      (placement) => placement.isPreviousBed || placement.isPreviousLobby,
+      orElse: () => placements.length > 1 ? placements[1] : placements.first,
+    );
+    return showDialog<_RejoinPlacement>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Rejoin ${patient.fullName}'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  previousStay == null
+                      ? 'Choose an available bed, lobby, or rejoin without an assignment.'
+                      : placements.any((p) => p.isPreviousBed)
+                      ? 'The previous bed is available. You may use it or choose another placement.'
+                      : 'The previous bed is occupied. Choose another available bed, a lobby, or remain unassigned.',
+                ),
+                const SizedBox(height: 18),
+                DropdownButtonFormField<_RejoinPlacement>(
+                  value: selected,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Placement',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: placements
+                      .map(
+                        (placement) => DropdownMenuItem(
+                          value: placement,
+                          child: Text(
+                            placement.label,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => selected = value);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, selected),
+              child: const Text('Rejoin'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _rejoinPatient(PatientModel patient) async {
+    try {
+      final placement = await _chooseRejoinPlacement(patient);
+      if (placement == null) return;
+
+      final now = DateTime.now();
+      final patientService = ServiceLocator().patientService;
+      final baseUpdates = <String, dynamic>{
+        'status': 'active',
+        'dischargeDate': null,
+        'admissionDate': now.millisecondsSinceEpoch,
+        'registrationDate': now.millisecondsSinceEpoch,
+        'isAdvancePeriod': true,
+        'advanceBilledAmount': 700.0,
+        'attendanceCharges': 0.0,
+        'totalPresentDays': 0,
+        'totalAbsentDays': 0,
+        'maxStayDays': 60,
+        'extensionDays': 0,
+        'extensionApproved': false,
+        'extensionReason': null,
+        'roomId': null,
+        'roomNumber': null,
+        'floor': null,
+        'bedIds': null,
+        'bedLabels': null,
+        'lobby': null,
+      };
+      // Reactivate first as unassigned. If the chosen bed is taken between
+      // opening and confirming the dialog, the patient safely remains active
+      // and unassigned instead of receiving a duplicate bed assignment.
+      await patientService.updatePatient(patient.id, baseUpdates);
+
+      // createStay re-fetches the room and rejects a bed that another user
+      // occupied after this dialog opened.
+      if (placement.room != null && placement.bed != null) {
+        final user = ServiceLocator().authRestService.currentUser;
+        try {
+          await ServiceLocator().roomService.createStay(
+            patientId: patient.id,
+            patientName: patient.fullName,
+            roomId: placement.room!.id,
+            roomNumber: placement.room!.roomIdentifier,
+            roomType: placement.room!.roomType,
+            admissionDate: now,
+            durationDays: 60,
+            attendantCount: patient.attendants?.length ?? 0,
+            bedId: placement.bed!.id,
+            bedLabel: placement.bed!.bedLabel,
+            notes: placement.isPreviousBed
+                ? 'Previous bed reassigned on rejoin'
+                : 'Bed assigned on rejoin',
+            createdBy: user?.uid ?? 'system',
+          );
+          await patientService.updatePatient(patient.id, {
+            'roomId': placement.room!.id,
+            'roomNumber': placement.room!.roomIdentifier,
+            'floor': placement.room!.floor,
+            'bedIds': [placement.bed!.id],
+            'bedLabels': [placement.bed!.bedLabel],
+          });
+        } catch (error) {
+          await ServiceLocator().paymentService
+              .recalculatePatientAttendanceAndBilling(patient.id);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Patient rejoined unassigned because the selected bed is no longer available: $error',
+              ),
+              backgroundColor: const Color(0xFFE65100),
+            ),
+          );
+          setState(() => _selectedFilter = 'active');
+          return;
+        }
+      } else if (placement.lobbyName != null) {
+        await patientService.updatePatient(patient.id, {
+          'floor': placement.lobbyFloor,
+          'lobby': placement.lobbyName,
+        });
+      }
+
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patient.id);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Patient rejoined: ${placement.label}'),
+          backgroundColor: const Color(0xFF3B6D11),
+        ),
+      );
+      setState(() => _selectedFilter = 'active');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not rejoin patient: $error'),
+          backgroundColor: const Color(0xFFD32F2F),
+        ),
+      );
     }
   }
 
@@ -1338,66 +1568,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       },
                       onPayNow: () => _handlePayNow(patient),
                       onDelete: () => _confirmDeletePatient(patient),
-                      onRejoin: () async {
-                        if (patient.dischargeDate == null) return;
-
-                        final rejoinDate = patient.dischargeDate!.add(
-                          const Duration(days: 15),
-                        );
-                        final remaining = rejoinDate.difference(DateTime.now());
-                        final remainingDays = (remaining.inMinutes / 1440).ceil();
-
-                        if (!remaining.isNegative) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'This patient can rejoin after the 15-day discharge waiting period '
-                                '(${remainingDays.clamp(1, 15)} day(s) remaining).',
-                              ),
-                              backgroundColor: const Color(0xFFD32F2F),
-                            ),
-                          );
-                          return;
-                        }
-
-                        // Change status: discharged -> active
-                        // Remove: dischargeDate
-                        // Update admissionDate and registrationDate to now to represent a new active cycle/stay
-                        await ServiceLocator().patientService.updatePatient(
-                          patient.id,
-                          {
-                            'status': 'active',
-                            'dischargeDate': null,
-                            'admissionDate':
-                                DateTime.now().millisecondsSinceEpoch,
-                            'registrationDate':
-                                DateTime.now().millisecondsSinceEpoch,
-                            'isAdvancePeriod': true,
-                            'advanceBilledAmount':
-                                700.0, // Default to general ward advance, can be updated when assigned to a private room
-                            'attendanceCharges': 0.0,
-                            'totalPresentDays': 0,
-                            'totalAbsentDays': 0,
-                            'maxStayDays': 60,
-                            'extensionDays': 0,
-                            'extensionApproved': false,
-                            'extensionReason': null,
-                          },
-                        );
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Patient rejoined successfully'),
-                              backgroundColor: Color(0xFF3B6D11),
-                            ),
-                          );
-                          // Move patient automatically from Discharged tab -> Active tab
-                          setState(() {
-                            _selectedFilter = 'active';
-                          });
-                        }
-                      },
+                      onRejoin: () => _rejoinPatient(patient),
                     );
                   },
                 );
@@ -1407,6 +1578,56 @@ class _PatientsScreenState extends State<PatientsScreen> {
         ],
       ),
     );
+  }
+}
+
+class _RejoinPlacement {
+  final RoomModel? room;
+  final BedModel? bed;
+  final String? lobbyName;
+  final bool isPreviousBed;
+  final bool isPreviousLobby;
+
+  const _RejoinPlacement._({
+    this.room,
+    this.bed,
+    this.lobbyName,
+    this.isPreviousBed = false,
+    this.isPreviousLobby = false,
+  });
+
+  const _RejoinPlacement.unassigned() : this._();
+
+  const _RejoinPlacement.bed({
+    required RoomModel room,
+    required BedModel bed,
+    required bool isPreviousBed,
+  }) : this._(room: room, bed: bed, isPreviousBed: isPreviousBed);
+
+  const _RejoinPlacement.lobby(
+    String lobbyName, {
+    required bool isPreviousLobby,
+  }) : this._(
+         lobbyName: lobbyName,
+         isPreviousLobby: isPreviousLobby,
+       );
+
+  int? get lobbyFloor => lobbyName?.isNotEmpty == true
+      ? int.tryParse(lobbyName![0])
+      : null;
+
+  String get label {
+    if (room != null && bed != null) {
+      final bedName = BedHelper.getBedDisplayName(
+        bed!.bedLabel,
+        roomIdentifier: room!.roomIdentifier,
+      );
+      return '${isPreviousBed ? "Previous bed — " : ""}${room!.roomIdentifier} · $bedName · Floor ${room!.floor}';
+    }
+    if (lobbyName != null) {
+      return '${isPreviousLobby ? "Previous lobby — " : "Lobby — "}$lobbyName';
+    }
+    return 'Rejoin without room or lobby';
   }
 }
 

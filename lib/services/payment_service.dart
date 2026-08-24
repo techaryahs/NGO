@@ -6,6 +6,25 @@ import '../models/room_model.dart';
 
 class PaymentService {
   final FirebaseRTDBRestService _rtdb;
+
+  Future<bool> _isPrivateAccommodation(PatientModel patient) async {
+    if (patient.lobby?.trim().isNotEmpty == true) return false;
+    if (patient.roomNumber?.trim().isNotEmpty == true) {
+      return RoomModel.isPrivateRoomIdentifier(patient.roomNumber!);
+    }
+
+    // Room fields are cleared on discharge. Use the most recent historical
+    // stay instead of guessing the room type from an advance amount.
+    final stays = await ServiceLocator().roomService
+        .getStaysByPatientStream(patient.id)
+        .first;
+    if (stays.isNotEmpty) {
+      stays.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      return stays.first.roomType.toLowerCase() == 'private';
+    }
+    return false;
+  }
+
   final String _path = 'payments';
 
   PaymentService(this._rtdb);
@@ -122,9 +141,9 @@ class PaymentService {
     String patientId,
     String paymentId,
     String transactionNumber,
-    DateTime paymentDate,
-    {String? embeddedPaymentId}
-  ) async {
+    DateTime paymentDate, {
+    String? embeddedPaymentId,
+  }) async {
     final value = transactionNumber.trim();
     final updates = <String, dynamic>{
       'transactionId': value.isEmpty ? null : value,
@@ -258,17 +277,13 @@ class PaymentService {
         ? allPatients
         : allPatients.where((patient) => patient.id == patientId);
     for (final patient in patients) {
-      final isPrivate = patient.roomNumber != null
-          ? RoomModel.isPrivateRoomIdentifier(patient.roomNumber!)
-          : patient.advanceBilledAmount >= 3500.0;
+      final isPrivate = await _isPrivateAccommodation(patient);
 
       final int attendantCount = patient.attendants?.length ?? 0;
       final int occupantCount = 1 + attendantCount;
-      // Room charges cover every calendar day in the registered stay. An
-      // absence remains visible in attendance, but does not waive the room
-      // and attendant charge for that day.
-      final int totalPresent =
-          patient.totalPresentDays + patient.totalAbsentDays;
+      // Billing is based only on days explicitly marked Present. Absent and
+      // unmarked dates remain visible in attendance but are not chargeable.
+      final int totalPresent = patient.totalPresentDays;
 
       // ── Two-slab calculation ──────────────────────────────────────────
       final int phase1Days = totalPresent.clamp(0, 60);
@@ -297,10 +312,12 @@ class PaymentService {
             (phase2Days * occupantCount * p2Rate);
       }
 
-      // The admission estimate is the minimum committed stay charge. Do not
-      // replace it with a smaller elapsed-day amount immediately after a lobby
-      // or room admission; accumulated charges take over once they exceed it.
-      final double totalBill = grossCharges < patient.advanceBilledAmount
+      // An advance is an estimate, not an additional or minimum final bill.
+      // Once discharged, explicitly Present days determine the final total.
+      final isDischarged = patient.status.toLowerCase() == 'discharged';
+      final double totalBill = isDischarged
+          ? grossCharges
+          : grossCharges < patient.advanceBilledAmount
           ? patient.advanceBilledAmount
           : grossCharges;
       final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
@@ -340,9 +357,8 @@ class PaymentService {
     }
   }
 
-  /// Calculates attendance from the registration date through discharge (or
-  /// today for an active patient). Missing daily records are automatically
-  /// present; a staff-entered Absent record is the only exception.
+  /// Calculates explicitly recorded attendance from registration through
+  /// discharge (or today for an active patient). Unmarked dates are ignored.
   Future<void> recalculatePatientAttendanceAndBilling(
     String patientId, {
     bool updateBilling = true,
@@ -371,10 +387,12 @@ class PaymentService {
       final key =
           '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
       final record = await _rtdb.get('attendance/daily/$key/$patientId');
-      if (record is Map && record['status']?.toString() == 'Absent') {
-        absent++;
-      } else {
-        present++;
+      if (record is Map) {
+        if (record['status']?.toString() == 'Absent') {
+          absent++;
+        } else if (record['status']?.toString() == 'Present') {
+          present++;
+        }
       }
     }
 
@@ -502,17 +520,14 @@ class PaymentService {
     } else {
       return; // no change
     }
-    final isPrivate = patient.roomNumber != null
-        ? RoomModel.isPrivateRoomIdentifier(patient.roomNumber!)
-        : patient.advanceBilledAmount >= 3500.0;
+    final isPrivate = await _isPrivateAccommodation(patient);
 
     final int attendantCount = patient.attendants?.length ?? 0;
     final int occupantCount = 1 + attendantCount;
 
     // ── Two-slab calculation ──────────────────────────────────────────
-    final int totalStayDays = newPresent + newAbsent;
-    final int phase1Days = totalStayDays.clamp(0, 60);
-    final int phase2Days = (totalStayDays - 60).clamp(0, 999999);
+    final int phase1Days = newPresent.clamp(0, 60);
+    final int phase2Days = (newPresent - 60).clamp(0, 999999);
 
     double grossCharges;
     if (isPrivate) {
@@ -535,7 +550,10 @@ class PaymentService {
           (phase2Days * occupantCount * p2Rate);
     }
 
-    final double totalBill = grossCharges < patient.advanceBilledAmount
+    final isDischarged = patient.status.toLowerCase() == 'discharged';
+    final double totalBill = isDischarged
+        ? grossCharges
+        : grossCharges < patient.advanceBilledAmount
         ? patient.advanceBilledAmount
         : grossCharges;
     final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
@@ -567,7 +585,7 @@ class PaymentService {
     await patientService.updatePatient(patientId, {
       'totalPresentDays': newPresent,
       'totalAbsentDays': newAbsent,
-      'isAdvancePeriod': totalStayDays < 60,
+      'isAdvancePeriod': newPresent < 60,
       'attendanceCharges': newCharges,
       'totalPaidAmount': totalPaid,
       'currentDueAmount': currentDue,

@@ -6,6 +6,7 @@ import 'package:ngo/screens/rooms/widgets/census_summary_widget.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/models/room_model.dart';
 import 'package:ngo/models/patient_model.dart';
+import 'package:ngo/models/stay_model.dart';
 
 class RoomsPage extends StatefulWidget {
   const RoomsPage({super.key});
@@ -422,14 +423,6 @@ class _RoomsPageState extends State<RoomsPage> {
                 ),
               ),
 
-              SliverToBoxAdapter(
-                child: _LobbyAssignments(
-                  patientsStream: ServiceLocator().patientService
-                      .getPatientsStream(),
-                  selectedFloor: selectedFloor,
-                ),
-              ),
-
               // MAIN AREA: GRID AND SIDEBAR
               SliverToBoxAdapter(
                 child: Row(
@@ -543,11 +536,20 @@ class _RoomsPageState extends State<RoomsPage> {
         const SizedBox(width: 28),
         SegmentedButton<bool>(
           segments: const [
-            ButtonSegment(value: false, label: Text('Rooms'), icon: Icon(Icons.bed_outlined)),
-            ButtonSegment(value: true, label: Text('Lobby'), icon: Icon(Icons.weekend_outlined)),
+            ButtonSegment(
+              value: false,
+              label: Text('Rooms'),
+              icon: Icon(Icons.bed_outlined),
+            ),
+            ButtonSegment(
+              value: true,
+              label: Text('Lobby'),
+              icon: Icon(Icons.weekend_outlined),
+            ),
           ],
           selected: {_showLobby},
-          onSelectionChanged: (value) => setState(() => _showLobby = value.first),
+          onSelectionChanged: (value) =>
+              setState(() => _showLobby = value.first),
           style: ButtonStyle(
             foregroundColor: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.selected)
@@ -743,80 +745,6 @@ class _RoomsPageState extends State<RoomsPage> {
   }
 }
 
-class _LobbyAssignments extends StatelessWidget {
-  final Stream<List<PatientModel>> patientsStream;
-  final int selectedFloor;
-
-  const _LobbyAssignments({
-    required this.patientsStream,
-    required this.selectedFloor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<PatientModel>>(
-      stream: patientsStream,
-      builder: (context, snapshot) {
-        final patients =
-            (snapshot.data ?? const <PatientModel>[])
-                .where(
-                  (patient) =>
-                      patient.lobby != null &&
-                      patient.lobby!.trim().isNotEmpty &&
-                      (patient.status == 'active' ||
-                          patient.status == 'Paid') &&
-                      (selectedFloor == 0 || patient.floor == selectedFloor),
-                )
-                .toList()
-              ..sort((a, b) => a.lobby!.compareTo(b.lobby!));
-
-        if (patients.isEmpty) return const SizedBox.shrink();
-        return Container(
-          margin: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFC0DD97)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Lobby placements',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF27500A),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: patients
-                    .map(
-                      (patient) => Chip(
-                        avatar: const Icon(
-                          Icons.weekend_outlined,
-                          size: 18,
-                          color: Color(0xFF3B6D11),
-                        ),
-                        label: Text('${patient.lobby} • ${patient.fullName}'),
-                        backgroundColor: const Color(0xFFF4F9F0),
-                        side: const BorderSide(color: Color(0xFFC0DD97)),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _LobbyManagementView extends StatelessWidget {
   final Stream<List<PatientModel>> patientsStream;
 
@@ -846,23 +774,32 @@ class _LobbyManagementView extends StatelessWidget {
             )
             .toList();
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final floor in [1, 2]) ...[
-                if (floor == 2) const SizedBox(width: 20),
-                Expanded(
-                  child: _LobbyFloorColumn(
-                    floor: floor,
-                    lobbyNames: lobbyOptions[floor]!,
-                    patients: activePatients,
-                  ),
-                ),
-              ],
-            ],
-          ),
+        return StreamBuilder<List<StayModel>>(
+          stream: ServiceLocator().roomService.getStaysStream(),
+          builder: (context, staysSnapshot) {
+            final activeStays = (staysSnapshot.data ?? const <StayModel>[])
+                .where((stay) => stay.status == 'active')
+                .toList();
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final floor in [1, 2]) ...[
+                    if (floor == 2) const SizedBox(width: 20),
+                    Expanded(
+                      child: _LobbyFloorColumn(
+                        floor: floor,
+                        lobbyNames: lobbyOptions[floor]!,
+                        patients: activePatients,
+                        stays: activeStays,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -873,11 +810,13 @@ class _LobbyFloorColumn extends StatelessWidget {
   final int floor;
   final List<String> lobbyNames;
   final List<PatientModel> patients;
+  final List<StayModel> stays;
 
   const _LobbyFloorColumn({
     required this.floor,
     required this.lobbyNames,
     required this.patients,
+    required this.stays,
   });
 
   @override
@@ -904,6 +843,7 @@ class _LobbyFloorColumn extends StatelessWidget {
                       patient.lobby?.trim() == lobbyName,
                 )
                 .toList(),
+            stays: stays,
           ),
           const SizedBox(height: 12),
         ],
@@ -915,8 +855,20 @@ class _LobbyFloorColumn extends StatelessWidget {
 class _LobbyPlacementCard extends StatelessWidget {
   final String lobbyName;
   final List<PatientModel> patients;
+  final List<StayModel> stays;
 
-  const _LobbyPlacementCard({required this.lobbyName, required this.patients});
+  const _LobbyPlacementCard({
+    required this.lobbyName,
+    required this.patients,
+    required this.stays,
+  });
+
+  StayModel? _stayFor(String patientId) {
+    for (final stay in stays) {
+      if (stay.patientId == patientId) return stay;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -950,18 +902,268 @@ class _LobbyPlacementCard extends StatelessWidget {
             const Text('Available', style: TextStyle(color: Color(0xFF639922)))
           else
             for (final patient in patients)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFFE8F3DE),
-                  child: Text(patient.fullName.isEmpty ? '?' : patient.fullName[0]),
-                ),
-                title: Text(patient.fullName),
-                subtitle: Text(patient.registrationNumber ?? 'Active patient'),
-              ),
+              _LobbyPatientStay(patient: patient, stay: _stayFor(patient.id)),
         ],
       ),
+    );
+  }
+}
+
+class _LobbyPatientStay extends StatelessWidget {
+  final PatientModel patient;
+  final StayModel? stay;
+
+  const _LobbyPatientStay({required this.patient, required this.stay});
+
+  @override
+  Widget build(BuildContext context) {
+    final currentStay = stay;
+    final attendants = patient.attendants?.isNotEmpty == true
+        ? patient.attendants!
+        : patient.emergencyContactName.trim().isNotEmpty
+        ? <AttendantModel>[
+            AttendantModel(
+              name: patient.emergencyContactName.trim(),
+              relation: 'Attendant',
+            ),
+          ]
+        : const <AttendantModel>[];
+    final isExpired = currentStay != null && currentStay.daysRemaining < 0;
+    final isExpiringSoon =
+        currentStay != null &&
+        currentStay.daysRemaining >= 0 &&
+        currentStay.daysRemaining <= 3;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFCF8),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isExpired
+              ? const Color(0xFFE8B4B8)
+              : isExpiringSoon
+              ? const Color(0xFFFFB74D)
+              : const Color(0xFFDCEBCF),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: const Color(0xFFE8F3DE),
+                child: Text(
+                  patient.fullName.isEmpty ? '?' : patient.fullName[0],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      patient.fullName,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      patient.registrationNumber ?? 'Active patient',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (currentStay != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isExpired
+                        ? const Color(0xFFFFE5E7)
+                        : isExpiringSoon
+                        ? const Color(0xFFFFF3E0)
+                        : const Color(0xFFE8F5E0),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isExpired
+                        ? 'EXPIRED'
+                        : '${currentStay.daysRemaining} days left',
+                    style: TextStyle(
+                      color: isExpired
+                          ? const Color(0xFFD32F2F)
+                          : isExpiringSoon
+                          ? const Color(0xFFE65100)
+                          : const Color(0xFF3B6D11),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: [
+              _LobbyStayDetail(
+                icon: Icons.calendar_today_rounded,
+                label: 'Admission',
+                value:
+                    '${patient.admissionDate.day}/${patient.admissionDate.month}/${patient.admissionDate.year}',
+              ),
+              _LobbyStayDetail(
+                icon: Icons.supervisor_account_outlined,
+                label: 'Attendants',
+                value:
+                    '${attendants.isNotEmpty ? attendants.length : (currentStay?.attendantCount ?? 0)}',
+              ),
+            ],
+          ),
+          if (currentStay != null) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 18,
+              runSpacing: 8,
+              children: [
+                _LobbyStayDetail(
+                  icon: Icons.event_rounded,
+                  label: 'Duration',
+                  value: '${currentStay.totalDays} days',
+                ),
+              ],
+            ),
+          ],
+          if (attendants.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFDCEBCF)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(
+                  Icons.supervisor_account_outlined,
+                  size: 16,
+                  color: Color(0xFF639922),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Attendants (${attendants.length})',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF3B6D11),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: attendants
+                  .map((attendant) => _LobbyAttendantChip(attendant: attendant))
+                  .toList(),
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF6F8F4),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'No attendant details added',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LobbyAttendantChip extends StatelessWidget {
+  final AttendantModel attendant;
+
+  const _LobbyAttendantChip({required this.attendant});
+
+  @override
+  Widget build(BuildContext context) {
+    final relation = attendant.relation?.trim();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 5, 10, 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F7EA),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFDCEBCF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: const Color(0xFFDCEBCF),
+            child: Text(
+              attendant.name.trim().isEmpty
+                  ? '?'
+                  : attendant.name.trim()[0].toUpperCase(),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF27500A),
+              ),
+            ),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            relation == null || relation.isEmpty
+                ? attendant.name
+                : '${attendant.name} · $relation',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LobbyStayDetail extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _LobbyStayDetail({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF639922)),
+        const SizedBox(width: 5),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF82B54B)),
+            ),
+            Text(value, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+      ],
     );
   }
 }

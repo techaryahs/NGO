@@ -1166,15 +1166,35 @@ class _OverviewTab extends StatelessWidget {
   }
 
   Widget _buildRoomAssignment() {
+    final lobby = _lobby;
+    final inferredLobbyFloor = lobby?.isNotEmpty == true
+        ? int.tryParse(lobby![0])
+        : null;
+    final assignedFloor = patient.floor ?? inferredLobbyFloor;
     if (patient.roomNumber == null) {
       return _Section(
         label: "Room Assignment",
-        child: _InfoField(
-          label: "Room Status",
-          value: "No room assigned yet",
-          icon: Icons.meeting_room_outlined,
-          fullWidth: true,
-        ),
+        child: lobby == null
+            ? _InfoField(
+                label: "Room Status",
+                value: "No room assigned yet",
+                icon: Icons.meeting_room_outlined,
+                fullWidth: true,
+              )
+            : _Row2(
+                _InfoField(
+                  label: "Assigned Lobby",
+                  value: lobby,
+                  icon: Icons.weekend_outlined,
+                ),
+                _InfoField(
+                  label: "Floor",
+                  value: assignedFloor == null
+                      ? "Not specified"
+                      : "Floor $assignedFloor",
+                  icon: Icons.layers_outlined,
+                ),
+              ),
       );
     }
     final bedLabels = patient.bedLabels != null && patient.bedLabels!.isNotEmpty
@@ -1255,6 +1275,7 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildAdmissionDetails() {
     final registrationDate = patient.registrationDate ?? patient.admissionDate;
+    final actualExitDate = patient.exitDate ?? patient.dischargeDate;
     final dateTimeFormat = DateFormat('d/M/y, hh:mm a');
     final registrationStr = dateTimeFormat.format(registrationDate);
     return _Section(
@@ -1266,10 +1287,12 @@ class _OverviewTab extends StatelessWidget {
           icon: Icons.event_outlined,
         ),
         _InfoField(
-          label: "Exit Date",
-          value: patient.exitDate == null
+          label: patient.exitDate == null && patient.dischargeDate != null
+              ? "Discharge Date"
+              : "Exit Date",
+          value: actualExitDate == null
               ? 'Not set'
-              : dateTimeFormat.format(patient.exitDate!),
+              : dateTimeFormat.format(actualExitDate),
           icon: Icons.event_available_outlined,
         ),
       ),
@@ -1512,13 +1535,17 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                     Expanded(
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.calendar_today_outlined),
-                        label: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+                        label: Text(
+                          DateFormat('dd MMM yyyy').format(selectedDate),
+                        ),
                         onPressed: () async {
                           final picked = await showDatePicker(
                             context: dialogContext,
                             initialDate: selectedDate,
                             firstDate: DateTime(2000),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
                           );
                           if (picked == null) return;
                           setDialogState(() {
@@ -1776,8 +1803,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                   final paymentId = storedPayment['id']?.toString();
                   final payment = <String, dynamic>{
                     ...storedPayment,
-                    if (paymentId != null)
-                      ...?_paymentOverrides[paymentId],
+                    if (paymentId != null) ...?_paymentOverrides[paymentId],
                   };
                   final date = DateTime.fromMillisecondsSinceEpoch(
                     payment['date'] ?? 0,
@@ -1942,17 +1968,26 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     _attendanceDataFuture = _loadAttendanceData();
     _attendantAttendanceFuture = _loadAttendantAttendance();
+  }
 
-    _attendantAttendanceFuture.then((data) {
-      print("ATTENDANT DATA = $data");
-    });
+  ({String start, String end}) get _attendanceDateRange {
+    final startDate =
+        widget.patient.registrationDate ?? widget.patient.admissionDate;
+    final endDate = widget.patient.dischargeDate ?? DateTime.now();
+    final format = DateFormat('yyyy-MM-dd');
+    return (start: format.format(startDate), end: format.format(endDate));
   }
 
   Future<Map<String, Map<String, dynamic>>> _loadAttendanceData() async {
     final result = <String, Map<String, dynamic>>{};
 
     try {
-      final data = await ServiceLocator().rtdbService.get('attendance/daily');
+      final range = _attendanceDateRange;
+      final data = await ServiceLocator().rtdbService.getByKeyRange(
+        'attendance/daily',
+        startKey: range.start,
+        endKey: range.end,
+      );
 
       if (data != null && data is Map) {
         data.forEach((dateStr, records) {
@@ -1981,8 +2016,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     final result = <String, dynamic>{};
 
     try {
-      final data = await ServiceLocator().rtdbService.get(
+      final range = _attendanceDateRange;
+      final data = await ServiceLocator().rtdbService.getByKeyRange(
         'attendant_attendance/daily',
+        startKey: range.start,
+        endKey: range.end,
       );
 
       if (data != null && data is Map) {
@@ -2564,20 +2602,20 @@ class _StaysTab extends StatelessWidget {
   Widget _buildActiveStayCard(StayModel stay) {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
-    final registrationDate = patient.registrationDate ?? stay.admissionDate;
-    final exitDate = patient.exitDate ?? stay.effectiveExpiryDate;
-    final stayDays = _billableStayDays(registrationDate, exitDate);
-    final attendantsCount = patient.attendants?.length ?? stay.attendantCount;
+    final admissionDate = stay.admissionDate;
+    final expectedDischargeDate = stay.effectiveExpiryDate;
+    final daysRemaining = stay.daysRemaining;
+    final stayDays = stay.totalDays;
+    final attendantCount = patient.attendants?.length ?? stay.attendantCount;
     final isPrivateRoom = stay.roomType.toLowerCase() == 'private';
     final baseCost = (isPrivateRoom ? 700.0 : 200.0) * stayDays;
-    final extraAttendantCost = isPrivateRoom && attendantsCount > 1
-        ? (attendantsCount - 1) * 200.0 * stayDays
-        : 0.0;
+    final extraAttendantCost = isPrivateRoom
+        ? (attendantCount > 1 ? attendantCount - 1 : 0) * 200.0 * stayDays
+        : attendantCount * 200.0 * stayDays;
     final totalCost = baseCost + extraAttendantCost;
-    final daysRemaining = exitDate.difference(DateTime.now()).inDays;
 
-    final admStr = dateFmt.format(registrationDate);
-    final expDisStr = dateFmt.format(exitDate);
+    final admStr = dateFmt.format(admissionDate);
+    final expDisStr = dateFmt.format(expectedDischargeDate);
 
     return Container(
       decoration: BoxDecoration(
@@ -2791,28 +2829,15 @@ class _StaysTab extends StatelessWidget {
     );
   }
 
-  int _billableStayDays(DateTime registrationDate, DateTime exitDate) {
-    var days = exitDate
-        .difference(
-          DateTime(
-            registrationDate.year,
-            registrationDate.month,
-            registrationDate.day,
-          ),
-        )
-        .inDays;
-    if (exitDate.hour > 9 || (exitDate.hour == 9 && exitDate.minute > 0)) {
-      days++;
-    }
-    return days.clamp(1, 3650);
-  }
-
   Widget _buildCompletedStayCard(StayModel stay) {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final dateFmt = DateFormat('dd MMM yyyy');
+    final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
 
     final admStr = dateFmt.format(stay.admissionDate);
-    final disStr = dateFmt.format(stay.effectiveExpiryDate);
+    final completionDate = stay.status == 'completed'
+        ? stay.updatedAt
+        : stay.effectiveExpiryDate;
+    final disStr = dateFmt.format(completionDate);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2850,7 +2875,7 @@ class _StaysTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "$admStr - $disStr (${stay.totalDays} days)",
+                  "Admitted $admStr • Completed $disStr",
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -2874,9 +2899,9 @@ class _StaysTab extends StatelessWidget {
                   color: const Color(0xFFE8E8E8),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  "COMPLETED",
-                  style: TextStyle(
+                child: Text(
+                  stay.status.toUpperCase(),
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 9,
                     fontWeight: FontWeight.bold,

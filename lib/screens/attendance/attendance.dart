@@ -306,6 +306,10 @@ class _AttendanceState extends State<Attendance>
 
     // Fetch the parent once instead of issuing seven simultaneous requests.
     final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
+    final patientsData = await ServiceLocator().rtdbService.get('patients');
+    final validPatientIds = patientsData is Map
+        ? patientsData.keys.map((key) => key.toString()).toSet()
+        : <String>{};
     final dailyMap = allDailyData is Map
         ? Map<String, dynamic>.from(allDailyData)
         : <String, dynamic>{};
@@ -314,7 +318,8 @@ class _AttendanceState extends State<Attendance>
       final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
-          Map<String, dynamic>.from(data).forEach((_, v) {
+          Map<String, dynamic>.from(data).forEach((patientId, v) {
+            if (!validPatientIds.contains(patientId)) return;
             final name = v['patientName'] ?? '';
             final status = v['status'] ?? '';
             if (name.isNotEmpty) {
@@ -324,6 +329,7 @@ class _AttendanceState extends State<Attendance>
         } else {
           // Attendants are stored under date / patientId / safeKey
           Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
+            if (!validPatientIds.contains(patientId)) return;
             if (attendantsMap is Map) {
               Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
                 final name = v['attendantName'] ?? '';
@@ -354,6 +360,10 @@ class _AttendanceState extends State<Attendance>
     // The previous implementation launched up to 31 requests at the same
     // time, which was slow and unreliable on ordinary Wi-Fi connections.
     final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
+    final patientsData = await ServiceLocator().rtdbService.get('patients');
+    final validPatientIds = patientsData is Map
+        ? patientsData.keys.map((key) => key.toString()).toSet()
+        : <String>{};
     final dailyMap = allDailyData is Map
         ? Map<String, dynamic>.from(allDailyData)
         : <String, dynamic>{};
@@ -362,7 +372,8 @@ class _AttendanceState extends State<Attendance>
       final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
-          Map<String, dynamic>.from(data).forEach((_, v) {
+          Map<String, dynamic>.from(data).forEach((patientId, v) {
+            if (!validPatientIds.contains(patientId)) return;
             final name = v['patientName'] ?? '';
             final status = v['status'] ?? '';
             if (name.isNotEmpty) {
@@ -371,6 +382,7 @@ class _AttendanceState extends State<Attendance>
           });
         } else {
           Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
+            if (!validPatientIds.contains(patientId)) return;
             if (attendantsMap is Map) {
               Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
                 final name = v['attendantName'] ?? '';
@@ -1236,7 +1248,11 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
     super.dispose();
   }
 
-  Widget _borderedCell({required double width, required Widget child, Color? color}) {
+  Widget _borderedCell({
+    required double width,
+    required Widget child,
+    Color? color,
+  }) {
     return Container(
       width: width,
       height: rowHeight,
@@ -1316,9 +1332,9 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
                   scrollDirection: Axis.horizontal,
                   physics: const NeverScrollableScrollPhysics(),
                   child: Row(
-                      children: [
-                        for (final date in widget.dates)
-                          Container(
+                    children: [
+                      for (final date in widget.dates)
+                        Container(
                           width: cellWidth,
                           height: headerHeight,
                           alignment: Alignment.center,
@@ -1341,8 +1357,8 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
                               );
                             },
                           ),
-                          ),
-                      ],
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -1357,19 +1373,21 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
                   controller: namesController,
                   physics: const NeverScrollableScrollPhysics(),
                   child: Column(
-                      children: [
-                        for (final entry in entries)
-                          _borderedCell(
+                    children: [
+                      for (final entry in entries)
+                        _borderedCell(
                           width: nameWidth,
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
                               entry.key,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          ),
-                      ],
+                        ),
+                    ],
                   ),
                 ),
               ),

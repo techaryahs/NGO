@@ -78,6 +78,38 @@ class PatientService {
     });
   }
 
+  /// Server-filtered stream for screens that only need selected statuses.
+  Stream<List<PatientModel>> getPatientsByStatuses(
+    List<String> statuses,
+  ) {
+    return _rtdb
+        .queryAnyStream(
+          _patientsPath,
+          orderBy: 'status',
+          equalToAny: statuses,
+        )
+        .map((data) {
+          final patients = <PatientModel>[];
+          if (data is Map) {
+            data.forEach((key, value) {
+              if (value is Map) {
+                patients.add(
+                  PatientModel.fromMap(
+                    key.toString(),
+                    Map<String, dynamic>.from(value),
+                  ),
+                );
+              }
+            });
+          }
+          patients.sort(
+            (a, b) => b.admissionDate.compareTo(a.admissionDate),
+          );
+          return patients;
+        })
+        .asBroadcastStream();
+  }
+
   /// Client-side search by patient name against `searchKey`.
   ///
   /// RTDB does not support full-text search natively, so we stream all
@@ -150,8 +182,8 @@ class PatientService {
     if (data is! Map) return null;
     for (final entry in Map<String, dynamic>.from(data).entries) {
       if (entry.key == excludingPatientId || entry.value is! Map) continue;
-      final storedNumber =
-          (entry.value['registrationNumber']?.toString() ?? '').trim();
+      final storedNumber = (entry.value['registrationNumber']?.toString() ?? '')
+          .trim();
       if (storedNumber.toLowerCase() == normalized) {
         return PatientModel.fromMap(
           entry.key,
@@ -440,6 +472,12 @@ class PatientService {
         'bedIds': null,
         'bedLabels': null,
       });
+
+      // Freeze attendance and billing at the actual discharge timestamp.
+      // Without this recalculation, amounts last computed while the patient
+      // was active can continue to include days after discharge.
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patientId);
     } catch (e) {
       throw Exception('Failed to discharge patient: $e');
     }

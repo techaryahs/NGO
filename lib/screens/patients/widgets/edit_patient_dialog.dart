@@ -65,6 +65,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
   List<String> _currentStayIds = []; // Track multiple stays
+  String? _historicalRoomType;
 
   // @override
   // void initState() {
@@ -205,11 +206,20 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final roomService = ServiceLocator().roomService;
       final rooms = await roomService.getRoomsStream().first;
 
+      // Load stays even after discharge, when roomId has already been cleared.
+      // The latest stay preserves the room type needed for a correct edit-time
+      // estimate.
+      final stays = await roomService
+          .getStaysByPatientStream(widget.patient.id)
+          .first;
+      if (stays.isNotEmpty) {
+        final sortedStays = [...stays]
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        _historicalRoomType = sortedStays.first.roomType;
+      }
+
       // Load current stays to get bed info
       if (widget.patient.roomId != null) {
-        final stays = await roomService
-            .getStaysByPatientStream(widget.patient.id)
-            .first;
         final activeStays = stays.where((s) => s.status == 'active').toList();
 
         if (activeStays.isNotEmpty) {
@@ -317,7 +327,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
   double get _estimatedTotal =>
       PricingHelper.calculateDailyCharge(
-        _selectedRoom?.isPrivate ?? false,
+        _selectedRoom?.isPrivate ?? (_historicalRoomType == 'private'),
         _attendants
             .where((a) => a.nameController.text.trim().isNotEmpty)
             .length,
