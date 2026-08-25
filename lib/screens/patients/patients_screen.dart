@@ -5,6 +5,7 @@ import '../../models/room_model.dart';
 import '../../models/bed_model.dart';
 import '../../models/stay_model.dart';
 import '../../utils/bed_helper.dart';
+import '../../utils/pricing_helper.dart';
 import 'widgets/patient_card.dart';
 import 'widgets/add_patient_dialog.dart';
 import 'widgets/payment_dialog.dart';
@@ -28,6 +29,21 @@ class _PatientsScreenState extends State<PatientsScreen> {
   late final Stream<List<RoomModel>> _roomsStream;
   static const _pageSize = 25;
   int _visiblePatients = _pageSize;
+  final Set<String> _locallyDeletedPatientIds = <String>{};
+
+  String? _notesWithoutPlacement(String? notes) {
+    final retained = (notes ?? '')
+        .split('\n')
+        .where(
+          (line) => !RegExp(
+            r'^\s*(Room|Lobby|Beds?)\s*:',
+            caseSensitive: false,
+          ).hasMatch(line),
+        )
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    return retained.isEmpty ? null : retained.join('\n');
+  }
 
   String _selectedFilter = 'all'; // 'all', 'active', 'inactive', 'discharged'
   String _searchQuery = '';
@@ -95,12 +111,18 @@ class _PatientsScreenState extends State<PatientsScreen> {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF3B6D11),
+            ),
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD32F2F),
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+              elevation: 2,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Delete'),
@@ -112,6 +134,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
     try {
       await ServiceLocator().patientService.deletePatient(patient.id);
       if (mounted) {
+        setState(() => _locallyDeletedPatientIds.add(patient.id));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Patient deleted successfully')),
         );
@@ -145,9 +168,15 @@ class _PatientsScreenState extends State<PatientsScreen> {
         result.payment!,
       );
       await ServiceLocator().patientService.updatePatient(patient.id, {
-        'paymentPending': result.payment!.paymentStatus == "Pending",
+        'advanceBilledAmount': result.payment!.totalAmount,
+        'attendanceCharges': 0.0,
+        'billingAmountOverride': result.totalAmountEdited
+            ? result.payment!.totalAmount
+            : patient.billingAmountOverride,
+        'paymentPending': result.payment!.pendingAmount > 0,
         'paymentStatus': result.payment!.paymentStatus,
-        'status': result.payment!.paymentStatus == "Paid" ? 'Paid' : 'active',
+        // Payment state must never reactivate or otherwise change the
+        // patient's admission lifecycle status.
         'totalPaidAmount': result.payment!.paidAmount,
         'currentDueAmount': result.payment!.pendingAmount,
       });
@@ -175,6 +204,12 @@ class _PatientsScreenState extends State<PatientsScreen> {
     final stays = List<StayModel>.from(results[1] as List<StayModel>)
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final previousStay = stays.where((stay) => stay.bedId != null).firstOrNull;
+    final previousLobby = patient.lobby?.trim().isNotEmpty == true
+        ? patient.lobby!.trim()
+        : RegExp(
+            r'Lobby:\s*([^\n]+)',
+            caseSensitive: false,
+          ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
 
     final placements = <_RejoinPlacement>[
       const _RejoinPlacement.unassigned(),
@@ -183,9 +218,21 @@ class _PatientsScreenState extends State<PatientsScreen> {
       if (room.status == 'maintenance' || room.status == 'unavailable') {
         continue;
       }
-      for (final bed in room.beds.where((bed) => bed.isAvailable)) {
-        final isPrevious = previousStay?.roomId == room.id &&
-            previousStay?.bedId == bed.id;
+      for (final bed in BedHelper.selectableAvailableBeds(room)) {
+        final previousBed = previousStay?.roomId == room.id
+            ? room.beds
+                  .where((candidate) => candidate.id == previousStay?.bedId)
+                  .firstOrNull
+            : null;
+        final isPrevious = previousBed != null &&
+            BedHelper.getBedDisplayName(
+                  previousBed.bedLabel,
+                  roomIdentifier: room.roomIdentifier,
+                ) ==
+                BedHelper.getBedDisplayName(
+                  bed.bedLabel,
+                  roomIdentifier: room.roomIdentifier,
+                );
         placements.add(
           _RejoinPlacement.bed(
             room: room,
@@ -217,15 +264,24 @@ class _PatientsScreenState extends State<PatientsScreen> {
       lobbyNames.map(
         (name) => _RejoinPlacement.lobby(
           name,
-          isPreviousLobby: patient.lobby?.trim() == name,
+          isPreviousLobby: previousLobby == name,
         ),
       ),
     );
 
     if (!mounted) return null;
+    if (placements.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No beds or lobbies are currently available.'),
+          backgroundColor: Color(0xFFD32F2F),
+        ),
+      );
+      return null;
+    }
     var selected = placements.firstWhere(
       (placement) => placement.isPreviousBed || placement.isPreviousLobby,
-      orElse: () => placements.length > 1 ? placements[1] : placements.first,
+      orElse: () => placements.first,
     );
     return showDialog<_RejoinPlacement>(
       context: context,
@@ -239,36 +295,82 @@ class _PatientsScreenState extends State<PatientsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  previousStay == null
-                      ? 'Choose an available bed, lobby, or rejoin without an assignment.'
+                  previousLobby != null
+                      ? 'The previous lobby is available. You may use it or choose another placement.'
+                      : previousStay == null
+                      ? 'Choose an available bed or lobby.'
                       : placements.any((p) => p.isPreviousBed)
                       ? 'The previous bed is available. You may use it or choose another placement.'
-                      : 'The previous bed is occupied. Choose another available bed, a lobby, or remain unassigned.',
+                      : 'The previous bed is occupied. Choose another available bed or a lobby.',
                 ),
-                const SizedBox(height: 18),
-                DropdownButtonFormField<_RejoinPlacement>(
-                  value: selected,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Placement',
-                    border: OutlineInputBorder(),
+                const SizedBox(height: 14),
+                Container(
+                  height: 360,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAF3),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFD5E8C2)),
                   ),
-                  items: placements
-                      .map(
-                        (placement) => DropdownMenuItem(
-                          value: placement,
+                  child: ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      const _RejoinSectionTitle(
+                        icon: Icons.bed_outlined,
+                        label: 'Available room beds',
+                      ),
+                      if (!placements.any(
+                        (placement) => placement.room != null,
+                      ))
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(4, 2, 4, 12),
                           child: Text(
-                            placement.label,
-                            overflow: TextOverflow.ellipsis,
+                            'No room beds are currently available. You can choose a lobby or assign later.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => selected = value);
-                    }
-                  },
+                      ...placements
+                          .where((placement) => placement.room != null)
+                          .map(
+                            (placement) => _RejoinPlacementTile(
+                              placement: placement,
+                              selected: identical(selected, placement),
+                              onTap: () =>
+                                  setDialogState(() => selected = placement),
+                            ),
+                          ),
+                      const SizedBox(height: 10),
+                      const _RejoinSectionTitle(
+                        icon: Icons.weekend_outlined,
+                        label: 'Lobby placement',
+                      ),
+                      ...placements
+                          .where((placement) => placement.lobbyName != null)
+                          .map(
+                            (placement) => _RejoinPlacementTile(
+                              placement: placement,
+                              selected: identical(selected, placement),
+                              onTap: () =>
+                                  setDialogState(() => selected = placement),
+                            ),
+                          ),
+                      const SizedBox(height: 10),
+                      const _RejoinSectionTitle(
+                        icon: Icons.person_outline_rounded,
+                        label: 'Assign later',
+                      ),
+                      _RejoinPlacementTile(
+                        placement: placements.firstWhere(
+                          (placement) => placement.isUnassigned,
+                        ),
+                        selected: selected.isUnassigned,
+                        onTap: () => setDialogState(
+                          () => selected = placements.firstWhere(
+                            (placement) => placement.isUnassigned,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -295,13 +397,53 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
       final now = DateTime.now();
       final patientService = ServiceLocator().patientService;
+      final roomService = ServiceLocator().roomService;
+      final priorStays = await roomService
+          .getStaysByPatientStream(patient.id)
+          .first;
+      final priorStart = patient.registrationDate ?? patient.admissionDate;
+      final priorEnd = patient.exitDate ?? patient.dischargeDate;
+      if (patient.lobby?.trim().isNotEmpty == true &&
+          priorEnd != null &&
+          !priorStays.any((stay) =>
+              stay.admissionDate.millisecondsSinceEpoch ==
+              priorStart.millisecondsSinceEpoch)) {
+        await roomService.createLobbyStay(
+          patientId: patient.id,
+          patientName: patient.fullName,
+          lobbyName: patient.lobby!.trim(),
+          admissionDate: priorStart,
+          durationDays: priorEnd.difference(priorStart).inDays.clamp(1, 3650),
+          attendantCount: patient.attendants?.length ?? 0,
+          attendantLabels: (patient.attendants ?? const <AttendantModel>[])
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList(),
+          createdBy: 'system',
+          status: 'completed',
+          completedAt: priorEnd,
+        );
+      }
+      final pricing = await ServiceLocator().roomService.getPricing();
+      final estimatedTotal = placement.isUnassigned
+          ? 0.0
+          : PricingHelper.calculateDailyCharge(
+            placement.room?.isPrivate ?? false,
+            patient.attendants?.length ?? 0,
+            pricing: pricing,
+          ) *
+          PricingHelper.advanceDays;
       final baseUpdates = <String, dynamic>{
         'status': 'active',
         'dischargeDate': null,
         'admissionDate': now.millisecondsSinceEpoch,
         'registrationDate': now.millisecondsSinceEpoch,
         'isAdvancePeriod': true,
-        'advanceBilledAmount': 700.0,
+        'advanceBilledAmount': estimatedTotal,
+        // A rejoin starts a fresh billing cycle. Never carry a custom bill
+        // total from the patient's previous completed stay into this stay.
+        'billingAmountOverride': null,
         'attendanceCharges': 0.0,
         'totalPresentDays': 0,
         'totalAbsentDays': 0,
@@ -315,6 +457,12 @@ class _PatientsScreenState extends State<PatientsScreen> {
         'bedIds': null,
         'bedLabels': null,
         'lobby': null,
+        'notes': _notesWithoutPlacement(patient.notes),
+        'exitDate': null,
+        'totalPaidAmount': 0.0,
+        'currentDueAmount': estimatedTotal,
+        'paymentPending': estimatedTotal > 0,
+        'paymentStatus': estimatedTotal > 0 ? 'Unpaid' : 'Paid',
       };
       // Reactivate first as unassigned. If the chosen bed is taken between
       // opening and confirming the dialog, the patient safely remains active
@@ -333,8 +481,13 @@ class _PatientsScreenState extends State<PatientsScreen> {
             roomNumber: placement.room!.roomIdentifier,
             roomType: placement.room!.roomType,
             admissionDate: now,
-            durationDays: 60,
+            durationDays: PricingHelper.advanceDays,
             attendantCount: patient.attendants?.length ?? 0,
+            attendantLabels: (patient.attendants ?? const <AttendantModel>[])
+                .map((a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name)
+                .toList(),
             bedId: placement.bed!.id,
             bedLabel: placement.bed!.bedLabel,
             notes: placement.isPreviousBed
@@ -348,6 +501,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
             'floor': placement.room!.floor,
             'bedIds': [placement.bed!.id],
             'bedLabels': [placement.bed!.bedLabel],
+            'lobby': null,
           });
         } catch (error) {
           await ServiceLocator().paymentService
@@ -368,7 +522,26 @@ class _PatientsScreenState extends State<PatientsScreen> {
         await patientService.updatePatient(patient.id, {
           'floor': placement.lobbyFloor,
           'lobby': placement.lobbyName,
+          'roomId': null,
+          'roomNumber': null,
+          'bedIds': null,
+          'bedLabels': null,
         });
+        await roomService.createLobbyStay(
+          patientId: patient.id,
+          patientName: patient.fullName,
+          lobbyName: placement.lobbyName!,
+          admissionDate: now,
+          durationDays: PricingHelper.advanceDays,
+          attendantCount: patient.attendants?.length ?? 0,
+          attendantLabels: (patient.attendants ?? const <AttendantModel>[])
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList(),
+          createdBy:
+              ServiceLocator().authRestService.currentUser?.uid ?? 'system',
+        );
       }
 
       await ServiceLocator().paymentService
@@ -405,6 +578,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
   //   return patients.where((p) => p.status == _selectedFilter).toList();
   // }
   List<PatientModel> _filterPatients(List<PatientModel> patients) {
+    patients = patients
+        .where((patient) => !_locallyDeletedPatientIds.contains(patient.id))
+        .toList();
     List<PatientModel> filtered;
 
     if (_selectedFilter == 'all') {
@@ -1550,22 +1726,45 @@ class _PatientsScreenState extends State<PatientsScreen> {
                       onTap: () => _showPatientDetails(patient),
                       onEdit: () => _showPatientDetails(patient),
                       onDischarge: () async {
-                        // Change patient status to discharged and clear assignments
-                        await ServiceLocator().patientService.dischargePatient(
-                          patient.id,
-                        );
+                        try {
+                          await ServiceLocator().patientService
+                              .dischargePatient(patient.id);
 
-                        if (context.mounted) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Patient discharged successfully',
+                                ),
+                                backgroundColor: Color(0xFF3B6D11),
+                              ),
+                            );
+                            setState(() {
+                              _selectedFilter = 'discharged';
+                            });
+                          }
+                        } catch (error) {
+                          if (!context.mounted) return;
+                          final missing = error.toString().contains(
+                            'Patient not found',
+                          );
+                          if (missing) {
+                            setState(
+                              () => _locallyDeletedPatientIds.add(patient.id),
+                            );
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Patient discharged successfully'),
-                              backgroundColor: Color(0xFF3B6D11),
+                            SnackBar(
+                              content: Text(
+                                missing
+                                    ? 'This patient was already deleted. The list has been refreshed.'
+                                    : 'Could not discharge patient: $error',
+                              ),
+                              backgroundColor: missing
+                                  ? const Color(0xFF3B6D11)
+                                  : const Color(0xFFD32F2F),
                             ),
                           );
-                          // Move patient automatically from Active tab -> Discharged tab
-                          setState(() {
-                            _selectedFilter = 'discharged';
-                          });
                         }
                       },
                       onPayNow: () => _handlePayNow(patient),
@@ -1618,6 +1817,8 @@ class _RejoinPlacement {
       ? int.tryParse(lobbyName![0])
       : null;
 
+  bool get isUnassigned => room == null && bed == null && lobbyName == null;
+
   String get label {
     if (room != null && bed != null) {
       final bedName = BedHelper.getBedDisplayName(
@@ -1630,6 +1831,112 @@ class _RejoinPlacement {
       return '${isPreviousLobby ? "Previous lobby — " : "Lobby — "}$lobbyName';
     }
     return 'Rejoin without room or lobby';
+  }
+}
+
+class _RejoinSectionTitle extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _RejoinSectionTitle({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: const Color(0xFF3B6D11)),
+          const SizedBox(width: 7),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: Color(0xFF3B6D11),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RejoinPlacementTile extends StatelessWidget {
+  final _RejoinPlacement placement;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RejoinPlacementTile({
+    required this.placement,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = placement.isUnassigned
+        ? Icons.schedule_rounded
+        : placement.lobbyName != null
+        ? Icons.weekend_outlined
+        : Icons.bed_outlined;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Material(
+        color: selected ? const Color(0xFFE6F2DA) : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected
+                    ? const Color(0xFF3B6D11)
+                    : const Color(0xFFD5E8C2),
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 19, color: const Color(0xFF3B6D11)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        placement.label,
+                        style: const TextStyle(
+                          color: Color(0xFF27500A),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (placement.isUnassigned)
+                        const Text(
+                          'Rejoin now and choose a room or lobby later in Edit Patient',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: selected
+                      ? const Color(0xFF3B6D11)
+                      : const Color(0xFF97C459),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

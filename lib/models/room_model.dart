@@ -140,9 +140,9 @@ class RoomModel {
     required double extraAttendantFee,
   }) {
     final baseCost = basePrice * days;
-    // The base rate covers the patient and one attendant. When there are two
-    // or more attendants, every attendant is charged the extra-attendant fee.
-    final chargedAttendants = attendants > includedAttendants ? attendants : 0;
+    final chargedAttendants = attendants > includedAttendants
+        ? attendants - includedAttendants
+        : 0;
     final extraCost = chargedAttendants * extraAttendantFee * days;
     return baseCost + extraCost;
   }
@@ -152,7 +152,7 @@ class RoomModel {
     required double bedPrice,
     required int attendants,
   }) {
-    return bedPrice * days;
+    return bedPrice * (1 + attendants) * days;
   }
 
   Map<String, dynamic> toMap() {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:excel/excel.dart' hide Border;
@@ -113,7 +114,12 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         result.payment!,
       );
       await ServiceLocator().patientService.updatePatient(currentPatient.id, {
-        'paymentPending': result.payment!.paymentStatus == "Pending",
+        'advanceBilledAmount': result.payment!.totalAmount,
+        'attendanceCharges': 0.0,
+        'billingAmountOverride': result.totalAmountEdited
+            ? result.payment!.totalAmount
+            : currentPatient.billingAmountOverride,
+        'paymentPending': result.payment!.pendingAmount > 0,
         'paymentStatus': result.payment!.paymentStatus,
         'totalPaidAmount': result.payment!.paidAmount,
         'currentDueAmount': result.payment!.pendingAmount,
@@ -405,6 +411,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF3B6D11),
+            ),
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
@@ -436,7 +445,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD32F2F),
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+              elevation: 2,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             ),
             child: const Text('Discharge'),
           ),
@@ -459,10 +471,19 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         final isActive =
             currentPatient.status == 'active' ||
             currentPatient.status.toLowerCase() == 'paid';
-        final showPayBtn =
-            (currentPatient.currentDueAmount ?? 0) > 0 ||
-            currentPatient.paymentStatus != 'Paid';
-        final payBtnLabel = currentPatient.paymentStatus == 'Partial'
+        final currentCyclePaid = _patientPaymentTotal(
+          currentPatient,
+          from: currentPatient.admissionDate,
+        );
+        final currentCycleTotal =
+            currentPatient.advanceBilledAmount +
+            currentPatient.attendanceCharges;
+        final currentCycleDue = (currentCycleTotal - currentCyclePaid).clamp(
+          0,
+          double.infinity,
+        );
+        final showPayBtn = isActive && currentCycleDue > 0;
+        final payBtnLabel = currentCyclePaid > 0
             ? 'Pay Remaining'
             : 'Pay Now';
         final photoBytes = _decodePhoto(currentPatient.photoDataUrl);
@@ -559,9 +580,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                                 ),
                                 label: const Text('Discharge Patient'),
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFFD32F2F),
+                                  foregroundColor: const Color(0xFF3B6D11),
                                   side: const BorderSide(
-                                    color: Color(0xFFD32F2F),
+                                    color: Color(0xFF3B6D11),
                                   ),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 16,
@@ -840,6 +861,9 @@ class _OverviewTab extends StatelessWidget {
 
   String? get _lobby {
     if (patient.lobby?.trim().isNotEmpty == true) return patient.lobby!.trim();
+    // Structured current placement wins over legacy notes. A lobby mentioned
+    // in notes belongs to an earlier placement once a room is assigned.
+    if (patient.roomNumber?.trim().isNotEmpty == true) return null;
     return RegExp(
       r'Lobby:\s*([^\n]+)',
       caseSensitive: false,
@@ -1030,8 +1054,14 @@ class _OverviewTab extends StatelessWidget {
   String _cleanNotes(String notes) {
     final lines = notes.split('\n');
     final filtered = lines.where((line) {
-      final lower = line.toLowerCase();
-      return !lower.startsWith('attendant ') &&
+      final trimmed = line.trim();
+      final lower = trimmed.toLowerCase();
+      final isPlacementMetadata = RegExp(
+        r'^(room|lobby|beds?)\s*:',
+        caseSensitive: false,
+      ).hasMatch(trimmed);
+      return !isPlacementMetadata &&
+          !lower.startsWith('attendant ') &&
           !lower.startsWith('attendant count');
     }).toList();
     return filtered.join('\n').trim();
@@ -1086,8 +1116,15 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildFinancialSummary() {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final paidAmount = _patientPaymentTotal(patient, from: patient.admissionDate);
-    final total = paidAmount + (patient.currentDueAmount ?? 0);
+    final paidAmount = _patientPaymentTotal(
+      patient,
+      from: patient.admissionDate,
+    );
+    final total = patient.advanceBilledAmount + patient.attendanceCharges;
+    final pending = (total - paidAmount).clamp(0, double.infinity);
+    final paymentStatus = pending > 0
+        ? (paidAmount > 0 ? 'Partially Paid' : 'Unpaid')
+        : 'Paid';
     return _Section(
       label: "Financial Summary",
       child: Column(
@@ -1108,12 +1145,12 @@ class _OverviewTab extends StatelessWidget {
           _Row2(
             _InfoField(
               label: "Pending Amount",
-              value: currencyFmt.format(patient.currentDueAmount ?? 0),
+              value: currencyFmt.format(pending),
               icon: Icons.pending_actions_outlined,
             ),
             _InfoField(
               label: "Payment Status",
-              value: patient.paymentStatus ?? "Pending",
+              value: paymentStatus,
               icon: Icons.info_outline,
             ),
           ),
@@ -2318,9 +2355,13 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                   Flexible(
                     flex: 5,
                     child: _CalendarView(
+                      patientId: widget.patient.id,
                       patientData: patientData,
                       attendantData: attendantData,
                       patientName: widget.patient.fullName,
+                      registrationDate: widget.patient.registrationDate ??
+                          widget.patient.admissionDate,
+                      admissionCycleStart: widget.patient.admissionDate,
                       exitDate: widget.patient.exitDate,
                     ),
                   ),
@@ -2523,6 +2564,47 @@ class _StaysTab extends StatelessWidget {
 
   const _StaysTab({required this.patient});
 
+  bool _sameMinute(DateTime a, DateTime b) =>
+      a.year == b.year &&
+      a.month == b.month &&
+      a.day == b.day &&
+      a.hour == b.hour &&
+      a.minute == b.minute;
+
+  List<StayModel> _deduplicateStayCycles(List<StayModel> stays) {
+    final byCycle = <String, StayModel>{};
+    for (final stay in stays) {
+      final start = stay.admissionDate;
+      final key = '${start.year}-${start.month}-${start.day}-${start.hour}-${start.minute}';
+      final existing = byCycle[key];
+      if (existing == null || stay.updatedAt.isAfter(existing.updatedAt)) {
+        byCycle[key] = stay;
+      }
+    }
+    final result = byCycle.values.toList()
+      ..sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
+    return result;
+  }
+
+  double _legacyPaidAmount(StayModel stay, DateTime? cycleExit) {
+    final matchingTotals = (patient.payments ?? const <PaymentModel>[])
+        .where(
+          (payment) => (payment.totalAmount - stay.totalCost).abs() < 0.01,
+        )
+        .toList();
+    if (matchingTotals.isNotEmpty) {
+      final highestRecordedPaid = matchingTotals
+          .map((payment) => payment.paidAmount)
+          .reduce((a, b) => a > b ? a : b);
+      return highestRecordedPaid.clamp(0.0, stay.totalCost).toDouble();
+    }
+    return _patientPaymentTotal(
+      patient,
+      from: stay.admissionDate,
+      through: cycleExit,
+    ).clamp(0.0, stay.totalCost).toDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<StayModel>>(
@@ -2535,10 +2617,64 @@ class _StaysTab extends StatelessWidget {
         }
 
         final stays = snapshot.data ?? [];
-        final activeStays = stays.where((s) => s.status == 'active').toList();
-        final pastStays = stays.where((s) => s.status != 'active').toList();
+        final isPatientActive = patient.status.toLowerCase() == 'active';
+        final activeStays = isPatientActive
+            ? stays.where((s) => s.status == 'active').toList()
+            : <StayModel>[];
+        final pastStays = stays.where((s) {
+          if (s.status == 'active') return false;
+          // While active, completed room/lobby segments created during the
+          // current admission are transfers, not previous discharged cycles.
+          // Compare the segment's exit/completion time with the current cycle
+          // boundary; createdAt can be a few milliseconds before a rejoin is
+          // saved and caused the same stay to be rendered in both sections.
+          if (!isPatientActive) return true;
+          // Completing a stay writes the completion timestamp to updatedAt.
+          // StayModel has no separate completedAt property.
+          final segmentEnd = s.updatedAt;
+          return segmentEnd.isBefore(patient.admissionDate);
+        }).toList();
+        final displayedActiveStays = _deduplicateStayCycles(activeStays);
+        final isDischarged = patient.status.toLowerCase() == 'discharged';
+        final currentRegistration =
+            patient.registrationDate ?? patient.admissionDate;
+        final matchingCurrentCycle = isDischarged
+            ? pastStays
+                .where(
+                  (stay) => _sameMinute(
+                    stay.admissionDate,
+                    currentRegistration,
+                  ) ||
+                  !stay.createdAt.isBefore(
+                    patient.admissionDate.subtract(const Duration(minutes: 1)),
+                  ),
+                )
+                .toList()
+            : <StayModel>[];
+        final currentDischargedStay = !isDischarged
+            ? null
+            : (matchingCurrentCycle.isNotEmpty
+                ? (matchingCurrentCycle
+                      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)))
+                    .first
+                : pastStays.firstOrNull);
+        final currentCycleIds = matchingCurrentCycle.isNotEmpty
+            ? matchingCurrentCycle.map((stay) => stay.id).toSet()
+            : <String>{if (currentDischargedStay != null) currentDischargedStay.id};
+        final historyStays = _deduplicateStayCycles(
+          pastStays
+              .where((stay) => !currentCycleIds.contains(stay.id))
+              .toList(),
+        );
 
-        if (stays.isEmpty) {
+        final hasCurrentPlacement = isPatientActive &&
+            (patient.lobby?.trim().isNotEmpty == true ||
+                patient.roomNumber?.trim().isNotEmpty == true);
+        final hasDischargedLobby =
+            patient.status.toLowerCase() == 'discharged' &&
+            patient.lobby?.trim().isNotEmpty == true;
+
+        if (stays.isEmpty && !hasCurrentPlacement && !hasDischargedLobby) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -2567,7 +2703,8 @@ class _StaysTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Active stays
-              if (activeStays.isNotEmpty) ...[
+              if (isPatientActive &&
+                  (displayedActiveStays.isNotEmpty || hasCurrentPlacement)) ...[
                 const Text(
                   "Active Stay Details",
                   style: TextStyle(
@@ -2577,14 +2714,39 @@ class _StaysTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ...activeStays
+                ...displayedActiveStays
                     .map((stay) => _buildActiveStayCard(stay))
                     .toList(),
+                if (displayedActiveStays.isEmpty && hasCurrentPlacement)
+                  _buildCurrentPlacementCard(),
                 const SizedBox(height: 32),
               ],
 
+              if (displayedActiveStays.isEmpty &&
+                  isDischarged &&
+                  (pastStays.isNotEmpty ||
+                      patient.lobby?.trim().isNotEmpty == true)) ...[
+                const Text(
+                  "Discharged Stay Details",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF27500A),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildActiveStayCard(
+                  currentDischargedStay != null
+                      ? currentDischargedStay
+                      : _currentPlacementStay(),
+                  isDischarged: true,
+                  useCurrentCycleFinancials: true,
+                ),
+                if (historyStays.isNotEmpty) const SizedBox(height: 32),
+              ],
+
               // Past stays
-              if (pastStays.isNotEmpty) ...[
+              if (historyStays.isNotEmpty) ...[
                 const Text(
                   "Stay History",
                   style: TextStyle(
@@ -2597,11 +2759,11 @@ class _StaysTab extends StatelessWidget {
                 ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: pastStays.length,
+                  itemCount: historyStays.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final stay = pastStays[index];
-                    return _buildCompletedStayCard(stay);
+                    final stay = historyStays[index];
+                    return _buildActiveStayCard(stay, isDischarged: true);
                   },
                 ),
               ],
@@ -2612,34 +2774,91 @@ class _StaysTab extends StatelessWidget {
     );
   }
 
-  Widget _buildActiveStayCard(StayModel stay) {
+  Widget _buildActiveStayCard(
+    StayModel stay, {
+    bool isDischarged = false,
+    bool useCurrentCycleFinancials = false,
+  }) {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
-    final admissionDate = stay.admissionDate;
-    final expectedDischargeDate = stay.effectiveExpiryDate;
-    final daysRemaining = stay.daysRemaining;
-    final stayDays = stay.totalDays;
-    final attendantCount = patient.attendants?.length ?? stay.attendantCount;
-    final isPrivateRoom = stay.roomType.toLowerCase() == 'private';
-    final baseCost = (isPrivateRoom ? 700.0 : 200.0) * stayDays;
-    final extraAttendantCost = isPrivateRoom
-        ? (attendantCount > 1 ? attendantCount - 1 : 0) * 200.0 * stayDays
-        : attendantCount * 200.0 * stayDays;
-    final totalCost = baseCost + extraAttendantCost;
-
+    final admissionDate = isDischarged && !useCurrentCycleFinancials
+        ? stay.admissionDate
+        : (patient.registrationDate ?? patient.admissionDate);
     final admStr = dateFmt.format(admissionDate);
-    final expDisStr = dateFmt.format(expectedDischargeDate);
+    final cycleExit = isDischarged && !useCurrentCycleFinancials
+        ? stay.updatedAt
+        : patient.exitDate;
+    final exitStr = cycleExit == null ? 'Not set' : dateFmt.format(cycleExit);
+    final totalCost = !isDischarged || useCurrentCycleFinancials
+        ? patient.advanceBilledAmount + patient.attendanceCharges
+        : stay.totalCost;
+    final paidAmount = !isDischarged || useCurrentCycleFinancials
+        ? _patientPaymentTotal(patient, from: patient.admissionDate)
+        : stay.paidAmount ?? _legacyPaidAmount(stay, cycleExit);
+    final pendingAmount = !isDischarged || useCurrentCycleFinancials
+        ? (totalCost - paidAmount).clamp(0, double.infinity)
+        : stay.pendingAmount ??
+            (totalCost - paidAmount).clamp(0, double.infinity);
+    final attendantLabels = isDischarged
+        ? stay.attendantLabels
+        : (patient.attendants ?? const <AttendantModel>[])
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList();
+    final notedRoom = RegExp(
+      r'Room:\s*([^\n]+)',
+      caseSensitive: false,
+    ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
+    final notedBeds = RegExp(
+      r'Beds?:\s*([^\n]+)',
+      caseSensitive: false,
+    ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
+    final resolvedRoom = patient.roomNumber?.trim().isNotEmpty == true
+        ? patient.roomNumber!.trim()
+        : notedRoom?.isNotEmpty == true
+        ? notedRoom!
+        : stay.roomNumber;
+    final sourceBedLabels = patient.bedLabels?.isNotEmpty == true
+        ? patient.bedLabels!
+        : notedBeds?.isNotEmpty == true
+        ? notedBeds!.split(',').map((value) => value.trim()).toList()
+        : stay.bedLabel?.trim().isNotEmpty == true
+        ? [stay.bedLabel!]
+        : const <String>[];
+    final bedLabel = sourceBedLabels.isNotEmpty
+        ? sourceBedLabels
+              .map(
+                (label) => BedHelper.getBedDisplayName(
+                  label,
+                  roomIdentifier: resolvedRoom,
+                ),
+              )
+              .toSet()
+              .join(', ')
+        : 'Bed not recorded';
+    final activePlacement = isDischarged && stay.roomType == 'lobby'
+        ? 'Lobby ${stay.roomNumber}'
+        : isDischarged
+        ? 'Room ${stay.roomNumber} • ${stay.bedLabel?.trim().isNotEmpty == true ? BedHelper.getBedDisplayName(stay.bedLabel!, roomIdentifier: stay.roomNumber) : 'Bed not recorded'}'
+        : patient.lobby?.trim().isNotEmpty == true
+        ? 'Lobby ${patient.lobby!.trim()}'
+        : 'Room $resolvedRoom • $bedLabel';
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF3B6D11), width: 1.5),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDischarged
+              ? const Color(0xFFCBD7C1)
+              : const Color(0xFFA8CC7B),
+        ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF3B6D11).withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: const Color(0xFF27500A).withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -2648,47 +2867,65 @@ class _StaysTab extends StatelessWidget {
         children: [
           // Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            decoration: const BoxDecoration(
-              color: Color(0xFFEAF3DE),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isDischarged
+                    ? const [Color(0xFF526348), Color(0xFF718265)]
+                    : const [Color(0xFF315F0C), Color(0xFF57951B)],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(19),
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    const Icon(
-                      Icons.bed_outlined,
-                      color: Color(0xFF3B6D11),
-                      size: 20,
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.16),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: Icon(
+                        activePlacement.startsWith('Lobby')
+                            ? Icons.weekend_outlined
+                            : Icons.bed_outlined,
+                        color: Colors.white,
+                        size: 21,
+                      ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 12),
                     Text(
-                      "Room ${stay.roomNumber} • Bed ${stay.bedNumber ?? 'N/A'}",
+                      activePlacement,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Color(0xFF27500A),
+                        fontSize: 16,
+                        color: Colors.white,
                       ),
                     ),
                   ],
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
+                    horizontal: 12,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF3B6D11),
-                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(0.35)),
                   ),
-                  child: const Text(
-                    "ACTIVE OCCUPANCY",
-                    style: TextStyle(
+                  child: Text(
+                    isDischarged ? "DISCHARGED" : "ACTIVE OCCUPANCY",
+                    style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 10,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ),
@@ -2698,70 +2935,92 @@ class _StaysTab extends StatelessWidget {
 
           // Content
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(22),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Durations
                 Row(
                   children: [
                     Expanded(
                       child: _buildMicroDetail(
-                        label: "Admission Date",
+                        label: "Admission date",
                         value: admStr,
                         icon: Icons.calendar_today_rounded,
                       ),
                     ),
                     Expanded(
                       child: _buildMicroDetail(
-                        label: "Expected Discharge",
-                        value: expDisStr,
+                        label: "Exit date",
+                        value: exitStr,
                         icon: Icons.event_available_rounded,
                       ),
                     ),
                     Expanded(
                       child: _buildMicroDetail(
-                        label: "Days Remaining",
-                        value: daysRemaining >= 0
-                            ? "$daysRemaining days"
-                            : "Expired",
-                        icon: Icons.access_time_filled_rounded,
-                        valueColor: daysRemaining >= 0
-                            ? const Color(0xFF3B6D11)
-                            : const Color(0xFFD32F2F),
+                        label: "Total amount",
+                        value: currencyFmt.format(totalCost),
+                        icon: Icons.payments_outlined,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
 
-                // Cost details
                 Row(
                   children: [
                     Expanded(
                       child: _buildMicroDetail(
-                        label: "Base Cost",
-                        value: currencyFmt.format(baseCost),
-                        icon: Icons.money_rounded,
+                        label: "Paid amount",
+                        value: currencyFmt.format(paidAmount),
+                        icon: Icons.account_balance_wallet_outlined,
                       ),
                     ),
                     Expanded(
                       child: _buildMicroDetail(
-                        label: "Extra Attendants Cost",
-                        value: currencyFmt.format(extraAttendantCost),
-                        icon: Icons.group_outlined,
+                        label: "Pending amount",
+                        value: currencyFmt.format(
+                          pendingAmount,
+                        ),
+                        icon: Icons.pending_actions_outlined,
                       ),
                     ),
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Total Cost",
-                        value: currencyFmt.format(totalCost),
-                        icon: Icons.payments_outlined,
-                        valueColor: const Color(0xFF3B6D11),
-                      ),
-                    ),
+                    const Spacer(),
                   ],
                 ),
+                if (attendantLabels.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4F9F0),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.people_outline_rounded,
+                          size: 17,
+                          color: Color(0xFF639922),
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            attendantLabels.join(', '),
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF27500A),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 // Extensions Section if present
                 if (stay.extensions.isNotEmpty) ...[
@@ -2842,20 +3101,61 @@ class _StaysTab extends StatelessWidget {
     );
   }
 
-  Widget _buildCompletedStayCard(StayModel stay) {
+  Widget _buildCurrentPlacementCard() {
+    return _buildActiveStayCard(_currentPlacementStay());
+  }
+
+  StayModel _currentPlacementStay() {
+    final lobby = patient.lobby?.trim();
+    return StayModel(
+      id: 'current-${patient.id}',
+      patientId: patient.id,
+      patientName: patient.fullName,
+      roomId: patient.roomId ?? '',
+      roomNumber: lobby?.isNotEmpty == true ? lobby! : (patient.roomNumber ?? ''),
+      roomType: 'general',
+      admissionDate: patient.admissionDate,
+      durationDays: 0,
+      expectedDischargeDate: patient.exitDate ?? patient.admissionDate,
+      expiryDate: patient.exitDate ?? patient.admissionDate,
+      status: 'active',
+      bedId: patient.bedLabels?.firstOrNull,
+      createdAt: patient.admissionDate,
+      updatedAt: DateTime.now(),
+      createdBy: 'system',
+    );
+  }
+
+  Widget _buildCompletedStayCard(
+    StayModel stay, {
+    bool useCurrentPatientData = false,
+  }) {
     final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
 
-    final admStr = dateFmt.format(stay.admissionDate);
-    final completionDate = stay.status == 'completed'
+    final admissionDate = useCurrentPatientData
+        ? (patient.registrationDate ?? patient.admissionDate)
+        : stay.admissionDate;
+    final admStr = dateFmt.format(admissionDate);
+    final completionDate = useCurrentPatientData
+        ? (patient.exitDate ?? patient.dischargeDate ?? stay.updatedAt)
+        : stay.status == 'completed'
         ? stay.updatedAt
         : stay.effectiveExpiryDate;
     final disStr = dateFmt.format(completionDate);
     final paidAmount = _patientPaymentTotal(
       patient,
-      from: stay.admissionDate,
+      from: admissionDate,
       through: completionDate,
     );
+    final historyPlacement = useCurrentPatientData &&
+            patient.lobby?.trim().isNotEmpty == true
+        ? 'Lobby ${patient.lobby!.trim()}'
+        : useCurrentPatientData && patient.roomNumber?.trim().isNotEmpty == true
+        ? 'Room ${patient.roomNumber} (${(patient.bedLabels ?? const <String>[]).map((label) => BedHelper.getBedDisplayName(label, roomIdentifier: patient.roomNumber)).toSet().join(', ')})'
+        : stay.roomType == 'lobby'
+        ? 'Lobby ${stay.roomNumber}'
+        : 'Room ${stay.roomNumber} (${BedHelper.getBedDisplayName(stay.bedId ?? stay.bedNumber?.toString() ?? '', roomIdentifier: stay.roomNumber)})';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2884,7 +3184,7 @@ class _StaysTab extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Room ${stay.roomNumber} (Bed ${stay.bedNumber ?? 'N/A'})",
+                  historyPlacement,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -2946,9 +3246,17 @@ class _StaysTab extends StatelessWidget {
     required IconData icon,
     Color? valueColor,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return Container(
+      margin: const EdgeInsets.only(right: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FAF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE1EDD7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         Row(
           children: [
             Icon(
@@ -2971,13 +3279,16 @@ class _StaysTab extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
             color: valueColor ?? const Color(0xFF27500A),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -3092,15 +3403,21 @@ class _MiniChip extends StatelessWidget {
 }
 
 class _CalendarView extends StatefulWidget {
+  final String patientId;
   final Map<String, Map<String, dynamic>> patientData;
   final Map<String, dynamic> attendantData;
   final String patientName;
+  final DateTime registrationDate;
+  final DateTime admissionCycleStart;
   final DateTime? exitDate;
 
   const _CalendarView({
+    required this.patientId,
     required this.patientData,
     required this.attendantData,
     required this.patientName,
+    required this.registrationDate,
+    required this.admissionCycleStart,
     required this.exitDate,
   });
 
@@ -3111,6 +3428,24 @@ class _CalendarView extends StatefulWidget {
 class _CalendarViewState extends State<_CalendarView> {
   DateTime _currentMonth = DateTime(DateTime.now().year, DateTime.now().month);
   String? _hoveredDate;
+  List<StayModel> _stays = const [];
+  StreamSubscription<List<StayModel>>? _staysSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _staysSubscription = ServiceLocator().roomService
+        .getStaysByPatientStream(widget.patientId)
+        .listen((stays) {
+          if (mounted) setState(() => _stays = stays);
+        });
+  }
+
+  @override
+  void dispose() {
+    _staysSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3220,6 +3555,52 @@ class _CalendarViewState extends State<_CalendarView> {
                 normalizedStatus == 'false' ||
                 patientRecord?['isPresent'] == false;
             final hasData = patientStatus != null || hasAttendantData;
+            final sortedStays = [..._stays]
+              ..sort((a, b) => a.admissionDate.compareTo(b.admissionDate));
+            // Only completed stays that ended before the immutable current
+            // admission boundary are historical cycles. Room/bed transfers
+            // completed during the current cycle must not create Rejoined
+            // markers. The current marker always comes from the latest
+            // editable registration date.
+            final historicalStays = sortedStays
+                .where(
+                  (stay) =>
+                      stay.status != 'active' &&
+                      stay.updatedAt.isBefore(widget.admissionCycleStart),
+                )
+                .toList();
+            final historicalCycleStarts = historicalStays
+                .where(
+                  (stay) =>
+                      stay.admissionDate.year == _currentMonth.year &&
+                      stay.admissionDate.month == _currentMonth.month &&
+                      stay.admissionDate.day == day,
+                )
+                .toList();
+            final isCurrentRegistrationDate =
+                widget.registrationDate.year == _currentMonth.year &&
+                widget.registrationDate.month == _currentMonth.month &&
+                widget.registrationDate.day == day;
+            final completedCycles = historicalStays
+                .where(
+                  (stay) =>
+                      stay.status != 'active' &&
+                      stay.updatedAt.year == _currentMonth.year &&
+                      stay.updatedAt.month == _currentMonth.month &&
+                      stay.updatedAt.day == day,
+                )
+                .toList();
+            final isCycleStart = historicalCycleStarts.isNotEmpty ||
+                isCurrentRegistrationDate;
+            final historicalStart = historicalCycleStarts.firstOrNull;
+            final markerDate = isCurrentRegistrationDate
+                ? widget.registrationDate
+                : historicalStart?.admissionDate;
+            final isRejoinDate = isCurrentRegistrationDate
+                ? historicalStays.isNotEmpty
+                : historicalStart != null &&
+                    sortedStays.indexOf(historicalStart) > 0;
+            final historicalExit = completedCycles.firstOrNull?.updatedAt;
             final exit = widget.exitDate;
             final isExitDate =
                 exit != null &&
@@ -3231,7 +3612,12 @@ class _CalendarViewState extends State<_CalendarView> {
             return InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () {
-                if (!hasData && !isExitDate) return;
+                if (!hasData &&
+                    !isExitDate &&
+                    !isCycleStart &&
+                    historicalExit == null) {
+                  return;
+                }
                 setState(() {
                   _hoveredDate = _hoveredDate == dateStr ? null : dateStr;
                 });
@@ -3313,6 +3699,30 @@ class _CalendarViewState extends State<_CalendarView> {
                           ),
                         ),
                       ),
+                    if (historicalExit != null && !isExitDate)
+                      Positioned(
+                        bottom: 1,
+                        child: Text(
+                          'Exited ${DateFormat('h:mm a').format(historicalExit)}',
+                          style: const TextStyle(
+                            fontSize: 6.5,
+                            color: Color(0xFFD32F2F),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    if (isCycleStart)
+                      Positioned(
+                        top: 1,
+                        child: Text(
+                          '${isRejoinDate ? 'Rejoined' : 'Joined'} ${DateFormat('h:mm a').format(markerDate!)}',
+                          style: const TextStyle(
+                            fontSize: 6.5,
+                            color: Color(0xFF3B6D11),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -3373,6 +3783,14 @@ class _CalendarViewState extends State<_CalendarView> {
                 ),
               ),
               label: "Absent",
+            ),
+            const _LegendItem(
+              child: Icon(Icons.login_rounded, size: 16, color: Color(0xFF3B6D11)),
+              label: "Joined / Rejoined",
+            ),
+            const _LegendItem(
+              child: Icon(Icons.exit_to_app, size: 16, color: Color(0xFFD32F2F)),
+              label: "Exited",
             ),
           ],
         ),

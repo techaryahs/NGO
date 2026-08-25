@@ -3,6 +3,7 @@ import '../models/patient_model.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
 import '../models/room_model.dart';
+import '../utils/pricing_helper.dart';
 
 class PaymentService {
   final FirebaseRTDBRestService _rtdb;
@@ -32,9 +33,13 @@ class PaymentService {
   double _currentCyclePaymentTotal(PatientModel patient) {
     final payments = patient.payments;
     if (payments == null) return patient.totalPaidAmount ?? 0;
+    // admissionDate is reset only by Rejoin and is therefore the immutable
+    // payment-cycle boundary. registrationDate remains user-editable for
+    // historical billing dates and must not pull old-cycle payments forward.
+    final cycleStart = patient.admissionDate;
 
     return payments.fold<double>(0, (total, payment) {
-      if (payment.date.isBefore(patient.admissionDate)) return total;
+      if (payment.date.isBefore(cycleStart)) return total;
       return total + payment.amount;
     });
   }
@@ -302,19 +307,49 @@ class PaymentService {
   // }
   Future<void> recalculateAllActivePatientsBilling({String? patientId}) async {
     final patientService = ServiceLocator().patientService;
+    final pricing = await ServiceLocator().roomService.getPricing();
+    double rate(String key, double fallback) =>
+        (pricing[key] as num?)?.toDouble() ?? fallback;
+    int count(String key, int fallback) =>
+        (pricing[key] as num?)?.toInt() ?? fallback;
     final allPatients = await patientService.getPatientsStream().first;
 
     final patients = patientId == null
-        ? allPatients
+        ? allPatients.where((patient) {
+            final status = patient.status.toLowerCase();
+            return status == 'active' || status == 'paid';
+          })
         : allPatients.where((patient) => patient.id == patientId);
     for (final patient in patients) {
       final isPrivate = await _isPrivateAccommodation(patient);
 
       final int attendantCount = patient.attendants?.length ?? 0;
       final int occupantCount = 1 + attendantCount;
+      final hasAccommodation =
+          patient.lobby?.trim().isNotEmpty == true ||
+          patient.roomId?.trim().isNotEmpty == true ||
+          patient.roomNumber?.trim().isNotEmpty == true;
       // Billing is based only on days explicitly marked Present. Absent and
       // unmarked dates remain visible in attendance but are not chargeable.
       final int totalPresent = patient.totalPresentDays;
+      final start = patient.registrationDate ?? patient.admissionDate;
+      final plannedDays = PricingHelper.calculateStayDays(
+        start,
+        patient.exitDate,
+      );
+      final calculatedAdvance = hasAccommodation
+          ? PricingHelper.calculateDailyCharge(
+            isPrivate,
+            attendantCount,
+            pricing: pricing,
+            bedsCount: patient.lobby?.trim().isNotEmpty == true
+                ? 1
+                : (patient.bedIds?.length ?? 1).clamp(1, 999),
+          ) *
+          plannedDays
+          : 0.0;
+      final configuredAdvance =
+          patient.billingAmountOverride ?? calculatedAdvance;
 
       // ── Two-slab calculation ──────────────────────────────────────────
       final int phase1Days = totalPresent.clamp(0, 60);
@@ -322,36 +357,43 @@ class PaymentService {
 
       double grossCharges;
       if (isPrivate) {
-        const double p1Patient = 700.0, p1Attendant = 200.0;
-        const double p2Patient = 900.0, p2Attendant = 300.0;
+        final p1Patient = rate('privateRoomBasePrice', 700.0);
+        final p1Attendant = rate('privateRoomExtraAttendantFee', 200.0);
+        final includedAttendants = count('privateRoomIncludedAttendants', 1);
+        final p2Patient = p1Patient + 200.0;
+        final p2Attendant = p1Attendant + 100.0;
         // The room price includes the patient and one attendant. Charge only
         // attendants beyond that included person.
-        final phase1AttendantCharge = attendantCount > 1
-            ? (attendantCount - 1) * p1Attendant
+        final phase1AttendantCharge = attendantCount > includedAttendants
+            ? (attendantCount - includedAttendants) * p1Attendant
             : 0.0;
-        final phase2AttendantCharge = attendantCount > 1
-            ? (attendantCount - 1) * p2Attendant
+        final phase2AttendantCharge = attendantCount > includedAttendants
+            ? (attendantCount - includedAttendants) * p2Attendant
             : 0.0;
         grossCharges =
             (phase1Days * (p1Patient + phase1AttendantCharge)) +
             (phase2Days * (p2Patient + phase2AttendantCharge));
       } else {
-        const double p1Rate = 200.0;
-        const double p2Rate = 250.0;
+        final p1Rate = rate('generalRoomBedPrice', 150.0);
+        final p2Rate = p1Rate + 50.0;
         grossCharges =
             (phase1Days * occupantCount * p1Rate) +
             (phase2Days * occupantCount * p2Rate);
       }
+      if (!hasAccommodation) grossCharges = 0.0;
 
       // An advance is an estimate, not an additional or minimum final bill.
       // Once discharged, explicitly Present days determine the final total.
       final isDischarged = patient.status.toLowerCase() == 'discharged';
+      final advanceAmount = isDischarged
+          ? patient.advanceBilledAmount
+          : configuredAdvance;
       final double totalBill = isDischarged
           ? grossCharges
-          : grossCharges < patient.advanceBilledAmount
-          ? patient.advanceBilledAmount
+          : grossCharges < advanceAmount
+          ? advanceAmount
           : grossCharges;
-      final double newCharges = (totalBill - patient.advanceBilledAmount).clamp(
+      final double newCharges = (totalBill - advanceAmount).clamp(
         0.0,
         double.infinity,
       );
@@ -371,6 +413,7 @@ class PaymentService {
       }
 
       await patientService.updatePatient(patient.id, {
+        if (!isDischarged) 'advanceBilledAmount': advanceAmount,
         'isAdvancePeriod': totalPresent < 60,
         'attendanceCharges': newCharges,
         'totalPaidAmount': totalPaid,
@@ -526,6 +569,11 @@ class PaymentService {
     final patientService = ServiceLocator().patientService;
     final patient = await patientService.getPatient(patientId);
     if (patient == null) return;
+    final pricing = await ServiceLocator().roomService.getPricing();
+    double rate(String key, double fallback) =>
+        (pricing[key] as num?)?.toDouble() ?? fallback;
+    int count(String key, int fallback) =>
+        (pricing[key] as num?)?.toInt() ?? fallback;
 
     int newPresent = patient.totalPresentDays;
     int newAbsent = patient.totalAbsentDays;
@@ -548,6 +596,10 @@ class PaymentService {
 
     final int attendantCount = patient.attendants?.length ?? 0;
     final int occupantCount = 1 + attendantCount;
+    final hasAccommodation =
+        patient.lobby?.trim().isNotEmpty == true ||
+        patient.roomId?.trim().isNotEmpty == true ||
+        patient.roomNumber?.trim().isNotEmpty == true;
 
     // ── Two-slab calculation ──────────────────────────────────────────
     final int phase1Days = newPresent.clamp(0, 60);
@@ -555,24 +607,28 @@ class PaymentService {
 
     double grossCharges;
     if (isPrivate) {
-      const double p1Patient = 700.0, p1Attendant = 200.0;
-      const double p2Patient = 900.0, p2Attendant = 300.0;
-      final phase1AttendantCharge = attendantCount > 1
-          ? (attendantCount - 1) * p1Attendant
+      final p1Patient = rate('privateRoomBasePrice', 700.0);
+      final p1Attendant = rate('privateRoomExtraAttendantFee', 200.0);
+      final includedAttendants = count('privateRoomIncludedAttendants', 1);
+      final p2Patient = p1Patient + 200.0;
+      final p2Attendant = p1Attendant + 100.0;
+      final phase1AttendantCharge = attendantCount > includedAttendants
+          ? (attendantCount - includedAttendants) * p1Attendant
           : 0.0;
-      final phase2AttendantCharge = attendantCount > 1
-          ? (attendantCount - 1) * p2Attendant
+      final phase2AttendantCharge = attendantCount > includedAttendants
+          ? (attendantCount - includedAttendants) * p2Attendant
           : 0.0;
       grossCharges =
           (phase1Days * (p1Patient + phase1AttendantCharge)) +
           (phase2Days * (p2Patient + phase2AttendantCharge));
     } else {
-      const double p1Rate = 200.0;
-      const double p2Rate = 250.0;
+      final p1Rate = rate('generalRoomBedPrice', 150.0);
+      final p2Rate = p1Rate + 50.0;
       grossCharges =
           (phase1Days * occupantCount * p1Rate) +
           (phase2Days * occupantCount * p2Rate);
     }
+    if (!hasAccommodation) grossCharges = 0.0;
 
     final isDischarged = patient.status.toLowerCase() == 'discharged';
     final double totalBill = isDischarged

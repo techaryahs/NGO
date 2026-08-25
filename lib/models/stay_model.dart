@@ -24,11 +24,14 @@ class StayModel {
 
   // Attendants
   final int attendantCount;
+  final List<String> attendantLabels;
 
   // Pricing
   final double totalCost;
   final double baseCost;
   final double extraAttendantCost;
+  final double? paidAmount;
+  final double? pendingAmount;
 
   // Extensions history
   final List<StayExtension> extensions;
@@ -39,6 +42,7 @@ class StayModel {
   // Bed (for general rooms)
   final int? bedNumber;
   final String? bedId;
+  final String? bedLabel;
 
   // Metadata
   final String? notes;
@@ -59,13 +63,17 @@ class StayModel {
     required this.expiryDate,
     this.totalExtendedDays = 0,
     this.attendantCount = 0,
+    this.attendantLabels = const [],
     this.totalCost = 0,
     this.baseCost = 0,
     this.extraAttendantCost = 0,
+    this.paidAmount,
+    this.pendingAmount,
     this.extensions = const [],
     required this.status,
     this.bedNumber,
     this.bedId,
+    this.bedLabel,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -104,13 +112,17 @@ class StayModel {
       'expiryDate': expiryDate.millisecondsSinceEpoch,
       'totalExtendedDays': totalExtendedDays,
       'attendantCount': attendantCount,
+      'attendantLabels': attendantLabels,
       'totalCost': totalCost,
       'baseCost': baseCost,
       'extraAttendantCost': extraAttendantCost,
+      'paidAmount': paidAmount,
+      'pendingAmount': pendingAmount,
       'extensions': extensions.map((e) => e.toMap()).toList(),
       'status': status,
       'bedNumber': bedNumber,
       'bedId': bedId,
+      'bedLabel': bedLabel,
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
@@ -156,13 +168,25 @@ class StayModel {
       expiryDate: _parseDateTime(data['expiryDate'] ?? data['expectedDischargeDate']),
       totalExtendedDays: _parseInt(data['totalExtendedDays']),
       attendantCount: _parseInt(data['attendantCount']),
+      attendantLabels: data['attendantLabels'] is List
+          ? List<String>.from(
+              (data['attendantLabels'] as List).map((value) => value.toString()),
+            )
+          : const [],
       totalCost: _parseDouble(data['totalCost']),
       baseCost: _parseDouble(data['baseCost']),
       extraAttendantCost: _parseDouble(data['extraAttendantCost']),
+      paidAmount: data['paidAmount'] == null
+          ? null
+          : _parseDouble(data['paidAmount']),
+      pendingAmount: data['pendingAmount'] == null
+          ? null
+          : _parseDouble(data['pendingAmount']),
       extensions: extensionsList,
       status: _parseString(data['status'], fallback: 'active'),
       bedNumber: data['bedNumber'] != null ? _parseInt(data['bedNumber']) : null,
       bedId: data['bedId']?.toString(),
+      bedLabel: data['bedLabel']?.toString(),
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
@@ -183,13 +207,17 @@ class StayModel {
     DateTime? expiryDate,
     int? totalExtendedDays,
     int? attendantCount,
+    List<String>? attendantLabels,
     double? totalCost,
     double? baseCost,
     double? extraAttendantCost,
+    double? paidAmount,
+    double? pendingAmount,
     List<StayExtension>? extensions,
     String? status,
     int? bedNumber,
     String? bedId,
+    String? bedLabel,
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -208,13 +236,17 @@ class StayModel {
       expiryDate: expiryDate ?? this.expiryDate,
       totalExtendedDays: totalExtendedDays ?? this.totalExtendedDays,
       attendantCount: attendantCount ?? this.attendantCount,
+      attendantLabels: attendantLabels ?? this.attendantLabels,
       totalCost: totalCost ?? this.totalCost,
       baseCost: baseCost ?? this.baseCost,
       extraAttendantCost: extraAttendantCost ?? this.extraAttendantCost,
+      paidAmount: paidAmount ?? this.paidAmount,
+      pendingAmount: pendingAmount ?? this.pendingAmount,
       extensions: extensions ?? this.extensions,
       status: status ?? this.status,
       bedNumber: bedNumber ?? this.bedNumber,
       bedId: bedId ?? this.bedId,
+      bedLabel: bedLabel ?? this.bedLabel,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

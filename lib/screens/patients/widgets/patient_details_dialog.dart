@@ -34,6 +34,9 @@ class PatientDetailsDialog extends StatelessWidget {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF3B6D11),
+            ),
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
@@ -66,7 +69,10 @@ class PatientDetailsDialog extends StatelessWidget {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD32F2F),
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+              elevation: 2,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             ),
             child: const Text('Discharge'),
           ),
@@ -429,8 +435,8 @@ class PatientDetailsDialog extends StatelessWidget {
                         icon: const Icon(Icons.logout_rounded, size: 16),
                         label: const Text('Discharge Patient'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFD32F2F),
-                          side: const BorderSide(color: Color(0xFFD32F2F)),
+                          foregroundColor: const Color(0xFF3B6D11),
+                          side: const BorderSide(color: Color(0xFF3B6D11)),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 12,

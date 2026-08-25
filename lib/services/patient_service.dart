@@ -281,7 +281,9 @@ class PatientService {
         allergies: allergies,
         bloodType: bloodType,
         admissionDate: admissionDate,
-        status: status ?? (initialPaymentStatus == 'Paid' ? 'Paid' : 'active'),
+        // Admission state and payment state are separate concerns. A newly
+        // admitted patient remains active even when the initial bill is paid.
+        status: status ?? 'active',
         paymentPending: initialDueAmount > 0,
         paymentStatus: initialPaymentStatus,
         totalPaidAmount: initialPaidAmount,
@@ -452,32 +454,70 @@ class PatientService {
       final patient = await getPatient(patientId);
       if (patient == null) throw Exception('Patient not found');
 
-      // Find active stay for this patient
-      final roomService = ServiceLocator().roomService;
-      final stays = await roomService.getStaysByPatientStream(patientId).first;
-      final activeStay = stays.where((s) => s.status == 'active').firstOrNull;
+      final dischargeActionTime = DateTime.now();
+      final billingAdmissionDate =
+          patient.registrationDate ?? patient.admissionDate;
+      final finalTotal =
+          patient.advanceBilledAmount + patient.attendanceCharges;
+      final finalPaid = patient.totalPaidAmount ?? 0.0;
+      final finalPending = (finalTotal - finalPaid).clamp(
+        0.0,
+        double.infinity,
+      );
 
-      // Complete the stay (this releases the bed)
-      if (activeStay != null) {
-        await roomService.completeStay(activeStay.id);
-      }
-
-      // Update patient status
+      // Lifecycle status is the primary action and must not depend on room or
+      // legacy stay cleanup succeeding.
       await updatePatient(patientId, {
         'status': 'discharged',
-        'dischargeDate': DateTime.now().millisecondsSinceEpoch,
-        'roomId': null,
-        'roomNumber': null,
-        'floor': null,
-        'bedIds': null,
-        'bedLabels': null,
+        'dischargeDate': dischargeActionTime.millisecondsSinceEpoch,
       });
+
+      // Release all active placements as best-effort cleanup.
+      final roomService = ServiceLocator().roomService;
+      try {
+        final stays = await roomService
+            .getStaysByPatientStream(patientId)
+            .first;
+        final activeStays = stays
+            .where((s) => s.status == 'active')
+            .toList();
+        for (final activeStay in activeStays) {
+          try {
+            await roomService.completeStay(
+              activeStay.id,
+              completedAt: patient.exitDate ?? dischargeActionTime,
+              billingAdmissionDate: billingAdmissionDate,
+              totalCost: finalTotal,
+              paidAmount: finalPaid,
+              pendingAmount: finalPending,
+            );
+          } catch (_) {
+            // A malformed historical stay must not reactivate the patient or
+            // block discharge. Other valid stays continue to be released.
+          }
+        }
+      } catch (_) {
+        // The patient is already discharged. Stay reconciliation can retry.
+      }
 
       // Freeze attendance and billing at the actual discharge timestamp.
       // Without this recalculation, amounts last computed while the patient
       // was active can continue to include days after discharge.
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(patientId);
+      try {
+        await ServiceLocator().paymentService
+            .recalculatePatientAttendanceAndBilling(patientId);
+      } catch (_) {
+        // Discharge is already complete. Billing reconciliation can be
+        // retried later and must not make the action appear to have failed.
+      }
+
+      // Keep lifecycle status authoritative. Billing/payment reconciliation
+      // must not leave a discharged patient active or in the legacy Paid
+      // lifecycle state.
+      await updatePatient(patientId, {
+        'status': 'discharged',
+        'dischargeDate': dischargeActionTime.millisecondsSinceEpoch,
+      });
     } catch (e) {
       throw Exception('Failed to discharge patient: $e');
     }
@@ -505,13 +545,24 @@ class PatientService {
           .getStaysByPatientStream(patientId)
           .first;
       for (final stay in activeStays.where((stay) => stay.status == 'active')) {
-        await ServiceLocator().roomService.completeStay(stay.id);
+        try {
+          await ServiceLocator().roomService.completeStay(stay.id);
+        } catch (_) {
+          // Do not make an inconsistent legacy stay prevent the explicitly
+          // requested patient deletion.
+        }
       }
 
       // Attendance is keyed by date, so remove this patient's records from
       // every date (including attendant attendance) in one root patch.
-      final attendance = await _rtdb.get('attendance/daily');
-      final attendantAttendance = await _rtdb.get('attendant_attendance/daily');
+      dynamic attendance;
+      dynamic attendantAttendance;
+      try {
+        attendance = await _rtdb.get('attendance/daily');
+      } catch (_) {}
+      try {
+        attendantAttendance = await _rtdb.get('attendant_attendance/daily');
+      } catch (_) {}
       final cleanup = <String, dynamic>{};
       if (attendance is Map) {
         attendance.forEach((date, records) {
@@ -530,7 +581,12 @@ class PatientService {
       // Payment dashboards read these global collections, while the patient
       // record holds the detailed payment list. Remove matching ledger rows.
       for (final path in const ['payments', 'paymentHistory']) {
-        final payments = await _rtdb.get(path);
+        dynamic payments;
+        try {
+          payments = await _rtdb.get(path);
+        } catch (_) {
+          continue;
+        }
         if (payments is Map) {
           payments.forEach((paymentId, payment) {
             if (payment is Map &&
@@ -540,7 +596,14 @@ class PatientService {
           });
         }
       }
-      if (cleanup.isNotEmpty) await _rtdb.patch('', cleanup);
+      if (cleanup.isNotEmpty) {
+        try {
+          await _rtdb.patch('', cleanup);
+        } catch (_) {
+          // Some older deployments do not grant access to every optional
+          // ledger path. The patient record can still be deleted.
+        }
+      }
       await _rtdb.delete('$_patientsPath/$patientId');
     } catch (e) {
       throw Exception('Failed to delete patient: $e');

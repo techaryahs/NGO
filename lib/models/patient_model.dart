@@ -184,6 +184,7 @@ class PatientModel {
   // ── Billing / Attendance Metrics ──────────────────────────────────────────
   final bool isAdvancePeriod;
   final double advanceBilledAmount;
+  final double? billingAmountOverride;
   final double attendanceCharges;
   final int totalPresentDays;
   final int totalAbsentDays;
@@ -245,6 +246,7 @@ class PatientModel {
     this.paymentDueDate,
     this.isAdvancePeriod = true,
     this.advanceBilledAmount = 0.0,
+    this.billingAmountOverride,
     this.attendanceCharges = 0.0,
     this.totalPresentDays = 0,
     this.totalAbsentDays = 0,
@@ -308,6 +310,7 @@ class PatientModel {
       'paymentDueDate': paymentDueDate?.millisecondsSinceEpoch,
       'isAdvancePeriod': isAdvancePeriod,
       'advanceBilledAmount': advanceBilledAmount,
+      'billingAmountOverride': billingAmountOverride,
       'attendanceCharges': attendanceCharges,
       'totalPresentDays': totalPresentDays,
       'totalAbsentDays': totalAbsentDays,
@@ -386,6 +389,9 @@ class PatientModel {
           : null,
       isAdvancePeriod: data['isAdvancePeriod'] as bool? ?? true,
       advanceBilledAmount: (data['advanceBilledAmount'] ?? 0).toDouble(),
+      billingAmountOverride: data['billingAmountOverride'] == null
+          ? null
+          : (data['billingAmountOverride'] as num).toDouble(),
       attendanceCharges: (data['attendanceCharges'] ?? 0).toDouble(),
       totalPresentDays: _parseInt(data['totalPresentDays']),
       totalAbsentDays: _parseInt(data['totalAbsentDays']),
@@ -521,6 +527,7 @@ class PatientModel {
     DateTime? paymentDueDate,
     bool? isAdvancePeriod,
     double? advanceBilledAmount,
+    double? billingAmountOverride,
     double? attendanceCharges,
     int? totalPresentDays,
     int? totalAbsentDays,
@@ -577,6 +584,8 @@ class PatientModel {
       paymentDueDate: paymentDueDate ?? this.paymentDueDate,
       isAdvancePeriod: isAdvancePeriod ?? this.isAdvancePeriod,
       advanceBilledAmount: advanceBilledAmount ?? this.advanceBilledAmount,
+      billingAmountOverride:
+          billingAmountOverride ?? this.billingAmountOverride,
       attendanceCharges: attendanceCharges ?? this.attendanceCharges,
       totalPresentDays: totalPresentDays ?? this.totalPresentDays,
       totalAbsentDays: totalAbsentDays ?? this.totalAbsentDays,

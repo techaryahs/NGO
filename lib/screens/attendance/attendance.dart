@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
+import '../../models/stay_model.dart';
 import '../../utils/bed_helper.dart';
 import 'dart:convert';
 
@@ -1091,18 +1092,39 @@ class _AttendanceState extends State<Attendance>
       monthLabel: _monthShort,
       cellBuilder: (name, date, status) {
         DateTime? exit;
+        DateTime? registration;
+        bool isRejoined = false;
         for (final patient in _allPatients ?? const <PatientModel>[]) {
-          if (patient.fullName == name &&
-              patient.exitDate != null &&
+          if (patient.fullName != name) continue;
+          final currentRegistration =
+              patient.registrationDate ?? patient.admissionDate;
+          if (DateFormat('yyyy-MM-dd').format(currentRegistration) == date) {
+            registration = currentRegistration;
+            // Rejoin resets admissionDate but preserves the original createdAt.
+            isRejoined = patient.admissionDate
+                .isAfter(patient.createdAt.add(const Duration(minutes: 1)));
+          }
+          if (patient.exitDate != null &&
               DateFormat('yyyy-MM-dd').format(patient.exitDate!) == date) {
             exit = patient.exitDate;
+          }
+          if (registration != null || exit != null) {
             break;
           }
         }
         if (status == null) {
-          return exit == null
-              ? const Text('-', style: TextStyle(color: Colors.grey))
-              : _exitTimeLabel(exit);
+          if (registration == null && exit == null) {
+            return const Text('-', style: TextStyle(color: Colors.grey));
+          }
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (registration != null)
+                _registrationTimeLabel(registration, isRejoined),
+              if (exit != null) _exitTimeLabel(exit),
+            ],
+          );
         }
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -1124,6 +1146,8 @@ class _AttendanceState extends State<Attendance>
                 ),
               ),
             ),
+            if (registration != null)
+              _registrationTimeLabel(registration, isRejoined),
             if (exit != null) _exitTimeLabel(exit),
           ],
         );
@@ -1142,6 +1166,20 @@ class _AttendanceState extends State<Attendance>
       ),
     ),
   );
+
+  Widget _registrationTimeLabel(DateTime registration, bool isRejoined) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: Text(
+          '${isRejoined ? 'Rejoined' : 'Joined'} ${DateFormat('h:mm a').format(registration)}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 9,
+            color: Color(0xFF3B6D11),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
 
   // ── Shimmers ────────────────────────────────────────────────────────────
 
@@ -1206,7 +1244,7 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
   static const nameWidth = 280.0;
   static const cellWidth = 96.0;
   static const headerHeight = 64.0;
-  static const rowHeight = 72.0;
+  static const rowHeight = 88.0;
   final horizontalController = ScrollController();
   final verticalController = ScrollController();
   final headerController = ScrollController();
@@ -1782,6 +1820,38 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                             Icons.exit_to_app,
                             'Exit ${DateFormat('dd MMM, h:mm a').format(exit)}',
                           ),
+                        StreamBuilder<List<StayModel>>(
+                          stream: ServiceLocator().roomService
+                              .getStaysByPatientStream(widget.patient.id),
+                          builder: (context, snapshot) {
+                            final completed = (snapshot.data ?? const <StayModel>[])
+                                .where((stay) => stay.status != 'active')
+                                .toList()
+                              ..sort(
+                                (a, b) => b.updatedAt.compareTo(a.updatedAt),
+                              );
+                            if (completed.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final previous = completed.first;
+                            return Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                _InfoChip(
+                                  Icons.exit_to_app,
+                                  'Exited ${DateFormat('dd MMM, h:mm a').format(previous.updatedAt)}',
+                                ),
+                                if (widget.patient.status.toLowerCase() ==
+                                    'active')
+                                  _InfoChip(
+                                    Icons.login_rounded,
+                                    'Rejoined ${DateFormat('dd MMM, h:mm a').format(widget.patient.registrationDate ?? widget.patient.admissionDate)}',
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ],

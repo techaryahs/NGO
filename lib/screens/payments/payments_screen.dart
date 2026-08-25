@@ -828,12 +828,15 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                         await ServiceLocator().patientService.updatePatient(
                           patient.id,
                           {
+                            'advanceBilledAmount':
+                                result.payment!.totalAmount,
+                            'attendanceCharges': 0.0,
+                            'billingAmountOverride': result.totalAmountEdited
+                                ? result.payment!.totalAmount
+                                : patient.billingAmountOverride,
                             'paymentPending':
-                                result.payment!.paymentStatus == "Pending",
+                                result.payment!.pendingAmount > 0,
                             'paymentStatus': result.payment!.paymentStatus,
-                            'status': result.payment!.paymentStatus == "Paid"
-                                ? 'Paid'
-                                : 'active',
                             'totalPaidAmount': result.payment!.paidAmount,
                             'currentDueAmount': result.payment!.pendingAmount,
                           },

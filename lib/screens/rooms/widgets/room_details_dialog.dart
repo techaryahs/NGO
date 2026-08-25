@@ -294,9 +294,13 @@ class RoomDetailsDialog extends StatelessWidget {
                                 return _StayCard(
                                   stay: stay,
                                   roomType: room.roomType,
-                                  lobby:
-                                      _lobbyFromNotes(stay.notes) ??
-                                      lobbyByPatientId[stay.patientId],
+                                  // Bed-based room stays must not inherit a
+                                  // patient's old lobby assignment.
+                                  lobby: stay.bedId != null ||
+                                          stay.bedNumber != null
+                                      ? null
+                                      : _lobbyFromNotes(stay.notes) ??
+                                          lobbyByPatientId[stay.patientId],
                                 );
                               },
                             );
@@ -769,12 +773,6 @@ class _StayCard extends StatelessWidget {
                 label: "Admission",
                 value:
                     "${stay.admissionDate.day}/${stay.admissionDate.month}/${stay.admissionDate.year}",
-              ),
-              const SizedBox(width: 16),
-              _StayDetail(
-                icon: Icons.event_rounded,
-                label: "Duration",
-                value: "${stay.totalDays} days",
               ),
               const SizedBox(width: 16),
               _StayDetail(

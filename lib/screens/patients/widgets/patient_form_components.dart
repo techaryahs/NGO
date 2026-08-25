@@ -251,6 +251,7 @@ class PatientRoomDropdown extends StatelessWidget {
   final ValueChanged<RoomModel?>? onChanged;
   final bool Function(RoomModel room)? isRoomEnabled;
   final Widget Function(RoomModel room, bool enabled)? itemBuilder;
+  final Set<String> selectedBedIds;
 
   const PatientRoomDropdown({
     super.key,
@@ -260,6 +261,7 @@ class PatientRoomDropdown extends StatelessWidget {
     this.onChanged,
     this.isRoomEnabled,
     this.itemBuilder,
+    this.selectedBedIds = const <String>{},
   });
 
   @override
@@ -278,6 +280,9 @@ class PatientRoomDropdown extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         DropdownButtonFormField<RoomModel>(
+          // The selected room is loaded asynchronously in edit mode. Recreate
+          // the field when that selection changes so initialValue is applied.
+          key: ValueKey(selectedRoom?.id ?? 'no-room-selected'),
           initialValue: selectedRoom,
           hint: Text(
             'Select room',
@@ -314,8 +319,15 @@ class PatientRoomDropdown extends StatelessWidget {
           ),
           items: rooms.map((room) {
             final enabled = isRoomEnabled?.call(room) ?? true;
+            final availableBeds = BedHelper.selectableAvailableBeds(
+              room,
+              selectedBedIds:
+                  room.id == selectedRoom?.id
+                      ? selectedBedIds
+                      : const <String>{},
+            ).length;
             final defaultItem = Text(
-              '${room.roomIdentifier} - ${room.actualAvailableBeds} beds available',
+              '${room.roomIdentifier} - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',
               style: TextStyle(
                 fontSize: 13,
                 color: enabled

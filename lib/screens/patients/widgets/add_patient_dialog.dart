@@ -70,6 +70,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
+  Map<String, dynamic> _pricing = const {};
 
   @override
   void initState() {
@@ -111,9 +112,15 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   /// Load available rooms (filter out fully occupied rooms)
   Future<void> _loadAvailableRooms() async {
     try {
-      final rooms = await ServiceLocator().roomService.getRoomsStream().first;
+      final roomService = ServiceLocator().roomService;
+      final results = await Future.wait<dynamic>([
+        roomService.getRoomsStream().first,
+        roomService.getPricing(),
+      ]);
+      final rooms = results[0] as List<RoomModel>;
       if (mounted) {
         setState(() {
+          _pricing = Map<String, dynamic>.from(results[1] as Map);
           // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
           _availableRooms = List.from(rooms)
             ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
@@ -130,7 +137,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _selectedRoom = room;
       _selectedBeds = []; // Reset bed selection
       // Only show available beds for selection
-      _availableBeds = room?.beds.where((b) => b.isAvailable).toList() ?? [];
+      _availableBeds = room == null
+          ? []
+          : BedHelper.selectableAvailableBeds(room);
 
       // Private rooms can have two patient beds; reserve one bed per patient.
       if (room != null && room.isPrivate && _availableBeds.isNotEmpty) {
@@ -254,8 +263,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     final registrationDate = _selectedRegistrationDate ?? DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate:
-          _selectedExitDate ?? registrationDate.add(const Duration(days: 7)),
+      initialDate: _selectedExitDate ?? registrationDate,
       firstDate: DateTime(
         registrationDate.year,
         registrationDate.month,
@@ -302,16 +310,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   }
 
   int get _plannedStayDays {
-    if (_selectedExitDate == null) return 7;
     final start = _selectedRegistrationDate ?? DateTime.now();
-    var days = _selectedExitDate!
-        .difference(DateTime(start.year, start.month, start.day))
-        .inDays;
-    final exitTime = _selectedExitDate!;
-    if (exitTime.hour > 9 || (exitTime.hour == 9 && exitTime.minute > 0)) {
-      days++;
-    }
-    return days.clamp(1, 3650);
+    return PricingHelper.calculateStayDays(start, _selectedExitDate);
   }
 
   double get _estimatedTotal =>
@@ -320,6 +320,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         _attendants
             .where((a) => a.nameController.text.trim().isNotEmpty)
             .length,
+        pricing: _pricing,
+        bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
       ) *
       _plannedStayDays;
 
@@ -370,6 +372,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
   /// Step 1 — Validate form, show payment dialog, then save on confirmation.
   Future<void> _savePatient() async {
+    if (_isLoading) return;
+    try {
+      await _validateAndSavePatient();
+    } catch (e) {
+      if (mounted) {
+        _showError('Unable to save patient: ${e.toString()}');
+      }
+    }
+  }
+
+  Future<void> _validateAndSavePatient() async {
     // Validation
     if (_patientNameController.text.trim().isEmpty) {
       _showError('Please enter patient name');
@@ -396,16 +409,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_selectedRoom?.isPrivate == false) {
-      final totalOccupants =
-          1 +
-          _attendants
-              .where((a) => a.nameController.text.trim().isNotEmpty)
-              .length;
-      if (totalOccupants > 3) {
-        _showError('Maximum occupancy reached for this bed group.');
-        return;
-      }
+    final attendantCount = _attendants
+        .where((attendant) => attendant.nameController.text.trim().isNotEmpty)
+        .length;
+    final configuredMax = _pricingInt(
+      (_selectedRoom?.isPrivate ?? false)
+          ? 'privateRoomMaxAttendants'
+          : 'generalRoomMaxAttendants',
+    );
+    if (configuredMax != null && attendantCount > configuredMax) {
+      _showError('Maximum $configuredMax attendants allowed');
+      return;
     }
     if (_selectedFloor == null) {
       _showError('Please select a floor');
@@ -448,6 +462,12 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (result == null) return; // User cancelled
 
     await _doSavePatient(result);
+  }
+
+  int? _pricingInt(String key) {
+    final value = _pricing[key];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   /// Step 2 — Actual database save (validation already done by _savePatient).
@@ -611,7 +631,23 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
       final attendantCount = structuredAttendants.length;
 
-      // Lobby placements do not create room stays or occupy room beds.
+      // Lobby placements create history records but never occupy room beds.
+      if (_selectedLobby != null) {
+        await roomService.createLobbyStay(
+          patientId: patientId,
+          patientName: _patientNameController.text.trim(),
+          lobbyName: _selectedLobby!,
+          admissionDate: admissionDate,
+          durationDays: _plannedStayDays,
+          attendantCount: attendantCount,
+          attendantLabels: structuredAttendants
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList(),
+          createdBy: currentUser.uid,
+        );
+      }
       if (_selectedRoom?.isPrivate == true) {
         // Private room: one stay for this patient's assigned bed. A second
         // patient may use another available private-room bed.
@@ -624,6 +660,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           admissionDate: admissionDate,
           durationDays: _plannedStayDays,
           attendantCount: attendantCount,
+          attendantLabels: structuredAttendants
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList(),
           bedId: _selectedBeds.isNotEmpty ? _selectedBeds.first.id : null,
           bedLabel: _selectedBeds.isNotEmpty
               ? _selectedBeds.map((b) => b.bedLabel).join(", ")
@@ -646,6 +687,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             admissionDate: admissionDate,
             durationDays: _plannedStayDays,
             attendantCount: attendantCount,
+            attendantLabels: structuredAttendants
+                .map((a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name)
+                .toList(),
             bedId: bed.id,
             bedLabel: bed.bedLabel,
             notes: [
@@ -1240,7 +1286,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                             .length,
                         isPrivateRoom: _selectedRoom?.isPrivate ?? false,
                         roomIdentifier: _selectedRoom?.roomIdentifier,
+                        placementSelected:
+                            _selectedRoom != null || _selectedLobby != null,
+                        placementLabel: _selectedLobby,
                         days: _plannedStayDays,
+                        pricing: _pricing,
                       ),
                       const SizedBox(height: 20),
                       _buildAttendantDetails(),
@@ -1350,7 +1400,7 @@ class _DialogFooter extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           ElevatedButton.icon(
-            onPressed: onSave,
+            onPressed: isLoading ? null : onSave,
             icon: isLoading
                 ? const SizedBox(
                     width: 16,
@@ -1881,13 +1931,20 @@ class _RoomDropdown extends StatelessWidget {
           items: rooms.map((room) {
             final floorName = room.floor == 1 ? 'Ground' : 'First';
             final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
-            final availableBeds = room.actualAvailableBeds;
+            final availableBeds =
+                BedHelper.selectableAvailableBeds(room).length;
 
             return DropdownMenuItem(
               value: room,
+              enabled: availableBeds > 0,
               child: Text(
-                '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds beds available',
-                style: const TextStyle(fontSize: 13),
+                '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: availableBeds > 0
+                      ? const Color(0xFF27500A)
+                      : Colors.grey,
+                ),
               ),
             );
           }).toList(),
@@ -2102,6 +2159,9 @@ class _PaymentSummary extends StatelessWidget {
   final bool isPrivateRoom;
   final String? roomIdentifier;
   final int days;
+  final bool placementSelected;
+  final String? placementLabel;
+  final Map<String, dynamic> pricing;
 
   // ── Pricing constants (edit here to update rates) ──
   static const int _defaultDays = 7; // default stay duration
@@ -2111,6 +2171,9 @@ class _PaymentSummary extends StatelessWidget {
     required this.attendantsCount,
     required this.isPrivateRoom,
     this.roomIdentifier,
+    this.placementSelected = false,
+    this.placementLabel,
+    this.pricing = const {},
     this.days = _defaultDays,
   });
 
@@ -2123,16 +2186,18 @@ class _PaymentSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Don't show until a room is selected
-    if (roomIdentifier == null) return const SizedBox.shrink();
+    if (!placementSelected) return const SizedBox.shrink();
 
     final occupants = 1 + attendantsCount;
+    final privateBase = (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
+    final included = (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
+    final extraRate = (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
+    final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 150.0;
     final bedTotal = isPrivateRoom
-        ? (700.0 * days)
-        : (bedsCount * occupants * 200.0 * days);
-    final attendantTotal = isPrivateRoom
-        ? ((attendantsCount - 1).clamp(0, attendantsCount) * 200.0 * days)
-        : 0.0;
+        ? privateBase * days
+        : bedsCount * occupants * generalRate * days;
+    final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
+    final attendantTotal = isPrivateRoom ? extraCount * extraRate * days : 0.0;
     final grandTotal = bedTotal + attendantTotal;
 
     return Container(
@@ -2207,21 +2272,23 @@ class _PaymentSummary extends StatelessWidget {
               children: [
                 _SummaryRow(
                   icon: Icons.bed_outlined,
-                  label: isPrivateRoom
+                  label: placementLabel != null
+                      ? 'Lobby · $placementLabel'
+                      : isPrivateRoom
                       ? 'Private Room'
                       : 'Grouped Beds ($bedsCount, $occupants occupants)',
                   count: isPrivateRoom ? 1 : bedsCount,
-                  rate: isPrivateRoom ? 700.0 : (occupants * 200.0),
+                  rate: isPrivateRoom ? privateBase : (occupants * generalRate),
                   total: bedTotal,
                   days: days,
                 ),
-                if (isPrivateRoom && attendantsCount > 1) ...[
+                if (isPrivateRoom && extraCount > 0) ...[
                   const SizedBox(height: 8),
                   _SummaryRow(
                     icon: Icons.person_outline_rounded,
                     label: 'Extra attendants',
-                    count: attendantsCount - 1,
-                    rate: 200.0,
+                    count: extraCount,
+                    rate: extraRate,
                     total: attendantTotal,
                     days: days,
                   ),

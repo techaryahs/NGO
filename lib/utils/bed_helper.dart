@@ -1,3 +1,6 @@
+import '../models/bed_model.dart';
+import '../models/room_model.dart';
+
 class BedHelper {
   static const _lobbyRooms = {'1B', '1D', '2B', '2E'};
 
@@ -165,5 +168,32 @@ class BedHelper {
 
     // Private room labels such as 1A, 1B, etc.
     return raw;
+  }
+
+  /// Returns one selectable record per displayed/grouped bed. A grouped bed
+  /// is available only when every underlying record in that group is free.
+  static List<BedModel> selectableAvailableBeds(
+    RoomModel room, {
+    Set<String> selectedBedIds = const {},
+  }) {
+    final groups = <String, List<BedModel>>{};
+    for (final bed in room.beds) {
+      final label = getBedDisplayName(
+        bed.bedLabel,
+        roomIdentifier: room.roomIdentifier,
+      );
+      groups.putIfAbsent(label, () => []).add(bed);
+    }
+
+    final result = <BedModel>[];
+    for (final group in groups.values) {
+      final selected = group.where((bed) => selectedBedIds.contains(bed.id));
+      if (selected.isNotEmpty) {
+        result.add(selected.first);
+      } else if (group.every((bed) => bed.isAvailable)) {
+        result.add(group.first);
+      }
+    }
+    return result;
   }
 }

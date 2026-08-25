@@ -269,7 +269,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text(
-          "About Aryahs World Infotech",
+          "About the NGO Management System",
           style: TextStyle(
             color: Color(0xFF27500A),
             fontWeight: FontWeight.bold,
@@ -279,44 +279,36 @@ class _SettingsPageState extends State<SettingsPage> {
           width: 600,
           child: SingleChildScrollView(
             child: Text('''
-Aryahs World Infotech (OPC) Pvt. Ltd.
+NGO PATIENT MANAGEMENT SYSTEM
 
-Transforming Ideas Into Digital Solutions
+Supporting compassionate care through organized patient services.
 
-Aryahs World Infotech is a technology-driven software development company dedicated to building innovative, scalable, and impactful digital solutions for businesses, startups, educational institutions, healthcare organizations, and social welfare initiatives.
+This platform helps the NGO manage patients, attendants, room and lobby allocations, attendance, payments, sponsorships, inventory, and operational expenses in one secure place.
 
 MISSION
-To empower businesses and organizations through innovative technology solutions that drive growth, efficiency, and digital transformation.
+To support patients and their families with transparent, efficient, and well-coordinated care services.
 
 VISION
-To become a globally recognized technology company known for innovation, quality, and excellence in software development, artificial intelligence, and digital transformation services.
+To make every patient record, stay, payment, and support activity accurate, accessible, and connected across the NGO.
 
-OUR EXPERTISE
-• Custom Software Development
-• Web Development
-• Mobile App Development
-• Artificial Intelligence & Machine Learning
-• Cloud & Enterprise Solutions
-• NGO & Social Impact Platforms
+WHAT THIS SYSTEM MANAGES
+• Patient registration and profiles
+• Room, bed, and lobby allocations
+• Admissions, discharges, and stay history
+• Patient and attendant attendance
+• Billing, payments, and pending amounts
+• Sponsorships and social-support activities
+• Inventory, purchases, salaries, and expenses
+• Reports and operational records
 
-WHY CHOOSE US
-✔ Experienced Development Team
-✔ Innovative Technology Solutions
-✔ Client-Centric Approach
-✔ Secure & Scalable Applications
-✔ AI-Powered Development Expertise
-✔ Timely Project Delivery
-✔ Long-Term Technical Support
+OUR COMMITMENT
+• Respect patient privacy and dignity
+• Maintain accurate and consistent records
+• Improve transparency in financial and operational activities
+• Help staff coordinate care efficiently
+• Support informed decisions through reliable information
 
-ABOUT THIS NGO PLATFORM
-This NGO Management System has been developed by Aryahs World Infotech (OPC) Pvt. Ltd. to help NGOs streamline operations, manage beneficiaries, coordinate volunteers, and enhance transparency in social welfare programs.
-
-CONTACT
-Email: info@aryahsworld.com
-Website: www.aryahsworld.com
-Phone: +91 9619901999
-
-"Innovating Today, Empowering Tomorrow."
+Together, we work toward better care, stronger support, and meaningful social impact.
             ''', style: TextStyle(height: 1.5, fontSize: 14)),
           ),
         ),
@@ -370,36 +362,42 @@ Phone: +91 9619901999
 TERMS AND CONDITIONS
 
 1. ACCEPTANCE OF TERMS
-By using this NGO Management System, you agree to comply with and be bound by these Terms and Conditions.
+By accessing this NGO Patient Management System, users agree to follow these terms and all policies established by the NGO administration.
 
 2. USE OF SYSTEM
-This platform is intended solely for authorized staff to manage patient records, attendance, billing, and related operations of the organization.
+This platform is intended solely for authorized NGO staff to manage patient records, attendants, room and lobby allocations, attendance, billing, sponsorships, inventory, and related operations. It must not be used for unauthorized or unlawful purposes.
 
 3. DATA PRIVACY
-All patient and attendant information stored in this system is confidential. Users must not share, export, or disclose this data to unauthorized parties.
+Patient, attendant, payment, identity, and health-related information is confidential. Users must access it only when required for their assigned responsibilities and must not disclose, copy, export, or share it with unauthorized persons.
 
 4. USER RESPONSIBILITY
-Users are responsible for maintaining the confidentiality of their login credentials and for all activities performed under their account.
+Users are responsible for protecting their login credentials, using only their own account, signing out from shared devices, and promptly reporting suspected unauthorized access to the NGO administration.
 
 5. ACCURACY OF INFORMATION
-Users must ensure that all data entered (patient details, attendance, billing) is accurate and updated in a timely manner.
+Users must ensure that patient details, admission and exit dates, placements, attendance, payments, and other records are accurate and updated promptly. Incorrect information must be corrected through the authorized editing process without concealing historical activity.
 
 6. BILLING & PAYMENTS
-All billing calculations are generated based on configured rates and attendance records. Any disputes regarding billing must be raised with the administration promptly.
+Billing estimates and pending amounts are calculated using configured rates, placement details, attendants, and attendance records. Authorized staff must verify entries before collecting payment. Questions or disputes must be reported to the NGO administration for review and correction.
 
 7. SYSTEM AVAILABILITY
-While we strive for continuous availability, the platform may occasionally be unavailable due to maintenance or technical issues.
+The system may occasionally be unavailable due to maintenance, connectivity, power failure, or technical issues. Staff should follow the NGO's approved temporary record-keeping procedure during an outage and update the system when service is restored.
 
-8. LIMITATION OF LIABILITY
-Aryahs World Infotech (OPC) Pvt. Ltd. is not liable for any data loss, billing errors, or operational disruptions arising from misuse of the system.
+8. OPERATIONAL RESPONSIBILITY
+Users must review information before relying on it for operational or financial decisions. The NGO administration is responsible for access control, rate configuration, record verification, backups, and correction of errors. Users may be held accountable for intentional misuse or unauthorized disclosure.
 
-9. CHANGES TO TERMS
-These terms may be updated periodically. Continued use of the system constitutes acceptance of any changes.
+9. MEDICAL AND EMERGENCY USE
+This system supports administrative record keeping and does not replace professional medical judgment, emergency procedures, or advice from qualified healthcare providers.
 
-10. CONTACT
-For questions regarding these terms, contact: info@aryahsworld.com
+10. ACCOUNT SUSPENSION
+The NGO administration may restrict or suspend access when an account is misused, security is at risk, or a user is no longer authorized.
 
-Last updated: 2026
+11. CHANGES TO TERMS
+The NGO administration may update these terms when operational, legal, privacy, or security requirements change. Users should review the latest version made available in the system.
+
+12. QUESTIONS AND REPORTING
+Questions, incorrect records, privacy concerns, or suspected misuse should be reported directly to the authorized NGO administrator.
+
+Last updated: August 2026
             ''', style: TextStyle(height: 1.5, fontSize: 14)),
           ),
         ),

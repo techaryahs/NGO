@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/bed_model.dart';
 import '../models/room_model.dart';
 import '../models/stay_model.dart';
+import '../utils/pricing_helper.dart';
 import 'firebase_rtdb_rest_service.dart';
 
 part 'room_service_pricing.dart';

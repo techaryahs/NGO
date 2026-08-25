@@ -73,6 +73,13 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
       _showSnackBar('Please fill all price fields', isError: true);
       return;
     }
+    if (privateMaxAttendants < privateIncludedAttendants) {
+      _showSnackBar(
+        'Maximum attendants cannot be less than included attendants',
+        isError: true,
+      );
+      return;
+    }
 
     setState(() => isSaving = true);
 
@@ -88,6 +95,8 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
         'generalRoomDefaultBeds': generalDefaultBeds,
         'generalRoomMaxAttendants': generalMaxAttendants,
       });
+      await ServiceLocator().paymentService
+          .recalculateAllActivePatientsBilling();
 
       if (mounted) {
         Navigator.pop(context);
@@ -451,6 +460,38 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           ),
                           const SizedBox(height: 16),
 
+                          const Text(
+                            "Maximum Attendants",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF27500A),
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: List.generate(5, (index) {
+                              final count = index + 1;
+                              return Expanded(
+                                child: Padding(
+                                  padding: EdgeInsets.only(
+                                    right: index < 4 ? 8 : 0,
+                                  ),
+                                  child: _CountChip(
+                                    count: count,
+                                    isSelected:
+                                        generalMaxAttendants == count,
+                                    onTap: () => setState(
+                                      () => generalMaxAttendants = count,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                          const SizedBox(height: 16),
+
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -462,17 +503,17 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                               ),
                             ),
                             child: Row(
-                              children: const [
-                                Icon(
+                              children: [
+                                const Icon(
                                   Icons.info_outline_rounded,
                                   size: 16,
                                   color: Color(0xFFE65100),
                                 ),
-                                SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    "General rooms include 1 attendant. 2nd attendant is self-expense.",
-                                    style: TextStyle(
+                                    "The daily bed rate applies to the patient and each attendant. Maximum: $generalMaxAttendants attendants.",
+                                    style: const TextStyle(
                                       fontSize: 11,
                                       color: Color(0xFFE65100),
                                     ),

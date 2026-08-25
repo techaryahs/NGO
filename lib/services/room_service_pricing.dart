@@ -26,6 +26,18 @@ extension RoomServicePricing on RoomService {
   Future<void> updatePricing(Map<String, dynamic> pricing) async {
     try {
       await rtdb.patch(pricingPath, pricing);
+      final maxAttendants = parseIntSafe(
+        pricing['privateRoomMaxAttendants'],
+        5,
+      );
+      final rooms = await getRoomsStream().first;
+      final updates = <String, dynamic>{};
+      for (final room in rooms.where((room) => room.isPrivate)) {
+        updates['rooms/${room.id}/maxAttendants'] = maxAttendants;
+        updates['rooms/${room.id}/updatedAt'] =
+            DateTime.now().millisecondsSinceEpoch;
+      }
+      if (updates.isNotEmpty) await rtdb.patch('', updates);
     } catch (e) {
       throw Exception('Failed to update pricing: $e');
     }

@@ -18,8 +18,13 @@ enum PaymentMethod { cash, check, online }
 class PaymentDialogResult {
   final PaymentModel? payment;
   final bool payLater;
+  final bool totalAmountEdited;
 
-  PaymentDialogResult({this.payment, this.payLater = false});
+  PaymentDialogResult({
+    this.payment,
+    this.payLater = false,
+    this.totalAmountEdited = false,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,6 +97,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   final _notesController = TextEditingController();
   final _amountPayingNowController = TextEditingController();
   final _totalAmountController = TextEditingController();
+  bool _payingAmountManuallyEdited = false;
+  bool _totalAmountManuallyEdited = false;
+  bool _updatingPayingAmount = false;
 
   // Online / Razorpay
   bool _isCreatingLink = false;
@@ -138,11 +146,25 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     super.initState();
     _totalAmountController.text = _calculatedTotal.toStringAsFixed(0);
     _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
-    _amountPayingNowController.addListener(_refreshAmounts);
-    _totalAmountController.addListener(_refreshAmounts);
+    _amountPayingNowController.addListener(_handlePayingAmountChanged);
+    _totalAmountController.addListener(_handleTotalAmountChanged);
   }
 
-  void _refreshAmounts() {
+  void _handlePayingAmountChanged() {
+    if (!_updatingPayingAmount) _payingAmountManuallyEdited = true;
+    if (mounted) setState(() {});
+  }
+
+  void _handleTotalAmountChanged() {
+    _totalAmountManuallyEdited = true;
+    if (!_payingAmountManuallyEdited) {
+      _updatingPayingAmount = true;
+      _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
+      _amountPayingNowController.selection = TextSelection.collapsed(
+        offset: _amountPayingNowController.text.length,
+      );
+      _updatingPayingAmount = false;
+    }
     if (mounted) setState(() {});
   }
 
@@ -269,7 +291,12 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
 
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted)
-        Navigator.of(context).pop(PaymentDialogResult(payment: payment));
+        Navigator.of(context).pop(
+          PaymentDialogResult(
+            payment: payment,
+            totalAmountEdited: _totalAmountManuallyEdited,
+          ),
+        );
     });
   }
 
@@ -343,7 +370,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         patientName: widget.patientName,
         grandTotal: _grandTotal,
         alreadyPaid: widget.alreadyPaid,
-        pendingTotal: (_grandTotal - widget.alreadyPaid - _currentPayingAmount)
+        pendingTotal: (_pendingTotal - _currentPayingAmount)
             .clamp(0, double.infinity)
             .toDouble(),
         amountPayingNowController: _amountPayingNowController,

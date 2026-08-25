@@ -37,6 +37,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   late TextEditingController _diagnosisController;
   late TextEditingController _addressController;
   late TextEditingController _registrationNumberController;
+  late TextEditingController _fileNoController;
   late TextEditingController _registrationDateController;
   late TextEditingController _registrationTimeController;
   late TextEditingController _exitDateController;
@@ -44,6 +45,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   late TextEditingController _panCardController;
   late TextEditingController _aadhaarCardController;
   late TextEditingController _utiNumberController;
+  late TextEditingController _totalAmountOverrideController;
   int? _selectedFloor;
   String? _selectedLobby;
   static const Map<int, List<String>> _lobbyOptionsByFloor = {
@@ -62,9 +64,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   // Room and Bed Selection
   RoomModel? _selectedRoom;
   List<BedModel> _selectedBeds = []; // Changed to list for multiple selection
+  List<BedModel> _loadedBeds = [];
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
+  Map<String, dynamic> _pricing = const {};
   List<String> _currentStayIds = []; // Track multiple stays
+  String? _loadedRoomId;
   String? _historicalRoomType;
 
   // @override
@@ -152,11 +157,23 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _attendants.add(entry);
     }
 
+    // The summary counts attendants by non-empty name. Listen to every name
+    // field so typing or clearing a name immediately rebuilds the estimate.
+    for (final entry in _attendants) {
+      entry.nameController.addListener(_refreshPaymentSummary);
+    }
+
     _addressController = TextEditingController(
       text: widget.patient.address ?? '',
     );
     _registrationNumberController = TextEditingController(
       text: widget.patient.registrationNumber ?? '',
+    );
+    _fileNoController = TextEditingController(
+      text: RegExp(
+        r'File No:\s*([^\n]+)',
+        caseSensitive: false,
+      ).firstMatch(widget.patient.notes ?? '')?.group(1)?.trim() ?? '',
     );
     _registrationDateController = TextEditingController(
       text: _formatDate(widget.patient.registrationDate),
@@ -179,8 +196,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _utiNumberController = TextEditingController(
       text: widget.patient.utiNumber ?? '',
     );
-    _selectedLobby =
-        widget.patient.lobby ?? _lobbyFromNotes(widget.patient.notes);
+    _totalAmountOverrideController = TextEditingController();
+    _totalAmountOverrideController.addListener(_refreshPaymentSummary);
+    final hasStoredRoomAssignment =
+        widget.patient.roomId?.trim().isNotEmpty == true ||
+        widget.patient.roomNumber?.trim().isNotEmpty == true ||
+        widget.patient.bedIds?.isNotEmpty == true;
+    _selectedLobby = hasStoredRoomAssignment
+        ? null
+        : widget.patient.lobby ?? _lobbyFromNotes(widget.patient.notes);
     _selectedFloor = widget.patient.floor;
     _selectedDateOfBirth = widget.patient.dateOfBirth;
     _selectedRegistrationDate = widget.patient.registrationDate;
@@ -204,7 +228,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   Future<void> _loadRoomsAndCurrentStay() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final rooms = await roomService.getRoomsStream().first;
+      final results = await Future.wait<dynamic>([
+        roomService.getRoomsStream().first,
+        roomService.getPricing(),
+      ]);
+      final rooms = results[0] as List<RoomModel>;
+      _pricing = Map<String, dynamic>.from(results[1] as Map);
 
       // Load stays even after discharge, when roomId has already been cleared.
       // The latest stay preserves the room type needed for a correct edit-time
@@ -212,38 +241,98 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final stays = await roomService
           .getStaysByPatientStream(widget.patient.id)
           .first;
+      _currentStayIds = stays
+          .where((stay) => stay.status == 'active')
+          .map((stay) => stay.id)
+          .toList();
       if (stays.isNotEmpty) {
         final sortedStays = [...stays]
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         _historicalRoomType = sortedStays.first.roomType;
       }
 
-      // Load current stays to get bed info
-      if (widget.patient.roomId != null) {
-        final activeStays = stays.where((s) => s.status == 'active').toList();
-
-        if (activeStays.isNotEmpty) {
+      // Load the room from the active stay as the source of truth. Older
+      // records can have a missing/stale patient.roomId after a lobby-to-room
+      // transfer even though their active stay still contains the room.
+      final activeStays = stays.where((s) => s.status == 'active').toList();
+      if (activeStays.isNotEmpty) {
+        final activeRoomStay = activeStays
+            .where((stay) => stay.bedId != null || stay.bedNumber != null)
+            .firstOrNull;
+        final effectiveRoomId = widget.patient.roomId?.trim().isNotEmpty == true
+            ? widget.patient.roomId!
+            : (activeRoomStay?.roomId ?? activeStays.first.roomId);
+        final storedRoomNumber =
+            activeRoomStay?.roomNumber ?? widget.patient.roomNumber;
+        if (effectiveRoomId.trim().isNotEmpty ||
+            storedRoomNumber?.trim().isNotEmpty == true) {
           _currentStayIds = activeStays.map((s) => s.id).toList();
 
           // Find current room and beds
           final currentRoom = rooms
-              .where((r) => r.id == widget.patient.roomId)
-              .firstOrNull;
+                  .where((r) => r.id == effectiveRoomId)
+                  .firstOrNull ??
+              rooms
+                  .where(
+                    (r) =>
+                        storedRoomNumber?.trim().isNotEmpty == true &&
+                        r.roomIdentifier.trim().toLowerCase() ==
+                            storedRoomNumber!.trim().toLowerCase(),
+                  )
+                  .firstOrNull;
           if (currentRoom != null) {
             _selectedRoom = currentRoom;
+            _loadedRoomId = currentRoom.id;
+            _selectedLobby = null;
             _selectedFloor ??= currentRoom.floor;
 
             // Collect all beds from active stays
-            for (final stay in activeStays) {
-              if (stay.bedId != null) {
+            for (final stay in activeStays.where(
+              (stay) => stay.roomId == effectiveRoomId,
+            )) {
+              if (stay.bedId != null || stay.bedLabel != null) {
                 final bed = currentRoom.beds
-                    .where((b) => b.id == stay.bedId)
+                        .where((b) => b.id == stay.bedId)
+                        .firstOrNull ??
+                    currentRoom.beds
+                        .where(
+                          (b) =>
+                              stay.bedLabel?.trim().isNotEmpty == true &&
+                              b.bedLabel.trim().toLowerCase() ==
+                                  stay.bedLabel!.trim().toLowerCase(),
+                        )
+                        .firstOrNull;
+                if (bed != null && !_selectedBeds.any((b) => b.id == bed.id)) {
+                  _selectedBeds.add(bed);
+                }
+              }
+            }
+            // Legacy stays can be missing bed IDs/labels while the patient
+            // record still contains the assigned Bed 10/11 label.
+            if (_selectedBeds.isEmpty) {
+              for (final storedLabel in widget.patient.bedLabels ?? const <String>[]) {
+                final bed = currentRoom.beds
+                    .where(
+                      (b) =>
+                          b.bedLabel.trim().toLowerCase() ==
+                          storedLabel.trim().toLowerCase(),
+                    )
                     .firstOrNull;
                 if (bed != null && !_selectedBeds.any((b) => b.id == bed.id)) {
                   _selectedBeds.add(bed);
                 }
               }
             }
+            _loadedBeds = List<BedModel>.from(_selectedBeds);
+            _currentStayIds = activeStays
+                .where(
+                  (stay) =>
+                      stay.roomId == effectiveRoomId ||
+                      stay.roomNumber.trim().toLowerCase() ==
+                          currentRoom.roomIdentifier.trim().toLowerCase(),
+                )
+                .map((stay) => stay.id)
+                .toList();
           }
         }
       }
@@ -255,12 +344,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
 
           if (_selectedRoom != null) {
-            _availableBeds = _selectedRoom!.beds
-                .where(
-                  (b) =>
-                      b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id),
-                )
-                .toList();
+            _availableBeds = BedHelper.selectableAvailableBeds(
+              _selectedRoom!,
+              selectedBedIds: _selectedBeds.map((bed) => bed.id).toSet(),
+            );
           }
         });
       }
@@ -275,20 +362,27 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   void _onRoomSelected(RoomModel? room) {
     setState(() {
       _selectedRoom = room;
-      // Only reset beds if changing to a different room
-      if (room?.id != widget.patient.roomId) {
+      if (room != null) _selectedLobby = null;
+      // The patient's currently occupied bed remains selectable when they
+      // clear and then reselect the same room before saving.
+      if (room?.id == _loadedRoomId) {
+        _selectedBeds = List<BedModel>.from(_loadedBeds);
+      } else {
         _selectedBeds = [];
       }
-      _availableBeds =
-          room?.beds
-              .where(
-                (b) =>
-                    b.isAvailable || _selectedBeds.any((sb) => sb.id == b.id),
-              )
-              .toList() ??
-          [];
+      _availableBeds = room == null
+          ? []
+          : BedHelper.selectableAvailableBeds(
+              room,
+              selectedBedIds: room.id == _loadedRoomId
+                  ? _loadedBeds.map((bed) => bed.id).toSet()
+                  : _selectedBeds.map((bed) => bed.id).toSet(),
+            );
 
-      if (room != null && room.isPrivate && _availableBeds.isNotEmpty) {
+      if (room != null &&
+          room.isPrivate &&
+          _selectedBeds.isEmpty &&
+          _availableBeds.isNotEmpty) {
         _selectedBeds = [_availableBeds.first];
       }
     });
@@ -313,26 +407,42 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   });
 
   int get _plannedStayDays {
-    if (_selectedExitDate == null) return 7;
     final start = _selectedRegistrationDate ?? widget.patient.admissionDate;
-    var days = _selectedExitDate!
-        .difference(DateTime(start.year, start.month, start.day))
-        .inDays;
-    if (_selectedExitDate!.hour > 9 ||
-        (_selectedExitDate!.hour == 9 && _selectedExitDate!.minute > 0)) {
-      days++;
-    }
-    return days.clamp(1, 3650);
+    return PricingHelper.calculateStayDays(start, _selectedExitDate);
   }
 
-  double get _estimatedTotal =>
-      PricingHelper.calculateDailyCharge(
-        _selectedRoom?.isPrivate ?? (_historicalRoomType == 'private'),
+  double get _estimatedTotal {
+    if (_selectedRoom == null && _selectedLobby == null) return 0;
+    return PricingHelper.calculateDailyCharge(
+        _selectedLobby != null
+            ? false
+            : (_selectedRoom?.isPrivate ??
+                  (_historicalRoomType == 'private')),
         _attendants
             .where((a) => a.nameController.text.trim().isNotEmpty)
             .length,
+        pricing: _pricing,
+        bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
       ) *
-      _plannedStayDays;
+        _plannedStayDays;
+  }
+
+  double get _effectiveTotalAmount {
+    final override = double.tryParse(
+      _totalAmountOverrideController.text.trim().replaceAll(',', ''),
+    );
+    return override != null && override >= 0 ? override : _estimatedTotal;
+  }
+
+  void _refreshPaymentSummary() {
+    if (mounted) setState(() {});
+  }
+
+  void _addAttendant() {
+    final entry = _AttendantEntry();
+    entry.nameController.addListener(_refreshPaymentSummary);
+    setState(() => _attendants.add(entry));
+  }
 
   String? _lobbyFromNotes(String? notes) {
     if (notes == null) return null;
@@ -351,6 +461,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _diagnosisController.dispose();
     _addressController.dispose();
     _registrationNumberController.dispose();
+    _fileNoController.dispose();
     _registrationDateController.dispose();
     _registrationTimeController.dispose();
     _exitDateController.dispose();
@@ -358,6 +469,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _panCardController.dispose();
     _aadhaarCardController.dispose();
     _utiNumberController.dispose();
+    _totalAmountOverrideController.dispose();
     for (final att in _attendants) {
       att.dispose();
     }
@@ -372,19 +484,46 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       ? ''
       : '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 
+  String? _updatedNotesWithFileNumber() {
+    final retained = (widget.patient.notes ?? '')
+        .split('\n')
+        .where(
+          (line) => !RegExp(
+            r'^\s*(File No|Room|Lobby|Beds?)\s*:',
+            caseSensitive: false,
+          ).hasMatch(line),
+        )
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    final fileNo = _fileNoController.text.trim();
+    if (fileNo.isNotEmpty) retained.add('File No: $fileNo');
+    return retained.isEmpty ? null : retained.join('\n');
+  }
+
   Future<void> _pickDate({
     required bool isBirthDate,
     required bool isExitDate,
   }) async {
-    final initial = isBirthDate
+    final registrationBase =
+        _selectedRegistrationDate ?? widget.patient.admissionDate;
+    final suggestedInitial = isBirthDate
         ? _selectedDateOfBirth
         : isExitDate
-        ? (_selectedExitDate ?? DateTime.now().add(const Duration(days: 7)))
+        ? (_selectedExitDate ?? registrationBase)
         : (_selectedRegistrationDate ?? DateTime.now());
+    final initial = isExitDate && suggestedInitial.isBefore(registrationBase)
+        ? registrationBase
+        : suggestedInitial;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: DateTime(1900),
+      firstDate: isExitDate
+          ? DateTime(
+              registrationBase.year,
+              registrationBase.month,
+              registrationBase.day,
+            )
+          : DateTime(1900),
       lastDate: isBirthDate
           ? DateTime.now()
           : DateTime.now().add(const Duration(days: 365 * 5)),
@@ -424,8 +563,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   }
 
   Future<void> _pickTime({required bool isExitTime}) async {
+    final registrationBase =
+        _selectedRegistrationDate ?? widget.patient.admissionDate;
     final base = isExitTime
-        ? (_selectedExitDate ?? DateTime.now().add(const Duration(days: 7)))
+        ? (_selectedExitDate ?? registrationBase.add(const Duration(days: 7)))
         : (_selectedRegistrationDate ?? DateTime.now());
     final picked = await showTimePicker(
       context: context,
@@ -512,16 +653,31 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       _showError('Please enter diagnosis');
       return;
     }
-    if (_selectedFloor == null) {
+    final editingDischargedPatient =
+        widget.patient.status.toLowerCase() == 'discharged';
+    if (!editingDischargedPatient && _selectedFloor == null) {
       _showError('Please select a floor');
       return;
     }
-    if (_selectedRoom == null && _selectedLobby == null) {
-      _showError('Please select either a lobby or a room');
+    if (!editingDischargedPatient &&
+        _selectedRoom != null &&
+        _selectedBeds.isEmpty) {
+      _showError('Please select a bed');
       return;
     }
-    if (_selectedRoom != null && _selectedBeds.isEmpty) {
-      _showError('Please select a bed');
+    final attendantCount = _attendants
+        .where((attendant) => attendant.nameController.text.trim().isNotEmpty)
+        .length;
+    final configuredValue = (_selectedLobby != null
+        ? false
+        : (_selectedRoom?.isPrivate ?? (_historicalRoomType == 'private')))
+        ? _pricing['privateRoomMaxAttendants']
+        : _pricing['generalRoomMaxAttendants'];
+    final configuredMax = configuredValue is num
+        ? configuredValue.toInt()
+        : int.tryParse(configuredValue?.toString() ?? '');
+    if (configuredMax != null && attendantCount > configuredMax) {
+      _showError('Maximum $configuredMax attendants allowed');
       return;
     }
 
@@ -545,12 +701,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
-      final isRejoining =
-          widget.patient.status.toLowerCase() == 'discharged' &&
-          _selectedRoom != null;
+      // Rejoining is an explicit action from the patient menu. Editing a
+      // discharged record must not reactivate it; this form is also used to
+      // enter historical registration and exit dates.
+      const isRejoining = false;
       final currentAdmissionDate = isRejoining
           ? (_selectedRegistrationDate ?? DateTime.now())
           : widget.patient.admissionDate;
+      final displayedStayStart =
+          _selectedRegistrationDate ?? currentAdmissionDate;
 
       final structuredAttendants = <AttendantModel>[];
       for (final att in _attendants) {
@@ -592,6 +751,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'registrationNumber': _registrationNumberController.text.trim().isEmpty
             ? null
             : _registrationNumberController.text.trim(),
+        'notes': _updatedNotesWithFileNumber(),
         'registrationDate': _selectedRegistrationDate?.millisecondsSinceEpoch,
         'exitDate': _selectedExitDate?.millisecondsSinceEpoch,
         'panCardNumber': _panCardController.text.trim().isEmpty
@@ -603,10 +763,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'utiNumber': _utiNumberController.text.trim().isEmpty
             ? null
             : _utiNumberController.text.trim(),
-        'lobby': _selectedLobby,
+        // A patient can occupy either a lobby or a room, never both.
+        'lobby': _selectedRoom == null ? _selectedLobby : null,
         // Keep the advance, due amount, and payment dashboard aligned with
         // the selected room type and the current stay dates.
-        'advanceBilledAmount': _estimatedTotal,
+        'advanceBilledAmount': _effectiveTotalAmount,
+        'billingAmountOverride':
+            _totalAmountOverrideController.text.trim().isEmpty
+            ? null
+            : _effectiveTotalAmount,
       };
       if (isRejoining) {
         updates.addAll({
@@ -617,16 +782,25 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           'totalAbsentDays': 0,
           'attendanceCharges': 0.0,
           'totalPaidAmount': 0.0,
-          'currentDueAmount': _estimatedTotal,
-          'paymentPending': _estimatedTotal > 0,
-          'paymentStatus': _estimatedTotal > 0 ? 'Unpaid' : 'Paid',
+          'currentDueAmount': _effectiveTotalAmount,
+          'paymentPending': _effectiveTotalAmount > 0,
+          'paymentStatus': _effectiveTotalAmount > 0 ? 'Unpaid' : 'Paid',
         });
       }
 
       // Handle room/bed change
-      final roomChanged = _selectedRoom?.id != widget.patient.roomId;
+      final roomChanged = _selectedRoom?.id != _loadedRoomId;
+      final originalLobby = _loadedRoomId == null
+          ? (widget.patient.lobby ?? _lobbyFromNotes(widget.patient.notes))
+          : null;
+      final lobbyChanged = (_selectedLobby ?? '').trim() !=
+          (originalLobby ?? '').trim();
       bool bedsChanged = false;
-      if (_selectedBeds.length != _currentStayIds.length) {
+      // Lobby stays have no beds. Do not mistake their history IDs for a bed
+      // change and complete the current lobby cycle on every edit.
+      if (_selectedRoom == null && _loadedRoomId == null) {
+        bedsChanged = false;
+      } else if (_selectedBeds.length != _currentStayIds.length) {
         bedsChanged = true;
       } else {
         for (final bed in _selectedBeds) {
@@ -638,7 +812,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         }
       }
 
-      if (roomChanged || bedsChanged) {
+      final placementChanged = roomChanged || bedsChanged || lobbyChanged;
+      if (placementChanged) {
         // Complete all old stays
         for (final stayId in _currentStayIds) {
           await roomService.completeStay(stayId);
@@ -670,18 +845,39 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               roomId: _selectedRoom!.id,
               roomNumber: _selectedRoom!.roomIdentifier,
               roomType: _selectedRoom!.roomType,
-              admissionDate: currentAdmissionDate,
+              admissionDate: displayedStayStart,
               durationDays: _plannedStayDays,
               attendantCount: structuredAttendants.length,
+              attendantLabels: structuredAttendants
+                  .map((a) => a.relation?.trim().isNotEmpty == true
+                      ? '${a.name} (${a.relation})'
+                      : a.name)
+                  .toList(),
               bedId: bed.id,
               bedLabel: bed.bedLabel,
               notes: 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
               createdBy: currentUser?.uid ?? 'system',
             );
           }
+        } else if (_selectedLobby != null) {
+          await roomService.createLobbyStay(
+            patientId: widget.patient.id,
+            patientName: _patientNameController.text.trim(),
+            lobbyName: _selectedLobby!,
+            admissionDate: displayedStayStart,
+            durationDays: _plannedStayDays,
+            attendantCount: structuredAttendants.length,
+            attendantLabels: structuredAttendants
+                .map((a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name)
+                .toList(),
+            createdBy:
+                ServiceLocator().authRestService.currentUser?.uid ?? 'system',
+          );
         }
 
-        // Lobby placements deliberately do not create a stay or occupy a bed.
+        // Persist exactly one placement type.
         updates['roomId'] = _selectedRoom?.id;
         updates['roomNumber'] = _selectedRoom?.roomIdentifier;
         updates['floor'] = _selectedFloor;
@@ -696,18 +892,47 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
 
       await patientService.updatePatient(widget.patient.id, updates);
+      if (!placementChanged) {
+        for (final stayId in _currentStayIds) {
+          await roomService.updateStayDates(
+            stayId,
+            admissionDate:
+                _selectedRegistrationDate ?? widget.patient.admissionDate,
+            exitDate: _selectedExitDate,
+          );
+        }
+      }
       // Attendants may be added after admission. Keep the active stay's
       // occupancy count and the patient bill in sync with the edited list.
-      if (!roomChanged && !bedsChanged) {
+      if (!placementChanged) {
         for (final stayId in _currentStayIds) {
           await roomService.updateStayAttendantCount(
             stayId,
             structuredAttendants.length,
+            attendantLabels: structuredAttendants
+                .map((a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name)
+                .toList(),
           );
         }
       }
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(widget.patient.id);
+      if (_totalAmountOverrideController.text.trim().isEmpty) {
+        await ServiceLocator().paymentService
+            .recalculatePatientAttendanceAndBilling(widget.patient.id);
+      } else {
+        final paid = widget.patient.totalPaidAmount ?? 0.0;
+        final due = (_effectiveTotalAmount - paid).clamp(0.0, double.infinity);
+        await patientService.updatePatient(widget.patient.id, {
+          'attendanceCharges': 0.0,
+          'totalPaidAmount': paid,
+          'currentDueAmount': due,
+          'paymentPending': due > 0,
+          'paymentStatus': due > 0
+              ? (paid > 0 ? 'Partially Paid' : 'Unpaid')
+              : 'Paid',
+        });
+      }
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -762,7 +987,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           const SizedBox(height: 12),
         ],
         OutlinedButton.icon(
-          onPressed: () => setState(() => _attendants.add(_AttendantEntry())),
+          onPressed: _addAttendant,
           icon: const Icon(Icons.add_circle_outline),
           label: const Text('Add another attendant'),
         ),
@@ -771,10 +996,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   );
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFD32F2F),
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Unable to update patient'),
+        content: Text(message.replaceFirst('Exception: ', '')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -909,6 +1142,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 hint: "e.g. REG-2024-001",
                                 controller: _registrationNumberController,
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            PatientFormField(
+                              label: "File number",
+                              hint: "e.g. CT/20537",
+                              controller: _fileNoController,
                             ),
                             const SizedBox(height: 12),
                             PatientFormRow2(
@@ -1174,11 +1413,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 ),
                               // ── Add Attendant Button ──
                               GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _attendants.add(_AttendantEntry());
-                                  });
-                                },
+                                onTap: _addAttendant,
                                 child: Container(
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(
@@ -1305,9 +1540,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                           onChanged:
                                               _selectedFloor != null &&
                                                   _selectedRoom == null
-                                              ? (value) => setState(
-                                                  () => _selectedLobby = value,
-                                                )
+                                              ? (value) => setState(() {
+                                                  _selectedLobby = value;
+                                                  if (value != null) {
+                                                    _selectedRoom = null;
+                                                    _selectedBeds = [];
+                                                    _availableBeds = [];
+                                                  }
+                                                })
                                               : null,
                                         ),
                                       ),
@@ -1338,15 +1578,21 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                     )
                                                     .toList(),
                                           selectedRoom: _selectedRoom,
+                                          selectedBedIds: _selectedBeds
+                                              .map((bed) => bed.id)
+                                              .toSet(),
                                           onChanged:
                                               _selectedFloor != null &&
                                                   _selectedLobby == null
                                               ? _onRoomSelected
                                               : null,
                                           isRoomEnabled: (room) =>
-                                              room.id ==
-                                                  widget.patient.roomId ||
-                                              room.hasAvailableBeds,
+                                              room.id == _selectedRoom?.id ||
+                                              room.id == _loadedRoomId ||
+                                              room.id == widget.patient.roomId ||
+                                              BedHelper.selectableAvailableBeds(
+                                                room,
+                                              ).isNotEmpty,
                                         ),
                                       ),
                                       if (_selectedRoom != null)
@@ -1387,7 +1633,37 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                             .length,
                         isPrivateRoom: _selectedRoom?.isPrivate ?? false,
                         roomIdentifier: _selectedRoom?.roomIdentifier,
+                        placementSelected:
+                            _selectedRoom != null || _selectedLobby != null,
+                        placementLabel: _selectedLobby,
                         days: _plannedStayDays,
+                        pricing: _pricing,
+                        totalOverride: double.tryParse(
+                          _totalAmountOverrideController.text
+                              .trim()
+                              .replaceAll(',', ''),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      PatientFormField(
+                        label: 'Override total amount (optional)',
+                        hint:
+                            'Calculated amount: ₹${_estimatedTotal.toStringAsFixed(0)}',
+                        controller: _totalAmountOverrideController,
+                        keyboard: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Leave blank to keep automatic pricing.',
+                          style: TextStyle(
+                            color: Color(0xFF6B7D5B),
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 20),
                       _buildAttendantDetails(),
@@ -1526,6 +1802,10 @@ class _PaymentSummary extends StatelessWidget {
   final bool isPrivateRoom;
   final String? roomIdentifier;
   final int days;
+  final bool placementSelected;
+  final String? placementLabel;
+  final Map<String, dynamic> pricing;
+  final double? totalOverride;
 
   static const int _defaultDays = 7; // default stay duration
 
@@ -1534,6 +1814,10 @@ class _PaymentSummary extends StatelessWidget {
     required this.attendantsCount,
     required this.isPrivateRoom,
     this.roomIdentifier,
+    this.placementSelected = false,
+    this.placementLabel,
+    this.pricing = const {},
+    this.totalOverride,
     this.days = _defaultDays,
   });
 
@@ -1546,15 +1830,21 @@ class _PaymentSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (roomIdentifier == null) return const SizedBox.shrink();
+    if (!placementSelected) return const SizedBox.shrink();
 
+    final privateBase = (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
+    final included = (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
+    final extraRate = (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
+    final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 150.0;
+    final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
     final bedTotal = isPrivateRoom
-        ? (700.0 * days)
-        : (bedsCount * (1 + attendantsCount) * 200.0 * days);
-    final attendantTotal = isPrivateRoom
-        ? ((attendantsCount - 1).clamp(0, attendantsCount) * 200.0 * days)
-        : 0.0;
-    final grandTotal = bedTotal + attendantTotal;
+        ? privateBase * days
+        : bedsCount * (1 + attendantsCount) * generalRate * days;
+    final attendantTotal = isPrivateRoom ? extraCount * extraRate * days : 0.0;
+    final calculatedTotal = bedTotal + attendantTotal;
+    final grandTotal = totalOverride != null && totalOverride! >= 0
+        ? totalOverride!
+        : calculatedTotal;
 
     return Container(
       decoration: BoxDecoration(
@@ -1623,21 +1913,25 @@ class _PaymentSummary extends StatelessWidget {
               children: [
                 _SummaryRow(
                   icon: Icons.bed_outlined,
-                  label: isPrivateRoom
+                  label: placementLabel != null
+                      ? 'Lobby · $placementLabel'
+                      : isPrivateRoom
                       ? 'Private Room'
                       : 'Grouped Beds ($bedsCount, ${1 + attendantsCount} occupants)',
                   count: isPrivateRoom ? 1 : bedsCount,
-                  rate: isPrivateRoom ? 700.0 : (1 + attendantsCount) * 200.0,
+                  rate: isPrivateRoom
+                      ? privateBase
+                      : (1 + attendantsCount) * generalRate,
                   total: bedTotal,
                   days: days,
                 ),
-                if (isPrivateRoom && attendantsCount > 1) ...[
+                if (isPrivateRoom && extraCount > 0) ...[
                   const SizedBox(height: 8),
                   _SummaryRow(
                     icon: Icons.person_outline_rounded,
                     label: 'Extra attendants',
-                    count: attendantsCount - 1,
-                    rate: 200.0,
+                    count: extraCount,
+                    rate: extraRate,
                     total: attendantTotal,
                     days: days,
                   ),
@@ -1657,8 +1951,8 @@ class _PaymentSummary extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Estimated Total',
+                Text(
+                  totalOverride != null ? 'Custom Total' : 'Estimated Total',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 13,
