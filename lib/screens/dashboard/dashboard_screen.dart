@@ -109,6 +109,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
 
           return {
+            'refundDue': patients.fold<double>(
+              0,
+              (sum, patient) => sum + patient.totalRefundDueAmount,
+            ),
             'patients': countedPatients.length,
             'totalPeople': countedPatients.length + attendeeCount,
             'vacantBeds': vacantBeds,
@@ -128,6 +132,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           spacing: 16,
           runSpacing: 16,
           children: [
+            if ((data['refundDue'] as num) > 0)
+              _StatCard(
+                label: 'Refund due',
+                value: '₹${(data['refundDue'] as num).toStringAsFixed(2)}',
+                icon: Icons.currency_exchange,
+                color: Colors.deepOrange,
+              ),
             _StatCard(
               label: "Patients",
               value: data['patients'].toString(),

@@ -11,7 +11,15 @@ extension RoomServicePricing on RoomService {
     try {
       final data = await rtdb.get(pricingPath);
       if (data != null && data is Map) {
-        return Map<String, dynamic>.from(data);
+        final pricing = Map<String, dynamic>.from(data);
+        // ₹150 was the application's old built-in fallback. The configured
+        // General Room and Lobby base rate is now ₹200.
+        final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble();
+        if (generalRate == null || generalRate == 150) {
+          pricing['generalRoomBedPrice'] = 200;
+          await rtdb.patch(pricingPath, {'generalRoomBedPrice': 200});
+        }
+        return pricing;
       }
       await rtdb.put(
         pricingPath,
@@ -26,14 +34,20 @@ extension RoomServicePricing on RoomService {
   Future<void> updatePricing(Map<String, dynamic> pricing) async {
     try {
       await rtdb.patch(pricingPath, pricing);
-      final maxAttendants = parseIntSafe(
+      final privateMaxAttendants = parseIntSafe(
         pricing['privateRoomMaxAttendants'],
         5,
       );
+      final generalMaxAttendants = parseIntSafe(
+        pricing['generalRoomMaxAttendants'],
+        2,
+      );
       final rooms = await getRoomsStream().first;
       final updates = <String, dynamic>{};
-      for (final room in rooms.where((room) => room.isPrivate)) {
-        updates['rooms/${room.id}/maxAttendants'] = maxAttendants;
+      for (final room in rooms.where((room) => !room.hasCustomAttendantLimit)) {
+        updates['rooms/${room.id}/maxAttendants'] = room.isPrivate
+            ? privateMaxAttendants
+            : generalMaxAttendants;
         updates['rooms/${room.id}/updatedAt'] =
             DateTime.now().millisecondsSinceEpoch;
       }

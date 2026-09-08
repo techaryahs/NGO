@@ -17,6 +17,7 @@ class RoomModel {
   // Private room fields
   final int maxAttendants;
   final int currentAttendants;
+  final bool hasCustomAttendantLimit;
 
   // Bed fields
   final List<BedModel> beds;
@@ -41,6 +42,7 @@ class RoomModel {
     required this.status,
     this.maxAttendants = 5,
     this.currentAttendants = 0,
+    this.hasCustomAttendantLimit = false,
     this.beds = const [],
     this.totalBeds = 4,
     this.occupiedBeds = 0,
@@ -165,6 +167,7 @@ class RoomModel {
       'status': status,
       'maxAttendants': maxAttendants,
       'currentAttendants': currentAttendants,
+      'hasCustomAttendantLimit': hasCustomAttendantLimit,
       'beds': beds.map((b) => b.toMap()).toList(),
       'totalBeds': totalBeds,
       'occupiedBeds': actualOccupiedBeds,
@@ -216,6 +219,7 @@ class RoomModel {
       status: _parseString(data['status'], fallback: 'available'),
       maxAttendants: _parseInt(data['maxAttendants'], fallback: 5),
       currentAttendants: _parseInt(data['currentAttendants']),
+      hasCustomAttendantLimit: data['hasCustomAttendantLimit'] == true,
       beds: bedsList,
       totalBeds: _parseInt(data['totalBeds'], fallback: 4),
       occupiedBeds: _parseInt(data['occupiedBeds']),
@@ -240,6 +244,7 @@ class RoomModel {
     String? status,
     int? maxAttendants,
     int? currentAttendants,
+    bool? hasCustomAttendantLimit,
     List<BedModel>? beds,
     int? totalBeds,
     int? occupiedBeds,
@@ -258,6 +263,8 @@ class RoomModel {
       status: status ?? this.status,
       maxAttendants: maxAttendants ?? this.maxAttendants,
       currentAttendants: currentAttendants ?? this.currentAttendants,
+      hasCustomAttendantLimit:
+          hasCustomAttendantLimit ?? this.hasCustomAttendantLimit,
       beds: beds ?? this.beds,
       totalBeds: totalBeds ?? this.totalBeds,
       occupiedBeds: occupiedBeds ?? this.occupiedBeds,

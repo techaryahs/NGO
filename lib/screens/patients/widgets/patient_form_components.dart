@@ -174,6 +174,7 @@ class PatientFormDropdown extends StatelessWidget {
   final String? value;
   final ValueChanged<String?>? onChanged;
   final String hint;
+  final Set<String> disabledItems;
 
   const PatientFormDropdown({
     super.key,
@@ -182,6 +183,7 @@ class PatientFormDropdown extends StatelessWidget {
     this.value,
     this.onChanged,
     this.hint = 'Select',
+    this.disabledItems = const {},
   });
 
   @override
@@ -235,7 +237,13 @@ class PatientFormDropdown extends StatelessWidget {
             size: 20,
           ),
           items: items
-              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              .map(
+                (e) => DropdownMenuItem(
+                  value: e,
+                  enabled: !disabledItems.contains(e),
+                  child: Text(disabledItems.contains(e) ? '$e — Occupied' : e),
+                ),
+              )
               .toList(),
           onChanged: onChanged,
         ),
@@ -321,10 +329,9 @@ class PatientRoomDropdown extends StatelessWidget {
             final enabled = isRoomEnabled?.call(room) ?? true;
             final availableBeds = BedHelper.selectableAvailableBeds(
               room,
-              selectedBedIds:
-                  room.id == selectedRoom?.id
-                      ? selectedBedIds
-                      : const <String>{},
+              selectedBedIds: room.id == selectedRoom?.id
+                  ? selectedBedIds
+                  : const <String>{},
             ).length;
             final defaultItem = Text(
               '${room.roomIdentifier} - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',

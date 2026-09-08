@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:ngo/models/room_model.dart';
 import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/screens/rooms/widgets/room_details_dialog.dart';
-import 'package:ngo/screens/rooms/widgets/create_stay_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/edit_room_dialog.dart';
 import 'package:ngo/utils/bed_helper.dart';
 
@@ -22,33 +21,6 @@ class RoomCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => EditRoomDialog(room: room),
-    );
-  }
-
-  void _showAssignPatient(BuildContext context) {
-    if (room.status == 'maintenance' || room.status == 'unavailable') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Cannot assign patient: Room is in ${room.status} state",
-          ),
-          backgroundColor: Colors.orange.shade700,
-        ),
-      );
-      return;
-    }
-    if (room.isFull) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Cannot assign patient: Room is already full"),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    showDialog(
-      context: context,
-      builder: (context) => CreateStayDialog(room: room),
     );
   }
 
@@ -191,7 +163,8 @@ class RoomCard extends StatelessWidget {
             // BED VISUALIZATION
             Expanded(
               child: SingleChildScrollView(
-                physics: const ClampingScrollPhysics(),
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(right: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -264,19 +237,6 @@ class RoomCard extends StatelessWidget {
                     label: "Edit",
                     onTap: () => _showEditRoom(context),
                     color: const Color(0xFF3B6D11),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: _buildActionButton(
-                    icon: Icons.person_add_alt_1_outlined,
-                    label: "Assign",
-                    onTap: () => _showAssignPatient(context),
-                    color: const Color(0xFF0F6E56),
-                    isDisabled:
-                        room.isFull ||
-                        room.status == 'maintenance' ||
-                        room.status == 'unavailable',
                   ),
                 ),
               ],
@@ -434,36 +394,6 @@ class RoomCard extends StatelessWidget {
       child: Text(
         'Lobby assignments are shown for assigned patients only.',
         style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
-      ),
-    );
-  }
-
-  Widget _buildLobbyChip({required String label}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE3F2FD),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF90CAF9), width: 0.8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.weekend_outlined,
-            size: 10,
-            color: Color(0xFF1976D2),
-          ),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1976D2),
-            ),
-          ),
-        ],
       ),
     );
   }

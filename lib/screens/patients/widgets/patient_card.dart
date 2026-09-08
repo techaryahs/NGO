@@ -115,7 +115,19 @@ class PatientCard extends StatelessWidget {
                             ),
                           ),
                           _StatusBadge(status: patient.status),
-                          if (patient.paymentPending == true) ...[
+                          if (patient.totalRefundDueAmount > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                'Refund due',
+                                style: const TextStyle(
+                                  color: Colors.deepOrange,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          if (patient.hasEffectivePendingPayment) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(

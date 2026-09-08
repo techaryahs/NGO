@@ -37,7 +37,7 @@ class RoomService {
     'privateRoomIncludedAttendants': 1,
     'privateRoomExtraAttendantFee': 200,
     'privateRoomMaxAttendants': 5,
-    'generalRoomBedPrice': 150,
+    'generalRoomBedPrice': 200,
     'generalRoomDefaultBeds': 4,
     'generalRoomIncludedAttendants': 1,
     'generalRoomMaxAttendants': 2,

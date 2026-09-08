@@ -40,7 +40,7 @@ class PricingHelper {
     } else {
       return bedsCount *
           (1 + attendantsCount) *
-          rate('generalRoomBedPrice', 150);
+          rate('generalRoomBedPrice', 200);
     }
   }
 

@@ -15,20 +15,56 @@ class EditRoomDialog extends StatefulWidget {
 class _EditRoomDialogState extends State<EditRoomDialog> {
   final TextEditingController notesController = TextEditingController();
   final TextEditingController maxAttendantsController = TextEditingController();
-  
+
   late String selectedStatus;
   late int bedCount;
   late int maxAttendants;
+  late bool usePricingDefault;
+  int? pricingDefault;
   bool isLoading = false;
+
+  bool get _hasActiveOccupancy =>
+      widget.room.isPendingDischarge ||
+      widget.room.actualOccupiedBeds > 0 ||
+      widget.room.currentAttendants > 0;
+
+  String get _occupancyLabel => widget.room.derivedOccupancyStatus
+      .split('_')
+      .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+      .join(' ');
 
   @override
   void initState() {
     super.initState();
     notesController.text = widget.room.notes ?? '';
-    selectedStatus = widget.room.status;
+    // Occupancy values such as occupied and pending_discharge are derived
+    // from active stays and must never be offered as editable room settings.
+    selectedStatus =
+        const {'maintenance', 'unavailable'}.contains(widget.room.status)
+        ? widget.room.status
+        : 'available';
     maxAttendants = widget.room.maxAttendants;
+    usePricingDefault = !widget.room.hasCustomAttendantLimit;
     bedCount = widget.room.actualTotalBeds;
     maxAttendantsController.text = maxAttendants.toString();
+    _loadPricingDefault();
+  }
+
+  Future<void> _loadPricingDefault() async {
+    try {
+      final pricing = await ServiceLocator().roomService.getPricing();
+      final value =
+          pricing[widget.room.isPrivate
+              ? 'privateRoomMaxAttendants'
+              : 'generalRoomMaxAttendants'];
+      if (!mounted) return;
+      setState(() {
+        pricingDefault = value is num ? value.toInt() : int.tryParse('$value');
+        if (usePricingDefault && pricingDefault != null) {
+          maxAttendantsController.text = pricingDefault.toString();
+        }
+      });
+    } catch (_) {}
   }
 
   @override
@@ -44,30 +80,49 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final Map<String, dynamic> updates = {
-        'status': selectedStatus,
-        'notes': notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+        if (!_hasActiveOccupancy) 'status': selectedStatus,
+        'notes': notesController.text.trim().isEmpty
+            ? null
+            : notesController.text.trim(),
       };
 
-      if (widget.room.isPrivate) {
-        final parsedAttendants = int.tryParse(maxAttendantsController.text) ?? widget.room.maxAttendants;
-        updates['maxAttendants'] = parsedAttendants;
-      } else {
+      final parsedAttendants = int.tryParse(
+        maxAttendantsController.text.trim(),
+      );
+      if (parsedAttendants == null || parsedAttendants < 1) {
+        throw Exception('Maximum attendants must be at least 1.');
+      }
+      if (parsedAttendants < widget.room.currentAttendants) {
+        throw Exception(
+          'Maximum attendants cannot be below the ${widget.room.currentAttendants} currently assigned.',
+        );
+      }
+      updates['maxAttendants'] = parsedAttendants;
+      updates['hasCustomAttendantLimit'] = !usePricingDefault;
+
+      if (!widget.room.isPrivate) {
         // Adjust general room beds
         final currentBeds = List<BedModel>.from(widget.room.beds);
-        
+
         if (bedCount > currentBeds.length) {
           // Add extra beds
           for (int i = currentBeds.length + 1; i <= bedCount; i++) {
-            currentBeds.add(BedModel.create(roomId: widget.room.id, bedLabel: 'bed$i'));
+            currentBeds.add(
+              BedModel.create(roomId: widget.room.id, bedLabel: 'bed$i'),
+            );
           }
         } else if (bedCount < currentBeds.length) {
           // Remove available beds starting from the end
           int toRemove = currentBeds.length - bedCount;
-          
+
           // Check if we can safely remove them (are there enough available beds?)
-          final availableBeds = currentBeds.where((b) => b.isAvailable).toList();
+          final availableBeds = currentBeds
+              .where((b) => b.isAvailable)
+              .toList();
           if (availableBeds.length < toRemove) {
-            throw Exception('Cannot reduce bed count. Some beds are occupied/maintenance and cannot be removed.');
+            throw Exception(
+              'Cannot reduce bed count. Some beds are occupied/maintenance and cannot be removed.',
+            );
           }
 
           for (int i = currentBeds.length - 1; i >= 0 && toRemove > 0; i--) {
@@ -83,7 +138,7 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
       }
 
       await roomService.updateRoom(widget.room.id, updates);
-      
+
       // Update room status metadata
       await roomService.updateRoomStatus(widget.room.id);
 
@@ -91,7 +146,9 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Room ${widget.room.roomIdentifier} updated successfully"),
+            content: Text(
+              "Room ${widget.room.roomIdentifier} updated successfully",
+            ),
             backgroundColor: const Color(0xFF3B6D11),
             behavior: SnackBarBehavior.floating,
           ),
@@ -169,9 +226,9 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
               ),
               const SizedBox(height: 24),
 
-              // Room Status Selection
+              // Operational status; occupancy is calculated from stays.
               const Text(
-                "ROOM STATUS",
+                "ROOM AVAILABILITY",
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -180,43 +237,79 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF4F9F0),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFC0DD97), width: 1),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: selectedStatus,
-                    isExpanded: true,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'available',
-                        child: Text("Available"),
+              if (_hasActiveOccupancy)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F9F0),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFC0DD97)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 18,
+                        color: Color(0xFF639922),
                       ),
-                      DropdownMenuItem(
-                        value: 'maintenance',
-                        child: Text("Maintenance"),
-                      ),
-                      DropdownMenuItem(
-                        value: 'unavailable',
-                        child: Text("Unavailable"),
+                      const SizedBox(width: 10),
+                      Text(
+                        _occupancyLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => selectedStatus = value);
-                      }
-                    },
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F9F0),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFFC0DD97),
+                      width: 1,
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: selectedStatus,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'available',
+                          child: Text("Available"),
+                        ),
+                        DropdownMenuItem(
+                          value: 'maintenance',
+                          child: Text("Maintenance"),
+                        ),
+                        DropdownMenuItem(
+                          value: 'unavailable',
+                          child: Text("Unavailable"),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => selectedStatus = value);
+                        }
+                      },
+                    ),
                   ),
                 ),
+              const SizedBox(height: 7),
+              const Text(
+                'Occupied and pending discharge are updated automatically from patient stays.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF647455)),
               ),
               const SizedBox(height: 20),
 
               // Capacity Section
-              if (widget.room.isPrivate) ...[
+              ...[
                 const Text(
                   "MAX ATTENDANTS",
                   style: TextStyle(
@@ -227,53 +320,107 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
                   ),
                 ),
                 const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Use pricing default',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    pricingDefault == null
+                        ? 'Loading default…'
+                        : 'Current default: $pricingDefault attendants',
+                  ),
+                  value: usePricingDefault,
+                  onChanged: (value) {
+                    setState(() {
+                      usePricingDefault = value;
+                      if (value && pricingDefault != null) {
+                        maxAttendantsController.text = pricingDefault
+                            .toString();
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Controls how many attendants can be assigned. Currently assigned: ${widget.room.currentAttendants}.',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF647455),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     IconButton(
-                      onPressed: () {
-                        final current = int.tryParse(maxAttendantsController.text) ?? widget.room.maxAttendants;
-                        if (current > 1) {
-                          setState(() {
-                            maxAttendantsController.text = (current - 1).toString();
-                          });
-                        }
-                      },
+                      onPressed: usePricingDefault
+                          ? null
+                          : () {
+                              final current =
+                                  int.tryParse(maxAttendantsController.text) ??
+                                  widget.room.maxAttendants;
+                              final minimum = widget.room.currentAttendants > 1
+                                  ? widget.room.currentAttendants
+                                  : 1;
+                              if (current > minimum) {
+                                setState(() {
+                                  maxAttendantsController.text = (current - 1)
+                                      .toString();
+                                });
+                              }
+                            },
                       icon: const Icon(Icons.remove_circle_outline_rounded),
                       color: const Color(0xFF639922),
                     ),
                     Expanded(
                       child: TextField(
                         controller: maxAttendantsController,
+                        enabled: !usePricingDefault,
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         decoration: InputDecoration(
                           filled: true,
                           fillColor: const Color(0xFFF4F9F0),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                          ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFC0DD97),
+                              width: 1,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF639922),
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
                     ),
                     IconButton(
-                      onPressed: () {
-                        final current = int.tryParse(maxAttendantsController.text) ?? widget.room.maxAttendants;
-                        setState(() {
-                          maxAttendantsController.text = (current + 1).toString();
-                        });
-                      },
+                      onPressed: usePricingDefault
+                          ? null
+                          : () {
+                              final current =
+                                  int.tryParse(maxAttendantsController.text) ??
+                                  widget.room.maxAttendants;
+                              setState(() {
+                                maxAttendantsController.text = (current + 1)
+                                    .toString();
+                              });
+                            },
                       icon: const Icon(Icons.add_circle_outline_rounded),
                       color: const Color(0xFF639922),
                     ),
                   ],
                 ),
-              ] else ...[
+              ],
+              if (!widget.room.isPrivate) ...[
                 const Text(
                   "NUMBER OF BEDS",
                   style: TextStyle(
@@ -294,7 +441,9 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
                           if (bedCount - 1 < occupied) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text("Cannot reduce below currently occupied beds"),
+                                content: Text(
+                                  "Cannot reduce below currently occupied beds",
+                                ),
                                 backgroundColor: Colors.orange,
                               ),
                             );
@@ -312,7 +461,10 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
                         decoration: BoxDecoration(
                           color: const Color(0xFFF4F9F0),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFC0DD97), width: 1),
+                          border: Border.all(
+                            color: const Color(0xFFC0DD97),
+                            width: 1,
+                          ),
                         ),
                         child: Text(
                           "$bedCount",

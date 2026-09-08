@@ -3,6 +3,7 @@ import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import 'package:intl/intl.dart';
 import '../patients/widgets/payment_dialog.dart';
+import '../patients/widgets/refund_dialog.dart';
 
 class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
@@ -28,9 +29,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChanged);
-    _patientsStream = ServiceLocator().patientService.getPatientsByStatuses(
-      const ['active', 'Paid', 'paid'],
-    );
+    _patientsStream = ServiceLocator().patientService.getPatientsStream();
     // Billing is recalculated when a patient is admitted, edited, or their
     // attendance changes. Avoid a full historical recalculation on every
     // visit to Payments because it can make the whole application sluggish.
@@ -48,8 +47,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     final nextTab = _tabController.index;
     if (nextTab == _selectedTab) return;
     if (nextTab == 1) {
-      _paymentsStream ??=
-          ServiceLocator().paymentService.getAllPaymentsStream();
+      _paymentsStream ??= ServiceLocator().paymentService
+          .getAllPaymentsStream();
     }
     _searchController.clear();
     setState(() {
@@ -229,12 +228,14 @@ class _PaymentsScreenState extends State<PaymentsScreen>
         }
 
         final allPatients = snapshot.data ?? [];
-        final activePatients = allPatients
-            .where((p) {
-              final status = p.status.toLowerCase();
-              return status == 'active' || status == 'paid';
-            })
-            .toList();
+        final activePatients = allPatients.where((p) {
+          final status = p.status.toLowerCase();
+          return status == 'active' ||
+              status == 'paid' ||
+              status == 'discharged' ||
+              p.effectiveDueAmount > 0 ||
+              p.totalRefundDueAmount > 0;
+        }).toList();
 
         final query = _searchQuery.trim().toLowerCase();
         final filtered = activePatients.where((p) {
@@ -245,8 +246,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             p.roomNumber ?? '',
             p.paymentStatus ?? '',
             p.registrationNumber ?? '',
-            p.currentDueAmount?.toString() ?? '',
-            p.totalPaidAmount?.toString() ?? '',
+            p.effectiveDueAmount.toString(),
+            p.effectivePaidAmount.toString(),
           ].map((value) => value.toLowerCase());
           return fields.any((value) => value.contains(query));
         }).toList();
@@ -255,11 +256,11 @@ class _PaymentsScreenState extends State<PaymentsScreen>
 
         final totalDue = activePatients.fold<double>(
           0.0,
-          (sum, p) => sum + (p.currentDueAmount ?? 0.0),
+          (sum, p) => sum + p.effectiveDueAmount,
         );
         final totalCollected = activePatients.fold(
           0.0,
-          (sum, p) => sum + (p.totalPaidAmount ?? 0),
+          (sum, p) => sum + p.effectivePaidAmount,
         );
 
         return Padding(
@@ -277,15 +278,26 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                   ),
                   const SizedBox(width: 16),
                   _SummaryCard(
-                    title: "Total Collected (Active)",
+                    title: "Net Collected",
                     value: totalCollected,
                     color: const Color(0xFF3B6D11),
                     icon: Icons.account_balance_wallet_rounded,
                   ),
                 ],
               ),
+
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  'Refund due: ₹${allPatients.fold<double>(0, (sum, p) => sum + p.totalRefundDueAmount).toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    color: Colors.deepOrange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
               const SizedBox(height: 24),
-              _buildFilters("Search active patients..."),
+              _buildFilters("Search patient billing..."),
               const SizedBox(height: 16),
               Expanded(
                 child: filtered.isEmpty
@@ -302,10 +314,10 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                         itemBuilder: (context, index) {
                           if (index == visiblePatients.length) {
                             return _LoadMorePaymentsButton(
-                              remaining: filtered.length - visiblePatients.length,
-                              onPressed: () => setState(
-                                () => _visibleBilling += _pageSize,
-                              ),
+                              remaining:
+                                  filtered.length - visiblePatients.length,
+                              onPressed: () =>
+                                  setState(() => _visibleBilling += _pageSize),
                             );
                           }
                           return _PatientBillingTile(
@@ -389,7 +401,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
               Row(
                 children: [
                   _SummaryCard(
-                    title: "Lifetime Collection",
+                    title: "Net Lifetime Collection",
                     value: total,
                     color: const Color(0xFF3B6D11),
                     icon: Icons.account_balance_wallet_rounded,
@@ -437,9 +449,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                             return _LoadMorePaymentsButton(
                               remaining:
                                   filtered.length - visiblePayments.length,
-                              onPressed: () => setState(
-                                () => _visibleLedger += _pageSize,
-                              ),
+                              onPressed: () =>
+                                  setState(() => _visibleLedger += _pageSize),
                             );
                           }
                           return _PaymentTile(payment: visiblePayments[index]);
@@ -524,9 +535,7 @@ class _LoadMorePaymentsButton extends StatelessWidget {
         child: OutlinedButton.icon(
           onPressed: onPressed,
           icon: const Icon(Icons.expand_more_rounded),
-          label: Text(
-            'Load $nextCount more ($remaining remaining)',
-          ),
+          label: Text('Load $nextCount more ($remaining remaining)'),
           style: OutlinedButton.styleFrom(
             foregroundColor: const Color(0xFF3B6D11),
             side: const BorderSide(color: Color(0xFF97C459)),
@@ -664,13 +673,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
     final fmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
     final configuredBill =
         patient.advanceBilledAmount + patient.attendanceCharges;
-    final recordedBill =
-        (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
-    // Legacy imports may not have a billing value.  In that case, derive the
-    // bill from the recorded payment so the dashboard does not show Bill: ₹0.
-    final totalBill = configuredBill > recordedBill
-        ? configuredBill
-        : recordedBill;
+    final totalBill = configuredBill;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -776,7 +779,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                     const Text("•", style: TextStyle(color: Colors.grey)),
                     const SizedBox(width: 8),
                     Text(
-                      "Paid: ${fmt.format(patient.totalPaidAmount ?? 0)}",
+                      "Paid: ${fmt.format(patient.effectivePaidAmount)}",
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                   ],
@@ -788,73 +791,94 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              if (patient.totalRefundDueAmount > 0) ...[
+                Text(
+                  'Payment exceeded: ${fmt.format(patient.totalRefundDueAmount)}',
+                  style: const TextStyle(
+                    color: Colors.deepOrange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => showRefundDialog(context, patient),
+                  child: const Text('Record refund paid'),
+                ),
+              ],
+
               Text(
-                "Due: ${fmt.format(patient.currentDueAmount)}",
+                "Due: ${fmt.format(patient.effectiveDueAmount)}",
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
-                  color: (patient.currentDueAmount ?? 0.0) > 0
+                  color: patient.effectiveDueAmount > 0
                       ? const Color(0xFFD32F2F)
                       : const Color(0xFF3B6D11),
                 ),
               ),
               const SizedBox(height: 8),
-              if ((patient.currentDueAmount ?? 0.0) > 0)
+              if (patient.effectiveDueAmount > 0)
                 ElevatedButton(
                   onPressed: _isProcessing
                       ? null
                       : () async {
-                    final result = await showPatientPaymentDialog(
-                      context: context,
-                      patientName: patient.fullName,
-                      contactNumber: patient.contactNumber,
-                      bedsCount: patient.bedIds?.length ?? 1,
-                      attendantsCount: patient.attendants?.length ?? 0,
-                      roomIdentifier: patient.roomNumber,
-                      alreadyPaid: patient.totalPaidAmount ?? 0.0,
-                      showPayLater: false,
-                      totalBillOverride:
-                          patient.advanceBilledAmount +
-                          patient.attendanceCharges,
-                    );
-
-                    if (result != null && result.payment != null) {
-                      setState(() => _isProcessing = true);
-                      try {
-                        await ServiceLocator().patientService.recordPayment(
-                          patient.id,
-                          result.payment!,
-                        );
-                        await ServiceLocator().patientService.updatePatient(
-                          patient.id,
-                          {
-                            'advanceBilledAmount':
-                                result.payment!.totalAmount,
-                            'attendanceCharges': 0.0,
-                            'billingAmountOverride': result.totalAmountEdited
-                                ? result.payment!.totalAmount
-                                : patient.billingAmountOverride,
-                            'paymentPending':
-                                result.payment!.pendingAmount > 0,
-                            'paymentStatus': result.payment!.paymentStatus,
-                            'totalPaidAmount': result.payment!.paidAmount,
-                            'currentDueAmount': result.payment!.pendingAmount,
-                          },
-                        );
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Payment successfully recorded!'),
-                              backgroundColor: Color(0xFF3B6D11),
-                            ),
+                          final result = await showPatientPaymentDialog(
+                            context: context,
+                            patientName: patient.fullName,
+                            contactNumber: patient.contactNumber,
+                            bedsCount: patient.bedIds?.length ?? 1,
+                            attendantsCount: patient.attendants?.length ?? 0,
+                            roomIdentifier: patient.roomNumber,
+                            alreadyPaid: patient.effectivePaidAmount,
+                            showPayLater: false,
+                            totalBillOverride:
+                                patient.advanceBilledAmount +
+                                patient.attendanceCharges,
                           );
-                        }
-                      } finally {
-                        if (mounted) setState(() => _isProcessing = false);
-                      }
-                    }
-                  },
+
+                          if (result != null && result.payment != null) {
+                            setState(() => _isProcessing = true);
+                            try {
+                              await ServiceLocator().patientService
+                                  .recordPayment(patient.id, result.payment!);
+                              await ServiceLocator().patientService
+                                  .updatePatient(patient.id, {
+                                    'advanceBilledAmount':
+                                        result.payment!.totalAmount,
+                                    'attendanceCharges': 0.0,
+                                    'billingAmountOverride':
+                                        result.totalAmountEdited
+                                        ? result.payment!.totalAmount
+                                        : patient.billingAmountOverride,
+                                    'paymentPending':
+                                        result.payment!.pendingAmount > 0,
+                                    'paymentStatus':
+                                        result.payment!.paymentStatus,
+                                    'totalPaidAmount':
+                                        result.payment!.paidAmount,
+                                    'currentDueAmount':
+                                        result.payment!.pendingAmount,
+                                  });
+                              await ServiceLocator().paymentService
+                                  .recalculatePatientAttendanceAndBilling(
+                                    patient.id,
+                                  );
+
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Payment successfully recorded!',
+                                    ),
+                                    backgroundColor: Color(0xFF3B6D11),
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (mounted)
+                                setState(() => _isProcessing = false);
+                            }
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF3B6D11),
                     foregroundColor: Colors.white,

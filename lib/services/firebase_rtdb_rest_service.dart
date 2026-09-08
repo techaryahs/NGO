@@ -20,6 +20,8 @@ class FirebaseRTDBRestService {
 
   // Active stream controllers for cleanup
   final Map<String, StreamController> _activeControllers = {};
+  final Map<String, Future<void> Function()> _refreshers = {};
+  final Map<String, String> _refreshPaths = {};
 
   // Keep the latest successful value per path so moving between screens does
   // not flash an empty state while the same Firebase data is downloaded again.
@@ -172,6 +174,20 @@ class FirebaseRTDBRestService {
           'PATCH failed: ${response.statusCode} - ${response.body}',
         );
       }
+      final changed = updates.keys
+          .map((key) => path.isEmpty ? key : '$path/$key')
+          .toList();
+      final callbacks = [
+        for (final entry in _refreshers.entries)
+          if (changed.any(
+            (key) =>
+                key == _refreshPaths[entry.key] ||
+                key.startsWith('${_refreshPaths[entry.key]}/') ||
+                _refreshPaths[entry.key]!.startsWith('$key/'),
+          ))
+            entry.value,
+      ];
+      await Future.wait(callbacks.map((refresh) => refresh()));
     } catch (e) {
       throw Exception('Failed to PATCH $path: $e');
     }
@@ -268,6 +284,8 @@ class FirebaseRTDBRestService {
 
     controller = StreamController<dynamic>(
       onListen: () {
+        _refreshers[controllerId] = fetchLatest;
+        _refreshPaths[controllerId] = path;
         // Repaint immediately with the most recently fetched value. The
         // network request below still runs so the UI remains up to date.
         if (_latestValues.containsKey(path)) {
@@ -286,6 +304,8 @@ class FirebaseRTDBRestService {
       onCancel: () {
         timer?.cancel();
         _activeControllers.remove(controllerId);
+        _refreshers.remove(controllerId);
+        _refreshPaths.remove(controllerId);
       },
     );
 
@@ -334,7 +354,12 @@ class FirebaseRTDBRestService {
         url += '?' + params.entries.map((e) => '${e.key}=${e.value}').join('&');
       }
 
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception(
+          'Request timeout - check your internet connection',
+        ),
+      );
 
       if (response.statusCode == 200) {
         if (response.body == 'null') return null;
@@ -419,8 +444,7 @@ class FirebaseRTDBRestService {
   }) {
     final interval = pollInterval ?? Duration(seconds: _pollingInterval);
     final cacheKey = '$path|$orderBy|${json.encode(equalToAny)}';
-    final controllerId =
-        '${cacheKey}_${DateTime.now().millisecondsSinceEpoch}';
+    final controllerId = '${cacheKey}_${DateTime.now().millisecondsSinceEpoch}';
 
     late StreamController<dynamic> controller;
     Timer? timer;
@@ -475,6 +499,8 @@ class FirebaseRTDBRestService {
 
     controller = StreamController<dynamic>(
       onListen: () {
+        _refreshers[controllerId] = fetchLatest;
+        _refreshPaths[controllerId] = path;
         if (_latestValues.containsKey(cacheKey)) {
           lastValue = _latestValues[cacheKey];
           controller.add(lastValue);
@@ -485,6 +511,8 @@ class FirebaseRTDBRestService {
       onCancel: () {
         timer?.cancel();
         _activeControllers.remove(controllerId);
+        _refreshers.remove(controllerId);
+        _refreshPaths.remove(controllerId);
       },
     );
     _activeControllers[controllerId] = controller;

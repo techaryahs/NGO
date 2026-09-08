@@ -59,7 +59,7 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
           : 0;
       additionalCost += chargedAttendants * extraFee * additionalDays;
     } else {
-      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 150).toDouble();
+      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 200).toDouble();
       additionalCost =
           bedPrice * (1 + widget.stay.attendantCount) * additionalDays;
     }

@@ -210,7 +210,8 @@ class _RoomsPageState extends State<RoomsPage> {
             crossAxisCount = 2;
           }
 
-          // Compute aspect ratio dynamically based on screen width to enforce a 265px card height
+          // Leave enough space for bed and attendant chips without forcing a
+          // cramped scroll area inside every room card.
           double spacing = 16.0;
           double sidebarWidth = isWideDesktop ? 330.0 : 0.0;
           double gridWidth =
@@ -219,7 +220,7 @@ class _RoomsPageState extends State<RoomsPage> {
               40.0; // 40px padding
           double cellWidth =
               (gridWidth - (crossAxisCount - 1) * spacing) / crossAxisCount;
-          double childAspectRatio = (cellWidth / 265.0).clamp(0.6, 2.5);
+          double childAspectRatio = (cellWidth / 320.0).clamp(0.6, 2.5);
 
           return CustomScrollView(
             physics: const ClampingScrollPhysics(),
@@ -1002,10 +1003,7 @@ class _LobbyPlacementCard extends StatelessWidget {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: patients.isEmpty
                       ? const Color(0xFFF0F7EA)
@@ -1154,7 +1152,7 @@ class _LobbyPatientStay extends StatelessWidget {
                   ),
                   child: Text(
                     isExpired
-                        ? 'EXPIRED'
+                        ? 'STAY OVERDUE'
                         : '${currentStay.daysRemaining} days left',
                     style: TextStyle(
                       color: isExpired

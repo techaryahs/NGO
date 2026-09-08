@@ -4,6 +4,19 @@ part of 'room_service.dart';
 ///
 /// Creating, extending, and completing patient stays.
 extension RoomServiceStays on RoomService {
+  Future<Map<String, dynamic>> _patientSnapshot(String patientId) async {
+    final data = await rtdb.get('patients/$patientId');
+    if (data is! Map) return {};
+    return {
+      for (final key in [
+        'registrationNumber',
+        'photoDataUrl',
+        'attendants',
+        'admissionDate',
+      ])
+        key: data[key],
+    };
+  }
   // --- Stays ---
 
   Stream<List<StayModel>> getStaysStream() {
@@ -47,6 +60,19 @@ extension RoomServiceStays on RoomService {
     String status = 'active',
     DateTime? completedAt,
   }) async {
+    if (status == 'active') {
+      final occupied = (await getStaysStream().first).any(
+        (stay) =>
+            stay.roomType == 'lobby' &&
+            stay.status == 'active' &&
+            stay.roomNumber.trim().toLowerCase() ==
+                lobbyName.trim().toLowerCase() &&
+            stay.patientId != patientId,
+      );
+      if (occupied) {
+        throw Exception('$lobbyName is already occupied');
+      }
+    }
     final now = completedAt ?? DateTime.now();
     final stayId = generateStayId();
     final end = completedAt ?? admissionDate.add(Duration(days: durationDays));
@@ -56,10 +82,18 @@ extension RoomServiceStays on RoomService {
       attendantCount: attendantCount,
       pricing: await getPricing(),
     );
+    final staySnapshot = await _patientSnapshot(patientId);
     final stay = StayModel(
       id: stayId,
       patientId: patientId,
       patientName: patientName,
+      patientSnapshot: staySnapshot,
+      cycleId: staySnapshot['admissionDate']?.toString(),
+      // The admission estimate may include attendants, but the final daily
+      // charge is attendance-driven. Leaving this unset lets billing add only
+      // attendants explicitly marked Present for each billable date.
+      dailyRate: null,
+      completedAt: status == 'active' ? null : completedAt,
       roomId: 'lobby:$lobbyName',
       roomNumber: lobbyName,
       roomType: 'lobby',
@@ -120,10 +154,7 @@ extension RoomServiceStays on RoomService {
         if (targetBed == null)
           throw Exception('No available bed found in private room');
       } else {
-        final maxAttendants = parseIntSafe(
-          pricing['generalRoomMaxAttendants'],
-          2,
-        );
+        final maxAttendants = room.maxAttendants;
         if (attendantCount > maxAttendants) {
           throw Exception(
             'General room attendant limit exceeded ($maxAttendants)',
@@ -151,10 +182,16 @@ extension RoomServiceStays on RoomService {
       final now = DateTime.now();
       final stayId = generateStayId();
 
+      final staySnapshot = await _patientSnapshot(patientId);
       final stay = StayModel(
         id: stayId,
         patientId: patientId,
         patientName: patientName,
+        patientSnapshot: staySnapshot,
+        cycleId: staySnapshot['admissionDate']?.toString(),
+        // Keep the initial total as an estimate; the daily rate must remain
+        // dynamic so absent or unmarked attendants are not charged.
+        dailyRate: null,
         roomId: roomId,
         roomNumber: room.roomIdentifier,
         roomType: resolvedRoomType,
@@ -295,6 +332,11 @@ extension RoomServiceStays on RoomService {
       if (data == null || data is! Map) throw Exception('Stay not found');
 
       final stay = StayModel.fromMap(stayId, Map<String, dynamic>.from(data));
+      if (stay.patientSnapshot.isEmpty) {
+        await rtdb.patch('$staysPath/$stayId', {
+          'patientSnapshot': await _patientSnapshot(stay.patientId),
+        });
+      }
       final room = await getRoom(stay.roomId);
       final now = completedAt ?? DateTime.now();
       if (room == null) {
@@ -303,6 +345,7 @@ extension RoomServiceStays on RoomService {
         // or deletion when there is no physical bed left to release.
         await rtdb.patch('$staysPath/$stayId', {
           'status': 'completed',
+          'completedAt': now.millisecondsSinceEpoch,
           'updatedAt': now.millisecondsSinceEpoch,
           if (billingAdmissionDate != null)
             'admissionDate': billingAdmissionDate.millisecondsSinceEpoch,
@@ -340,12 +383,11 @@ extension RoomServiceStays on RoomService {
               }
               return b;
             }).toList();
-      final nextOccupiedCount = fixedBeds
-          .where((bed) => bed.isOccupied)
-          .length;
+      final nextOccupiedCount = fixedBeds.where((bed) => bed.isOccupied).length;
 
       final updates = <String, dynamic>{
         'stays/$stayId/status': 'completed',
+        'stays/$stayId/completedAt': now.millisecondsSinceEpoch,
         'stays/$stayId/updatedAt': now.millisecondsSinceEpoch,
         if (billingAdmissionDate != null)
           'stays/$stayId/admissionDate':
@@ -357,8 +399,7 @@ extension RoomServiceStays on RoomService {
           ),
         if (totalCost != null) 'stays/$stayId/totalCost': totalCost,
         if (paidAmount != null) 'stays/$stayId/paidAmount': paidAmount,
-        if (pendingAmount != null)
-          'stays/$stayId/pendingAmount': pendingAmount,
+        if (pendingAmount != null) 'stays/$stayId/pendingAmount': pendingAmount,
         'rooms/${room.id}/occupiedBeds': nextOccupiedCount,
         'rooms/${room.id}/currentAttendants': room.isPrivate
             ? (room.currentAttendants > stay.attendantCount
@@ -397,7 +438,10 @@ extension RoomServiceStays on RoomService {
     required DateTime admissionDate,
     DateTime? exitDate,
   }) async {
-    final durationDays = PricingHelper.calculateStayDays(admissionDate, exitDate);
+    final durationDays = PricingHelper.calculateStayDays(
+      admissionDate,
+      exitDate,
+    );
     final end = exitDate ?? admissionDate.add(Duration(days: durationDays));
     await rtdb.patch('$staysPath/$stayId', {
       'admissionDate': admissionDate.millisecondsSinceEpoch,
@@ -434,7 +478,7 @@ extension RoomServiceStays on RoomService {
           : 0;
       extraAttendantCost = chargedAttendants * extraFee * durationDays;
     } else {
-      final bedPrice = parseDoubleSafe(pricing['generalRoomBedPrice'], 150);
+      final bedPrice = parseDoubleSafe(pricing['generalRoomBedPrice'], 200);
       baseCost = bedPrice * (1 + attendantCount) * durationDays;
     }
 
@@ -451,9 +495,16 @@ extension RoomServiceStays on RoomService {
     String stayId,
     int attendantCount, {
     List<String> attendantLabels = const [],
+    List<Map<String, dynamic>>? attendants,
   }) async {
     final stay = await getStay(stayId);
     if (stay == null) throw Exception('Stay not found');
+    final room = await getRoom(stay.roomId);
+    if (room != null && attendantCount > room.maxAttendants) {
+      throw Exception(
+        '${room.isPrivate ? 'Private room' : 'General room'} attendant limit exceeded (${room.maxAttendants})',
+      );
+    }
     final costs = _calculateStayCosts(
       roomType: stay.roomType,
       durationDays: stay.totalDays,
@@ -463,13 +514,16 @@ extension RoomServiceStays on RoomService {
     final updates = <String, dynamic>{
       'attendantCount': attendantCount,
       'attendantLabels': attendantLabels,
+      if (attendants != null) 'patientSnapshot/attendants': attendants,
+      // Changing the attendant list must not turn the estimate into a fixed
+      // daily charge. Attendance determines the attendant portion per day.
+      'dailyRate': null,
       'baseCost': costs.baseCost,
       'extraAttendantCost': costs.extraAttendantCost,
       'totalCost': costs.totalCost,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
     };
     if (stay.roomType == 'private') {
-      final room = await getRoom(stay.roomId);
       if (room != null) {
         final projectedAttendants =
             room.currentAttendants - stay.attendantCount + attendantCount;

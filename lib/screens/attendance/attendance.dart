@@ -34,6 +34,7 @@ class _AttendanceState extends State<Attendance>
 
   late Future<Map<String, Map<String, String>>> _weeklyData;
   late Future<Map<String, Map<String, String>>> _monthlyData;
+  final Map<String, Map<String, Map<String, String>>> _reportCache = {};
   DateTime _selectedMonth = DateTime.now();
   DateTime _selectedAttendanceDate = DateTime.now();
 
@@ -300,51 +301,7 @@ class _AttendanceState extends State<Attendance>
     String type,
   ) async {
     final dates = getLast7Days();
-    final pathPrefix = type == 'patient'
-        ? 'attendance/daily'
-        : 'attendant_attendance/daily';
-    final result = <String, Map<String, String>>{};
-
-    // Fetch the parent once instead of issuing seven simultaneous requests.
-    final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
-    final patientsData = await ServiceLocator().rtdbService.get('patients');
-    final validPatientIds = patientsData is Map
-        ? patientsData.keys.map((key) => key.toString()).toSet()
-        : <String>{};
-    final dailyMap = allDailyData is Map
-        ? Map<String, dynamic>.from(allDailyData)
-        : <String, dynamic>{};
-    for (var index = 0; index < dates.length; index++) {
-      final date = dates[index];
-      final data = dailyMap[date];
-      if (data != null && data is Map) {
-        if (type == 'patient') {
-          Map<String, dynamic>.from(data).forEach((patientId, v) {
-            if (!validPatientIds.contains(patientId)) return;
-            final name = v['patientName'] ?? '';
-            final status = v['status'] ?? '';
-            if (name.isNotEmpty) {
-              result.putIfAbsent(name, () => {})[date] = status;
-            }
-          });
-        } else {
-          // Attendants are stored under date / patientId / safeKey
-          Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
-            if (!validPatientIds.contains(patientId)) return;
-            if (attendantsMap is Map) {
-              Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
-                final name = v['attendantName'] ?? '';
-                final status = v['status'] ?? '';
-                if (name.isNotEmpty) {
-                  result.putIfAbsent(name, () => {})[date] = status;
-                }
-              });
-            }
-          });
-        }
-      }
-    }
-    return result;
+    return _fetchAttendanceRange(type, dates);
   }
 
   Future<Map<String, Map<String, String>>> fetchMonthlyAttendance(
@@ -352,29 +309,37 @@ class _AttendanceState extends State<Attendance>
     String type,
   ) async {
     final dates = getDaysOfMonth(month);
+    return _fetchAttendanceRange(type, dates);
+  }
+
+  Future<Map<String, Map<String, String>>> _fetchAttendanceRange(
+    String type,
+    List<String> dates,
+  ) async {
+    if (dates.isEmpty) return {};
     final pathPrefix = type == 'patient'
         ? 'attendance/daily'
         : 'attendant_attendance/daily';
+    final cacheKey = '$type:${dates.first}:${dates.last}';
+    final cached = _reportCache[cacheKey];
+    if (cached != null) return cached;
     final result = <String, Map<String, String>>{};
-
-    // Fetch all daily records once and select this month's dates locally.
-    // The previous implementation launched up to 31 requests at the same
-    // time, which was slow and unreliable on ordinary Wi-Fi connections.
-    final allDailyData = await ServiceLocator().rtdbService.get(pathPrefix);
-    final patientsData = await ServiceLocator().rtdbService.get('patients');
-    final validPatientIds = patientsData is Map
-        ? patientsData.keys.map((key) => key.toString()).toSet()
-        : <String>{};
-    final dailyMap = allDailyData is Map
-        ? Map<String, dynamic>.from(allDailyData)
-        : <String, dynamic>{};
-    for (var index = 0; index < dates.length; index++) {
-      final date = dates[index];
+    final rangeData = await ServiceLocator().rtdbService.getByKeyRange(
+      pathPrefix,
+      startKey: dates.first,
+      endKey: dates.last,
+    );
+    final dailyMap = rangeData is Map ? rangeData : const {};
+    final validPatientIds = _patientSource
+        .map((patient) => patient.id)
+        .toSet();
+    for (final date in dates) {
       final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((patientId, v) {
-            if (!validPatientIds.contains(patientId)) return;
+            if (validPatientIds.isNotEmpty &&
+                !validPatientIds.contains(patientId)) return;
             final name = v['patientName'] ?? '';
             final status = v['status'] ?? '';
             if (name.isNotEmpty) {
@@ -383,7 +348,8 @@ class _AttendanceState extends State<Attendance>
           });
         } else {
           Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
-            if (!validPatientIds.contains(patientId)) return;
+            if (validPatientIds.isNotEmpty &&
+                !validPatientIds.contains(patientId)) return;
             if (attendantsMap is Map) {
               Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
                 final name = v['attendantName'] ?? '';
@@ -397,6 +363,7 @@ class _AttendanceState extends State<Attendance>
         }
       }
     }
+    _reportCache[cacheKey] = result;
     return result;
   }
 
@@ -405,6 +372,7 @@ class _AttendanceState extends State<Attendance>
     String patientName,
     bool isPresent,
   ) async {
+    _reportCache.clear();
     final dateObj = _selectedAttendanceDate;
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
 
@@ -418,6 +386,7 @@ class _AttendanceState extends State<Attendance>
             'patientName': patientName,
             'status': isPresent ? 'Present' : 'Absent',
             'date': today,
+            'source': 'manual',
             'timestamp': DateTime.now().toIso8601String(),
           });
 
@@ -458,25 +427,15 @@ class _AttendanceState extends State<Attendance>
     }
   }
 
-  /// Selecting the same status twice clears the manual entry. This restores
-  /// the automatic attendance calculation instead of leaving a stale record.
+  /// Patient presence is automatic. A manual absence overrides it, and
+  /// selecting that absence again restores the automatic Present status.
   Future<void> toggleAttendance(
     String patientId,
     String patientName,
     bool isPresent,
   ) async {
     if (attendanceStatus[patientId] == isPresent) {
-      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
-      setState(() => attendanceStatus.remove(patientId));
-      try {
-        await ServiceLocator().rtdbService.delete(
-          'attendance/daily/$today/$patientId',
-        );
-        await ServiceLocator().paymentService
-            .recalculatePatientAttendanceAndBilling(patientId);
-      } catch (_) {
-        if (mounted) setState(() => attendanceStatus[patientId] = isPresent);
-      }
+      if (!isPresent) await markAttendance(patientId, patientName, true);
       return;
     }
     await markAttendance(patientId, patientName, isPresent);
@@ -487,6 +446,7 @@ class _AttendanceState extends State<Attendance>
     String attendantName,
     bool isPresent,
   ) async {
+    _reportCache.clear();
     final dateObj = _selectedAttendanceDate;
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
     final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
@@ -504,6 +464,9 @@ class _AttendanceState extends State<Attendance>
             'date': today,
             'timestamp': DateTime.now().toIso8601String(),
           });
+
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patientId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -542,6 +505,7 @@ class _AttendanceState extends State<Attendance>
     String attendantName,
     bool isPresent,
   ) async {
+    _reportCache.clear();
     final statusKey = '${patientId}_$attendantName';
     if (attendantAttendanceStatus[statusKey] == isPresent) {
       final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
@@ -551,6 +515,8 @@ class _AttendanceState extends State<Attendance>
         await ServiceLocator().rtdbService.delete(
           'attendant_attendance/daily/$today/$patientId/$safeKey',
         );
+        await ServiceLocator().paymentService
+            .recalculatePatientAttendanceAndBilling(patientId);
       } catch (_) {
         if (mounted) {
           setState(() => attendantAttendanceStatus[statusKey] = isPresent);
@@ -592,7 +558,10 @@ class _AttendanceState extends State<Attendance>
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: _selectedTabIndex == 0 ? 18 : 12,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
@@ -624,20 +593,22 @@ class _AttendanceState extends State<Attendance>
               _buildSegmentedControl(),
             ],
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: _selectAttendanceDate,
-              icon: const Icon(Icons.calendar_today_outlined, size: 16),
-              label: Text(_selectedAttendanceDateLabel),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF3B6D11),
-                side: const BorderSide(color: Color(0xFFC0DD97)),
+          if (_selectedTabIndex == 0) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: _selectAttendanceDate,
+                icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                label: Text(_selectedAttendanceDateLabel),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF3B6D11),
+                  side: const BorderSide(color: Color(0xFFC0DD97)),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
+          ],
+          SizedBox(height: _selectedTabIndex == 0 ? 14 : 10),
           _buildSearchAndSummary(),
         ],
       ),
@@ -727,28 +698,30 @@ class _AttendanceState extends State<Attendance>
 
     return Column(
       children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _SummaryCard(
-              title: 'Total',
-              count: total.toString(),
-              color: const Color(0xFF2E4A1F),
-            ),
-            _SummaryCard(
-              title: 'Present',
-              count: present.toString(),
-              color: const Color(0xFF3B6D11),
-            ),
-            _SummaryCard(
-              title: 'Absent',
-              count: absent.toString(),
-              color: const Color(0xFFD32F2F),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
+        if (_selectedTabIndex == 0) ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _SummaryCard(
+                title: 'Total',
+                count: total.toString(),
+                color: const Color(0xFF2E4A1F),
+              ),
+              _SummaryCard(
+                title: 'Present',
+                count: present.toString(),
+                color: const Color(0xFF3B6D11),
+              ),
+              _SummaryCard(
+                title: 'Absent',
+                count: absent.toString(),
+                color: const Color(0xFFD32F2F),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
         TextField(
           controller: _searchController,
           decoration: InputDecoration(
@@ -781,7 +754,7 @@ class _AttendanceState extends State<Attendance>
 
   Widget _buildTabs() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Wrap(
         spacing: 10,
         runSpacing: 10,
@@ -1086,11 +1059,23 @@ class _AttendanceState extends State<Attendance>
     Map<String, Map<String, String>> data,
     List<String> dates,
   ) {
-    return _StickyAttendanceTable(
-      data: data,
-      dates: dates,
-      monthLabel: _monthShort,
-      cellBuilder: (name, date, status) {
+    final tableWidth = StickyAttendanceTableState.nameWidth +
+        (dates.length * StickyAttendanceTableState.cellWidth) +
+        24;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: tableWidth),
+        child: StickyAttendanceTable(
+          key: ValueKey('${_attendanceType}_${_searchQuery.trim()}'),
+          data: {
+            for (final entry in data.entries)
+              if (entry.key.toLowerCase().contains(_searchQuery.trim()))
+                entry.key: entry.value,
+          },
+          dates: dates,
+          monthLabel: _monthShort,
+          cellBuilder: (name, date, status) {
         DateTime? exit;
         DateTime? registration;
         bool isRejoined = false;
@@ -1101,8 +1086,9 @@ class _AttendanceState extends State<Attendance>
           if (DateFormat('yyyy-MM-dd').format(currentRegistration) == date) {
             registration = currentRegistration;
             // Rejoin resets admissionDate but preserves the original createdAt.
-            isRejoined = patient.admissionDate
-                .isAfter(patient.createdAt.add(const Duration(minutes: 1)));
+            isRejoined = patient.admissionDate.isAfter(
+              patient.createdAt.add(const Duration(minutes: 1)),
+            );
           }
           if (patient.exitDate != null &&
               DateFormat('yyyy-MM-dd').format(patient.exitDate!) == date) {
@@ -1131,7 +1117,7 @@ class _AttendanceState extends State<Attendance>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 color: status == 'Present'
                     ? Colors.green.withOpacity(0.15)
@@ -1141,6 +1127,7 @@ class _AttendanceState extends State<Attendance>
               child: Text(
                 status == 'Present' ? 'P' : 'A',
                 style: TextStyle(
+                  fontSize: 12,
                   color: status == 'Present' ? Colors.green : Colors.red,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1151,7 +1138,9 @@ class _AttendanceState extends State<Attendance>
             if (exit != null) _exitTimeLabel(exit),
           ],
         );
-      },
+          },
+        ),
+      ),
     );
   }
 
@@ -1160,26 +1149,28 @@ class _AttendanceState extends State<Attendance>
     child: Text(
       'Exit ${DateFormat('h:mm a').format(exit)}',
       style: const TextStyle(
-        fontSize: 9,
+        fontSize: 8,
         color: Color(0xFFD32F2F),
         fontWeight: FontWeight.w700,
       ),
     ),
   );
 
-  Widget _registrationTimeLabel(DateTime registration, bool isRejoined) =>
-      Padding(
-        padding: const EdgeInsets.only(top: 3),
-        child: Text(
-          '${isRejoined ? 'Rejoined' : 'Joined'} ${DateFormat('h:mm a').format(registration)}',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 9,
-            color: Color(0xFF3B6D11),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      );
+  Widget _registrationTimeLabel(
+    DateTime registration,
+    bool isRejoined,
+  ) => Padding(
+    padding: const EdgeInsets.only(top: 3),
+    child: Text(
+      '${isRejoined ? 'Rejoined' : 'Joined'} ${DateFormat('h:mm a').format(registration)}',
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        fontSize: 8,
+        color: Color(0xFF3B6D11),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
 
   // ── Shimmers ────────────────────────────────────────────────────────────
 
@@ -1223,13 +1214,14 @@ class _AttendanceState extends State<Attendance>
 // Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _StickyAttendanceTable extends StatefulWidget {
+class StickyAttendanceTable extends StatefulWidget {
   final Map<String, Map<String, String>> data;
   final List<String> dates;
   final String Function(int month) monthLabel;
   final Widget Function(String name, String date, String? status) cellBuilder;
 
-  const _StickyAttendanceTable({
+  const StickyAttendanceTable({
+    super.key,
     required this.data,
     required this.dates,
     required this.monthLabel,
@@ -1237,14 +1229,14 @@ class _StickyAttendanceTable extends StatefulWidget {
   });
 
   @override
-  State<_StickyAttendanceTable> createState() => _StickyAttendanceTableState();
+  State<StickyAttendanceTable> createState() => StickyAttendanceTableState();
 }
 
-class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
-  static const nameWidth = 280.0;
-  static const cellWidth = 96.0;
-  static const headerHeight = 64.0;
-  static const rowHeight = 88.0;
+class StickyAttendanceTableState extends State<StickyAttendanceTable> {
+  static const nameWidth = 190.0;
+  static const cellWidth = 72.0;
+  static const headerHeight = 48.0;
+  static const rowHeight = 64.0;
   final horizontalController = ScrollController();
   final verticalController = ScrollController();
   final headerController = ScrollController();
@@ -1255,6 +1247,7 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
     super.initState();
     horizontalController.addListener(_syncHeader);
     verticalController.addListener(_syncNames);
+    namesController.addListener(_syncBody);
   }
 
   void _syncHeader() {
@@ -1267,14 +1260,24 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
     );
   }
 
+  void _syncBody() {
+    if (!verticalController.hasClients) return;
+    final offset = namesController.offset.clamp(
+      0.0,
+      verticalController.position.maxScrollExtent,
+    );
+    if ((verticalController.offset - offset).abs() > 0.5)
+      verticalController.jumpTo(offset);
+  }
+
   void _syncNames() {
     if (!namesController.hasClients) return;
-    namesController.jumpTo(
-      verticalController.offset.clamp(
-        0.0,
-        namesController.position.maxScrollExtent,
-      ),
+    final offset = verticalController.offset.clamp(
+      0.0,
+      namesController.position.maxScrollExtent,
     );
+    if ((namesController.offset - offset).abs() > 0.5)
+      namesController.jumpTo(offset);
   }
 
   @override
@@ -1295,7 +1298,7 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
       width: width,
       height: rowHeight,
       alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
         color: color ?? Colors.white,
         border: Border(
@@ -1310,8 +1313,10 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
   @override
   Widget build(BuildContext context) {
     final entries = widget.data.entries.toList();
+    if (entries.isEmpty)
+      return const Center(child: Text('No matching attendance records'));
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1330,30 +1335,40 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
               right: 0,
               bottom: 0,
               child: Scrollbar(
-                controller: horizontalController,
+                controller: verticalController,
+                interactive: true,
                 thumbVisibility: true,
-                child: SingleChildScrollView(
+                notificationPredicate: (notification) =>
+                    notification.metrics.axis == Axis.vertical,
+                child: Scrollbar(
                   controller: horizontalController,
-                  scrollDirection: Axis.horizontal,
+                  interactive: true,
+                  notificationPredicate: (notification) =>
+                      notification.metrics.axis == Axis.horizontal,
+                  thumbVisibility: true,
                   child: SingleChildScrollView(
-                    controller: verticalController,
-                    child: Column(
-                      children: [
-                        for (final entry in entries)
-                          Row(
-                            children: [
-                              for (final date in widget.dates)
-                                _borderedCell(
-                                  width: cellWidth,
-                                  child: widget.cellBuilder(
-                                    entry.key,
-                                    date,
-                                    entry.value[date],
+                    controller: horizontalController,
+                    scrollDirection: Axis.horizontal,
+                    child: SingleChildScrollView(
+                      controller: verticalController,
+                      child: Column(
+                        children: [
+                          for (final entry in entries)
+                            Row(
+                              children: [
+                                for (final date in widget.dates)
+                                  _borderedCell(
+                                    width: cellWidth,
+                                    child: widget.cellBuilder(
+                                      entry.key,
+                                      date,
+                                      entry.value[date],
+                                    ),
                                   ),
-                                ),
-                            ],
-                          ),
-                      ],
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1388,7 +1403,9 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
                               final value = DateTime.parse(date);
                               return Text(
                                 '${value.day} ${widget.monthLabel(value.month)}',
+                                textAlign: TextAlign.center,
                                 style: const TextStyle(
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF2E4A1F),
                                 ),
@@ -1409,7 +1426,6 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
               child: ClipRect(
                 child: SingleChildScrollView(
                   controller: namesController,
-                  physics: const NeverScrollableScrollPhysics(),
                   child: Column(
                     children: [
                       for (final entry in entries)
@@ -1419,7 +1435,10 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
                             alignment: Alignment.centerLeft,
                             child: Text(
                               entry.key,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
+                                fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1437,7 +1456,7 @@ class _StickyAttendanceTableState extends State<_StickyAttendanceTable> {
               height: headerHeight,
               child: Container(
                 alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(horizontal: 30),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 color: const Color(0xFFE8F5E9),
                 child: const Text(
                   'Name',
@@ -1824,12 +1843,14 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                           stream: ServiceLocator().roomService
                               .getStaysByPatientStream(widget.patient.id),
                           builder: (context, snapshot) {
-                            final completed = (snapshot.data ?? const <StayModel>[])
-                                .where((stay) => stay.status != 'active')
-                                .toList()
-                              ..sort(
-                                (a, b) => b.updatedAt.compareTo(a.updatedAt),
-                              );
+                            final completed =
+                                (snapshot.data ?? const <StayModel>[])
+                                    .where((stay) => stay.status != 'active')
+                                    .toList()
+                                  ..sort(
+                                    (a, b) =>
+                                        b.updatedAt.compareTo(a.updatedAt),
+                                  );
                             if (completed.isEmpty) {
                               return const SizedBox.shrink();
                             }
@@ -1840,7 +1861,7 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                               children: [
                                 _InfoChip(
                                   Icons.exit_to_app,
-                                  'Exited ${DateFormat('dd MMM, h:mm a').format(previous.updatedAt)}',
+                                  'Exited ${DateFormat('dd MMM, h:mm a').format(previous.completedAt ?? previous.updatedAt)}',
                                 ),
                                 if (widget.patient.status.toLowerCase() ==
                                     'active')

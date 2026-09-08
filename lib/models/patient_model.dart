@@ -5,6 +5,8 @@ class AttendantModel {
   final String? relation;
   final String? aadhaarNumber;
   final String? photoDataUrl;
+  final String? mobileNumber;
+  final bool isEmergencyContact;
 
   AttendantModel({
     required this.name,
@@ -12,6 +14,8 @@ class AttendantModel {
     this.relation,
     this.aadhaarNumber,
     this.photoDataUrl,
+    this.mobileNumber,
+    this.isEmergencyContact = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -21,6 +25,8 @@ class AttendantModel {
       'relation': relation,
       'aadhaarNumber': aadhaarNumber,
       'photoDataUrl': photoDataUrl,
+      'mobileNumber': mobileNumber,
+      'isEmergencyContact': isEmergencyContact,
     };
   }
 
@@ -31,6 +37,8 @@ class AttendantModel {
       relation: data['relation']?.toString(),
       aadhaarNumber: data['aadhaarNumber']?.toString(),
       photoDataUrl: data['photoDataUrl']?.toString(),
+      mobileNumber: data['mobileNumber']?.toString(),
+      isEmergencyContact: data['isEmergencyContact'] == true,
     );
   }
 
@@ -49,6 +57,8 @@ class AttendantModel {
 
 /// PaymentModel — Represents a single payment transaction.
 class PaymentModel {
+  final String? cycleId;
+  final String type;
   final String id;
   final double amount;
   final String method; // 'cash', 'check', 'online'
@@ -66,6 +76,8 @@ class PaymentModel {
   final String paymentStatus;
 
   PaymentModel({
+    this.cycleId,
+    this.type = 'payment',
     required this.id,
     required this.amount, // Keeping for backward compat, representing the transaction amount
     required this.method,
@@ -83,6 +95,8 @@ class PaymentModel {
 
   Map<String, dynamic> toMap() {
     return {
+      'cycleId': cycleId,
+      'type': type,
       'id': id,
       'amount': amount,
       'totalAmount': totalAmount,
@@ -101,6 +115,10 @@ class PaymentModel {
 
   factory PaymentModel.fromMap(String id, Map<dynamic, dynamic> data) {
     return PaymentModel(
+      cycleId: data['cycleId']?.toString(),
+      type:
+          data['type']?.toString() ??
+          ((data['amount'] as num? ?? 0) < 0 ? 'refund' : 'payment'),
       id: id,
       amount: (data['amount'] ?? 0).toDouble(),
       totalAmount: (data['totalAmount'] ?? data['amount'] ?? 0).toDouble(),
@@ -179,6 +197,10 @@ class PatientModel {
   final String? paymentStatus;
   final double? totalPaidAmount;
   final double? currentDueAmount;
+  final double refundDueAmount;
+  final double totalRefundDueAmount;
+  final double totalRefundedAmount;
+  final Map<String, dynamic> admissionBalances;
   final DateTime? paymentDueDate;
 
   // ── Billing / Attendance Metrics ──────────────────────────────────────────
@@ -199,6 +221,37 @@ class PatientModel {
   final String? extensionReason;
   final String? approvedBy;
   final DateTime? approvedDate;
+
+  /// Current-admission receipt total used by list and billing dashboards.
+  /// Legacy receipts without a cycle ID are accepted from the admission
+  /// calendar date onward, including advances recorded earlier that day.
+  double get effectivePaidAmount {
+    if (payments == null) return totalPaidAmount ?? 0;
+    final cycle = admissionDate.millisecondsSinceEpoch.toString();
+    final admissionDay = DateTime(
+      admissionDate.year,
+      admissionDate.month,
+      admissionDate.day,
+    );
+    return payments!.fold<double>(0, (sum, payment) {
+      if (payment.cycleId != null) {
+        return payment.cycleId == cycle ? sum + payment.amount : sum;
+      }
+      final paymentDay = DateTime(
+        payment.date.year,
+        payment.date.month,
+        payment.date.day,
+      );
+      return paymentDay.isBefore(admissionDay) ? sum : sum + payment.amount;
+    });
+  }
+
+  double get effectiveDueAmount =>
+      (advanceBilledAmount + attendanceCharges - effectivePaidAmount)
+          .clamp(0.0, double.infinity)
+          .toDouble();
+
+  bool get hasEffectivePendingPayment => effectiveDueAmount > 0.005;
 
   // ── Payment History ───────────────────────────────────────────────────────
   final List<PaymentModel>? payments;
@@ -243,6 +296,10 @@ class PatientModel {
     this.paymentStatus,
     this.totalPaidAmount,
     this.currentDueAmount,
+    this.refundDueAmount = 0,
+    this.totalRefundDueAmount = 0,
+    this.totalRefundedAmount = 0,
+    this.admissionBalances = const {},
     this.paymentDueDate,
     this.isAdvancePeriod = true,
     this.advanceBilledAmount = 0.0,
@@ -307,6 +364,10 @@ class PatientModel {
       'paymentStatus': paymentStatus,
       'totalPaidAmount': totalPaidAmount,
       'currentDueAmount': currentDueAmount,
+      'refundDueAmount': refundDueAmount,
+      'totalRefundDueAmount': totalRefundDueAmount,
+      'totalRefundedAmount': totalRefundedAmount,
+      'admissionBalances': admissionBalances,
       'paymentDueDate': paymentDueDate?.millisecondsSinceEpoch,
       'isAdvancePeriod': isAdvancePeriod,
       'advanceBilledAmount': advanceBilledAmount,
@@ -383,6 +444,14 @@ class PatientModel {
       paymentPending: data['paymentPending'] as bool? ?? false,
       paymentStatus: data['paymentStatus']?.toString(),
       totalPaidAmount: (data['totalPaidAmount'] ?? 0).toDouble(),
+      refundDueAmount: (data['refundDueAmount'] as num?)?.toDouble() ?? 0,
+      totalRefundDueAmount:
+          (data['totalRefundDueAmount'] as num?)?.toDouble() ?? 0,
+      totalRefundedAmount:
+          (data['totalRefundedAmount'] as num?)?.toDouble() ?? 0,
+      admissionBalances: data['admissionBalances'] is Map
+          ? Map<String, dynamic>.from(data['admissionBalances'])
+          : const {},
       currentDueAmount: (data['currentDueAmount'] ?? 0).toDouble(),
       paymentDueDate: data['paymentDueDate'] != null
           ? _parseDateTime(data['paymentDueDate'])
@@ -580,6 +649,10 @@ class PatientModel {
       paymentPending: paymentPending ?? this.paymentPending,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       totalPaidAmount: totalPaidAmount ?? this.totalPaidAmount,
+      refundDueAmount: refundDueAmount,
+      totalRefundDueAmount: totalRefundDueAmount,
+      totalRefundedAmount: totalRefundedAmount,
+      admissionBalances: admissionBalances,
       currentDueAmount: currentDueAmount ?? this.currentDueAmount,
       paymentDueDate: paymentDueDate ?? this.paymentDueDate,
       isAdvancePeriod: isAdvancePeriod ?? this.isAdvancePeriod,

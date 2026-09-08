@@ -9,6 +9,7 @@ import '../../../services/service_locator.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../models/patient_model.dart';
+import '../../../models/stay_model.dart';
 import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'payment_dialog.dart';
@@ -63,6 +64,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   int? _selectedFloor;
   RoomModel? _selectedRoom;
   String? _selectedLobby;
+  Set<String> _occupiedLobbies = {};
   static const Map<int, List<String>> _lobbyOptionsByFloor = {
     1: ['1D Lobby 1', '1D Lobby 2', '1B Lobby 1', '1B Lobby 2'],
     2: ['2E Lobby 1', '2E Lobby 2', '2B Lobby 1', '2B Lobby 2'],
@@ -71,6 +73,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   List<RoomModel> _availableRooms = [];
   List<BedModel> _availableBeds = [];
   Map<String, dynamic> _pricing = const {};
+  bool _pricingLoaded = false;
 
   @override
   void initState() {
@@ -116,11 +119,18 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       final results = await Future.wait<dynamic>([
         roomService.getRoomsStream().first,
         roomService.getPricing(),
+        roomService.getStaysStream().first,
       ]);
       final rooms = results[0] as List<RoomModel>;
       if (mounted) {
         setState(() {
           _pricing = Map<String, dynamic>.from(results[1] as Map);
+          _pricingLoaded = true;
+          _occupiedLobbies = {
+            for (final stay in results[2] as List<StayModel>)
+              if (stay.roomType == 'lobby' && stay.status == 'active')
+                stay.roomNumber,
+          };
           // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
           _availableRooms = List.from(rooms)
             ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
@@ -321,7 +331,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             .where((a) => a.nameController.text.trim().isNotEmpty)
             .length,
         pricing: _pricing,
-        bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
+        bedsCount: _selectedLobby != null
+            ? 1
+            : _selectedBeds.length.clamp(1, 999),
       ) *
       _plannedStayDays;
 
@@ -380,6 +392,33 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         _showError('Unable to save patient: ${e.toString()}');
       }
     }
+  }
+
+  Future<void> _pickAttendantPhoto(int index) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+      withData: true,
+    );
+    if (result == null || !mounted) return;
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) return _showError('Could not read selected image');
+    if (bytes.length > 1500 * 1024) {
+      return _showError('Please select an image under 1.5 MB');
+    }
+    final extension = (file.extension ?? '').toLowerCase();
+    final mime = extension == 'png'
+        ? 'image/png'
+        : extension == 'webp'
+        ? 'image/webp'
+        : 'image/jpeg';
+    setState(() {
+      _attendants[index]
+        ..photoBytes = bytes
+        ..photoFileName = file.name
+        ..photoDataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+    });
   }
 
   Future<void> _validateAndSavePatient() async {
@@ -524,6 +563,15 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         final name = att.nameController.text.trim();
         final age = att.ageController.text.trim();
         final relation = att.relationController.text.trim();
+        final mobile = att.mobileController.text.trim();
+        if (mobile.isNotEmpty && !RegExp(r'^\d{10}$').hasMatch(mobile)) {
+          throw Exception(
+            'Attendant ${i + 1} mobile number must contain 10 digits',
+          );
+        }
+        if (att.isEmergencyContact && mobile.isEmpty) {
+          throw Exception('Enter a mobile number for the emergency attendant');
+        }
         if (name.isNotEmpty) {
           final aadhaar = att.aadhaarController.text.trim();
           notesList.add(
@@ -536,6 +584,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
               relation: relation.isNotEmpty ? relation : null,
               aadhaarNumber: aadhaar.isNotEmpty ? aadhaar : null,
               photoDataUrl: att.photoDataUrl,
+              mobileNumber: att.mobileController.text.trim().isEmpty
+                  ? null
+                  : att.mobileController.text.trim(),
+              isEmergencyContact: att.isEmergencyContact,
             ),
           );
         }
@@ -580,10 +632,18 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         dateOfBirth: dateOfBirth,
         gender: _selectedGender!.toLowerCase(),
         contactNumber: _mobileController.text.trim(),
-        emergencyContact: _mobileController.text.trim(),
-        emergencyContactName: _attendants.isNotEmpty
-            ? _attendants.first.nameController.text.trim()
-            : "",
+        emergencyContact:
+            structuredAttendants
+                .where((a) => a.isEmergencyContact)
+                .firstOrNull
+                ?.mobileNumber ??
+            '',
+        emergencyContactName:
+            structuredAttendants
+                .where((a) => a.isEmergencyContact)
+                .firstOrNull
+                ?.name ??
+            '',
         medicalCondition: _diagnosisController.text.trim(),
         admissionDate: admissionDate,
         roomId: _selectedRoom?.id,
@@ -641,9 +701,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           durationDays: _plannedStayDays,
           attendantCount: attendantCount,
           attendantLabels: structuredAttendants
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
+              .map(
+                (a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name,
+              )
               .toList(),
           createdBy: currentUser.uid,
         );
@@ -661,9 +723,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           durationDays: _plannedStayDays,
           attendantCount: attendantCount,
           attendantLabels: structuredAttendants
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
+              .map(
+                (a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name,
+              )
               .toList(),
           bedId: _selectedBeds.isNotEmpty ? _selectedBeds.first.id : null,
           bedLabel: _selectedBeds.isNotEmpty
@@ -688,9 +752,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             durationDays: _plannedStayDays,
             attendantCount: attendantCount,
             attendantLabels: structuredAttendants
-                .map((a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name)
+                .map(
+                  (a) => a.relation?.trim().isNotEmpty == true
+                      ? '${a.name} (${a.relation})'
+                      : a.name,
+                )
                 .toList(),
             bedId: bed.id,
             bedLabel: bed.bedLabel,
@@ -1199,6 +1265,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                         ? const []
                                         : _lobbyOptionsByFloor[_selectedFloor]!,
                                     value: _selectedLobby,
+                                    disabledItems: _occupiedLobbies,
                                     onChanged:
                                         _selectedFloor != null &&
                                             _selectedRoom == null
@@ -1291,6 +1358,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                         placementLabel: _selectedLobby,
                         days: _plannedStayDays,
                         pricing: _pricing,
+                        pricingLoaded: _pricingLoaded,
                       ),
                       const SizedBox(height: 20),
                       _buildAttendantDetails(),
@@ -1299,9 +1367,14 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                 ),
               ),
               _DialogFooter(
-                onCancel: () => Navigator.pop(context),
-                onSave: _isLoading ? null : _savePatient,
-                isLoading: _isLoading,
+              onCancel: () => Navigator.pop(context),
+              onSave:
+                  _isLoading ||
+                      ((_selectedRoom != null || _selectedLobby != null) &&
+                          !_pricingLoaded)
+                  ? null
+                  : _savePatient,
+              isLoading: _isLoading,
               ),
             ],
           ),
@@ -1328,11 +1401,45 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             ),
           ),
           const SizedBox(height: 8),
+          _AttendantPhotoPicker(
+            imageBytes: _attendants[i].photoBytes,
+            fileName: _attendants[i].photoFileName,
+            onPick: () => _pickAttendantPhoto(i),
+            onRemove: () => setState(() {
+              _attendants[i]
+                ..photoBytes = null
+                ..photoFileName = null
+                ..photoDataUrl = null;
+            }),
+          ),
+          const SizedBox(height: 8),
           _NatureField(
             label: 'Aadhaar number',
             hint: 'XXXX XXXX XXXX',
             keyboard: TextInputType.number,
             controller: _attendants[i].aadhaarController,
+          ),
+          const SizedBox(height: 8),
+          _NatureField(
+            label: 'Mobile number',
+            hint: '10-digit mobile number',
+            keyboard: TextInputType.phone,
+            controller: _attendants[i].mobileController,
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _attendants[i].isEmergencyContact,
+            title: const Text('Use as emergency contact'),
+            subtitle: const Text(
+              'This attendant will appear in emergency contact details',
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            onChanged: (value) => setState(() {
+              for (final attendant in _attendants) {
+                attendant.isEmergencyContact = false;
+              }
+              _attendants[i].isEmergencyContact = value ?? false;
+            }),
           ),
           if (_attendants.length > 1)
             Align(
@@ -1742,8 +1849,17 @@ class _NatureField extends StatelessWidget {
           readOnly: isDate,
           onTap: onTap,
           keyboardType: isDate ? TextInputType.datetime : keyboard,
+          textInputAction: TextInputAction.next,
+          maxLength: keyboard == TextInputType.phone ? 10 : null,
+          inputFormatters: keyboard == TextInputType.phone
+              ? [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ]
+              : null,
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           decoration: InputDecoration(
+            counterText: '',
             hintText: isDate ? "DD / MM / YYYY" : hint,
             hintStyle: TextStyle(
               color: const Color(0xFF97C459).withOpacity(0.75),
@@ -1931,8 +2047,9 @@ class _RoomDropdown extends StatelessWidget {
           items: rooms.map((room) {
             final floorName = room.floor == 1 ? 'Ground' : 'First';
             final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
-            final availableBeds =
-                BedHelper.selectableAvailableBeds(room).length;
+            final availableBeds = BedHelper.selectableAvailableBeds(
+              room,
+            ).length;
 
             return DropdownMenuItem(
               value: room,
@@ -2138,6 +2255,8 @@ class _AttendantEntry {
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();
   final TextEditingController aadhaarController = TextEditingController();
+  final TextEditingController mobileController = TextEditingController();
+  bool isEmergencyContact = false;
 
   Uint8List? photoBytes;
   String? photoDataUrl;
@@ -2148,6 +2267,7 @@ class _AttendantEntry {
     ageController.dispose();
     relationController.dispose();
     aadhaarController.dispose();
+    mobileController.dispose();
   }
 }
 
@@ -2162,6 +2282,7 @@ class _PaymentSummary extends StatelessWidget {
   final bool placementSelected;
   final String? placementLabel;
   final Map<String, dynamic> pricing;
+  final bool pricingLoaded;
 
   // ── Pricing constants (edit here to update rates) ──
   static const int _defaultDays = 7; // default stay duration
@@ -2174,6 +2295,7 @@ class _PaymentSummary extends StatelessWidget {
     this.placementSelected = false,
     this.placementLabel,
     this.pricing = const {},
+    this.pricingLoaded = false,
     this.days = _defaultDays,
   });
 
@@ -2187,12 +2309,41 @@ class _PaymentSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!placementSelected) return const SizedBox.shrink();
+    if (!pricingLoaded) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F9F0),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFC0DD97)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Color(0xFF3B6D11),
+              ),
+            ),
+            SizedBox(width: 12),
+            Text('Loading current pricing…'),
+          ],
+        ),
+      );
+    }
 
     final occupants = 1 + attendantsCount;
-    final privateBase = (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
-    final included = (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
-    final extraRate = (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
-    final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 150.0;
+    final privateBase =
+        (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
+    final included =
+        (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
+    final extraRate =
+        (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
+    final generalRate =
+        (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 200.0;
     final bedTotal = isPrivateRoom
         ? privateBase * days
         : bedsCount * occupants * generalRate * days;

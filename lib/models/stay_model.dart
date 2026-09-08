@@ -8,9 +8,17 @@
 ///
 /// All dates are stored as millisecondsSinceEpoch in RTDB.
 class StayModel {
+  final String? cycleId;
+  final DateTime? completedAt;
+  final double? dailyRate;
+  final bool dailyRateIsManual;
+  final double? longStayDailyRate;
+  final double? costOverride;
+  final Map<String, dynamic> billingSummary;
   final String id;
   final String patientId;
   final String patientName;
+  final Map<String, dynamic> patientSnapshot;
   final String roomId;
   final String roomNumber;
   final String roomType; // 'private' or 'general'
@@ -51,9 +59,17 @@ class StayModel {
   final String createdBy;
 
   StayModel({
+    this.cycleId,
+    this.completedAt,
+    this.dailyRate,
+    this.dailyRateIsManual = false,
+    this.longStayDailyRate,
+    this.costOverride,
+    this.billingSummary = const {},
     required this.id,
     required this.patientId,
     required this.patientName,
+    this.patientSnapshot = const {},
     required this.roomId,
     required this.roomNumber,
     required this.roomType,
@@ -91,7 +107,8 @@ class StayModel {
 
   int get totalDays => durationDays + totalExtendedDays;
 
-  int get daysRemaining => effectiveExpiryDate.difference(DateTime.now()).inDays;
+  int get daysRemaining =>
+      effectiveExpiryDate.difference(DateTime.now()).inDays;
 
   static DateTime calculateExpiryDate(DateTime admissionDate, int days) {
     return admissionDate.add(Duration(days: days));
@@ -99,9 +116,17 @@ class StayModel {
 
   Map<String, dynamic> toMap() {
     return {
+      'cycleId': cycleId,
+      'completedAt': completedAt?.millisecondsSinceEpoch,
+      'dailyRate': dailyRate,
+      'dailyRateIsManual': dailyRateIsManual,
+      'longStayDailyRate': longStayDailyRate,
+      'costOverride': costOverride,
+      'billingSummary': billingSummary,
       'id': id,
       'patientId': patientId,
       'patientName': patientName,
+      'patientSnapshot': patientSnapshot,
       'roomId': roomId,
       'roomNumber': roomNumber,
       'roomType': roomType,
@@ -138,14 +163,18 @@ class StayModel {
       if (data['extensions'] is List) {
         for (var ext in data['extensions']) {
           if (ext is Map) {
-            extensionsList.add(StayExtension.fromMap(Map<String, dynamic>.from(ext)));
+            extensionsList.add(
+              StayExtension.fromMap(Map<String, dynamic>.from(ext)),
+            );
           }
         }
       } else if (data['extensions'] is Map) {
         final extMap = Map<String, dynamic>.from(data['extensions']);
         extMap.forEach((_, value) {
           if (value is Map) {
-            extensionsList.add(StayExtension.fromMap(Map<String, dynamic>.from(value)));
+            extensionsList.add(
+              StayExtension.fromMap(Map<String, dynamic>.from(value)),
+            );
           }
         });
       }
@@ -156,21 +185,45 @@ class StayModel {
     );
 
     return StayModel(
+      cycleId: data['cycleId']?.toString(),
+      completedAt: data['completedAt'] == null
+          ? null
+          : _parseDateTime(data['completedAt']),
+      dailyRate: data['dailyRate'] == null
+          ? null
+          : _parseDouble(data['dailyRate']),
+      dailyRateIsManual: data['dailyRateIsManual'] == true,
+      longStayDailyRate: data['longStayDailyRate'] == null
+          ? null
+          : _parseDouble(data['longStayDailyRate']),
+      costOverride: data['costOverride'] == null
+          ? null
+          : _parseDouble(data['costOverride']),
+      billingSummary: data['billingSummary'] is Map
+          ? Map<String, dynamic>.from(data['billingSummary'])
+          : const {},
       id: id,
       patientId: _parseString(data['patientId']),
       patientName: _parseString(data['patientName']),
+      patientSnapshot: data['patientSnapshot'] is Map
+          ? Map<String, dynamic>.from(data['patientSnapshot'])
+          : const {},
       roomId: _parseString(data['roomId']),
       roomNumber: _parseString(data['roomNumber']),
       roomType: _parseString(data['roomType'], fallback: 'general'),
       admissionDate: _parseDateTime(data['admissionDate']),
       durationDays: _parseInt(data['durationDays']),
       expectedDischargeDate: expectedDischarge,
-      expiryDate: _parseDateTime(data['expiryDate'] ?? data['expectedDischargeDate']),
+      expiryDate: _parseDateTime(
+        data['expiryDate'] ?? data['expectedDischargeDate'],
+      ),
       totalExtendedDays: _parseInt(data['totalExtendedDays']),
       attendantCount: _parseInt(data['attendantCount']),
       attendantLabels: data['attendantLabels'] is List
           ? List<String>.from(
-              (data['attendantLabels'] as List).map((value) => value.toString()),
+              (data['attendantLabels'] as List).map(
+                (value) => value.toString(),
+              ),
             )
           : const [],
       totalCost: _parseDouble(data['totalCost']),
@@ -184,7 +237,9 @@ class StayModel {
           : _parseDouble(data['pendingAmount']),
       extensions: extensionsList,
       status: _parseString(data['status'], fallback: 'active'),
-      bedNumber: data['bedNumber'] != null ? _parseInt(data['bedNumber']) : null,
+      bedNumber: data['bedNumber'] != null
+          ? _parseInt(data['bedNumber'])
+          : null,
       bedId: data['bedId']?.toString(),
       bedLabel: data['bedLabel']?.toString(),
       notes: data['notes']?.toString(),
@@ -224,15 +279,24 @@ class StayModel {
     String? createdBy,
   }) {
     return StayModel(
+      cycleId: cycleId,
+      completedAt: completedAt,
+      dailyRate: dailyRate,
+      dailyRateIsManual: dailyRateIsManual,
+      longStayDailyRate: longStayDailyRate,
+      costOverride: costOverride,
+      billingSummary: billingSummary,
       id: id ?? this.id,
       patientId: patientId ?? this.patientId,
       patientName: patientName ?? this.patientName,
+      patientSnapshot: patientSnapshot,
       roomId: roomId ?? this.roomId,
       roomNumber: roomNumber ?? this.roomNumber,
       roomType: roomType ?? this.roomType,
       admissionDate: admissionDate ?? this.admissionDate,
       durationDays: durationDays ?? this.durationDays,
-      expectedDischargeDate: expectedDischargeDate ?? this.expectedDischargeDate,
+      expectedDischargeDate:
+          expectedDischargeDate ?? this.expectedDischargeDate,
       expiryDate: expiryDate ?? this.expiryDate,
       totalExtendedDays: totalExtendedDays ?? this.totalExtendedDays,
       attendantCount: attendantCount ?? this.attendantCount,
@@ -276,7 +340,8 @@ class StayModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    if (value is double)
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }
@@ -322,8 +387,9 @@ class StayExtension {
       additionalCost: data['additionalCost'] is double
           ? data['additionalCost']
           : (data['additionalCost'] is int
-              ? (data['additionalCost'] as int).toDouble()
-              : double.tryParse(data['additionalCost']?.toString() ?? '0') ?? 0),
+                ? (data['additionalCost'] as int).toDouble()
+                : double.tryParse(data['additionalCost']?.toString() ?? '0') ??
+                      0),
     );
   }
 }

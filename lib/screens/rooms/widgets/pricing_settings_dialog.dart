@@ -347,7 +347,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
 
                           // Max Attendants
                           const Text(
-                            "Maximum Attendants",
+                            "Default Maximum Attendants per Room",
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -433,7 +433,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                               FilteringTextInputFormatter.digitsOnly,
                             ],
                             decoration: InputDecoration(
-                              hintText: "150",
+                              hintText: "200",
                               prefixText: "₹ ",
                               hintStyle: const TextStyle(
                                 color: Color(0xFF97C459),
@@ -461,7 +461,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           const SizedBox(height: 16),
 
                           const Text(
-                            "Maximum Attendants",
+                            "Default Maximum Attendants per Patient",
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -480,8 +480,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                                   ),
                                   child: _CountChip(
                                     count: count,
-                                    isSelected:
-                                        generalMaxAttendants == count,
+                                    isSelected: generalMaxAttendants == count,
                                     onTap: () => setState(
                                       () => generalMaxAttendants = count,
                                     ),

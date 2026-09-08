@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../utils/bed_helper.dart';
 import '../../../models/patient_model.dart';
+import '../../../models/stay_model.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../services/service_locator.dart';
@@ -48,6 +50,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   late TextEditingController _totalAmountOverrideController;
   int? _selectedFloor;
   String? _selectedLobby;
+  Set<String> _occupiedLobbies = {};
   static const Map<int, List<String>> _lobbyOptionsByFloor = {
     1: ['1D Lobby 1', '1D Lobby 2', '1B Lobby 1', '1B Lobby 2'],
     2: ['2E Lobby 1', '2E Lobby 2', '2B Lobby 1', '2B Lobby 2'],
@@ -145,6 +148,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         entry.ageController.text = att.age ?? '';
         entry.relationController.text = att.relation ?? '';
         entry.aadhaarController.text = att.aadhaarNumber ?? '';
+        entry.mobileController.text = att.mobileNumber ?? '';
+        entry.isEmergencyContact = att.isEmergencyContact;
         entry.photoDataUrl = att.photoDataUrl;
         _attendants.add(entry);
       }
@@ -153,6 +158,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final entry = _AttendantEntry();
       if (widget.patient.emergencyContactName.isNotEmpty) {
         entry.nameController.text = widget.patient.emergencyContactName;
+        entry.mobileController.text = widget.patient.emergencyContact;
+        entry.isEmergencyContact = widget.patient.emergencyContact.isNotEmpty;
       }
       _attendants.add(entry);
     }
@@ -170,10 +177,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       text: widget.patient.registrationNumber ?? '',
     );
     _fileNoController = TextEditingController(
-      text: RegExp(
-        r'File No:\s*([^\n]+)',
-        caseSensitive: false,
-      ).firstMatch(widget.patient.notes ?? '')?.group(1)?.trim() ?? '',
+      text:
+          RegExp(
+            r'File No:\s*([^\n]+)',
+            caseSensitive: false,
+          ).firstMatch(widget.patient.notes ?? '')?.group(1)?.trim() ??
+          '',
     );
     _registrationDateController = TextEditingController(
       text: _formatDate(widget.patient.registrationDate),
@@ -231,9 +240,17 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final results = await Future.wait<dynamic>([
         roomService.getRoomsStream().first,
         roomService.getPricing(),
+        roomService.getStaysStream().first,
       ]);
       final rooms = results[0] as List<RoomModel>;
       _pricing = Map<String, dynamic>.from(results[1] as Map);
+      _occupiedLobbies = {
+        for (final stay in results[2] as List<StayModel>)
+          if (stay.roomType == 'lobby' &&
+              stay.status == 'active' &&
+              stay.patientId != widget.patient.id)
+            stay.roomNumber,
+      };
 
       // Load stays even after discharge, when roomId has already been cleared.
       // The latest stay preserves the room type needed for a correct edit-time
@@ -269,9 +286,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           _currentStayIds = activeStays.map((s) => s.id).toList();
 
           // Find current room and beds
-          final currentRoom = rooms
-                  .where((r) => r.id == effectiveRoomId)
-                  .firstOrNull ??
+          final currentRoom =
+              rooms.where((r) => r.id == effectiveRoomId).firstOrNull ??
               rooms
                   .where(
                     (r) =>
@@ -291,7 +307,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               (stay) => stay.roomId == effectiveRoomId,
             )) {
               if (stay.bedId != null || stay.bedLabel != null) {
-                final bed = currentRoom.beds
+                final bed =
+                    currentRoom.beds
                         .where((b) => b.id == stay.bedId)
                         .firstOrNull ??
                     currentRoom.beds
@@ -310,7 +327,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             // Legacy stays can be missing bed IDs/labels while the patient
             // record still contains the assigned Bed 10/11 label.
             if (_selectedBeds.isEmpty) {
-              for (final storedLabel in widget.patient.bedLabels ?? const <String>[]) {
+              for (final storedLabel
+                  in widget.patient.bedLabels ?? const <String>[]) {
                 final bed = currentRoom.beds
                     .where(
                       (b) =>
@@ -414,16 +432,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   double get _estimatedTotal {
     if (_selectedRoom == null && _selectedLobby == null) return 0;
     return PricingHelper.calculateDailyCharge(
-        _selectedLobby != null
-            ? false
-            : (_selectedRoom?.isPrivate ??
-                  (_historicalRoomType == 'private')),
-        _attendants
-            .where((a) => a.nameController.text.trim().isNotEmpty)
-            .length,
-        pricing: _pricing,
-        bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
-      ) *
+          _selectedLobby != null
+              ? false
+              : (_selectedRoom?.isPrivate ??
+                    (_historicalRoomType == 'private')),
+          _attendants
+              .where((a) => a.nameController.text.trim().isNotEmpty)
+              .length,
+          pricing: _pricing,
+          bedsCount: _selectedLobby != null
+              ? 1
+              : _selectedBeds.length.clamp(1, 999),
+        ) *
         _plannedStayDays;
   }
 
@@ -668,9 +688,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     final attendantCount = _attendants
         .where((attendant) => attendant.nameController.text.trim().isNotEmpty)
         .length;
-    final configuredValue = (_selectedLobby != null
-        ? false
-        : (_selectedRoom?.isPrivate ?? (_historicalRoomType == 'private')))
+    final configuredValue =
+        (_selectedLobby != null
+            ? false
+            : (_selectedRoom?.isPrivate ?? (_historicalRoomType == 'private')))
         ? _pricing['privateRoomMaxAttendants']
         : _pricing['generalRoomMaxAttendants'];
     final configuredMax = configuredValue is num
@@ -687,7 +708,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
       final registrationNumber = _registrationNumberController.text.trim();
-      if (registrationNumber.isNotEmpty) {
+      final originalRegistration =
+          widget.patient.registrationNumber?.trim() ?? '';
+      if (registrationNumber.isNotEmpty &&
+          registrationNumber.toLowerCase() !=
+              originalRegistration.toLowerCase()) {
         final existing = await patientService.getPatientByRegistrationNumber(
           registrationNumber,
           excludingPatientId: widget.patient.id,
@@ -712,8 +737,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           _selectedRegistrationDate ?? currentAdmissionDate;
 
       final structuredAttendants = <AttendantModel>[];
-      for (final att in _attendants) {
+      for (var i = 0; i < _attendants.length; i++) {
+        final att = _attendants[i];
         final name = att.nameController.text.trim();
+        final mobile = att.mobileController.text.trim();
+        if (mobile.isNotEmpty && !RegExp(r'^\d{10}$').hasMatch(mobile)) {
+          throw Exception(
+            'Attendant ${i + 1} mobile number must contain 10 digits',
+          );
+        }
+        if (att.isEmergencyContact && mobile.isEmpty) {
+          throw Exception('Enter a mobile number for the emergency attendant');
+        }
         if (name.isNotEmpty) {
           structuredAttendants.add(
             AttendantModel(
@@ -728,6 +763,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                   ? att.aadhaarController.text.trim()
                   : null,
               photoDataUrl: att.photoDataUrl,
+              mobileNumber: att.mobileController.text.trim().isEmpty
+                  ? null
+                  : att.mobileController.text.trim(),
+              isEmergencyContact: att.isEmergencyContact,
             ),
           );
         }
@@ -741,9 +780,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'age': age,
         'photoDataUrl': _patientPhotoDataUrl,
         'medicalCondition': _diagnosisController.text.trim(),
-        'emergencyContactName': structuredAttendants.isNotEmpty
-            ? structuredAttendants.first.name
-            : '',
+        'emergencyContactName':
+            structuredAttendants
+                .where((a) => a.isEmergencyContact)
+                .firstOrNull
+                ?.name ??
+            '',
+        'emergencyContact':
+            structuredAttendants
+                .where((a) => a.isEmergencyContact)
+                .firstOrNull
+                ?.mobileNumber ??
+            '',
         'attendants': structuredAttendants.map((a) => a.toMap()).toList(),
         'address': _addressController.text.trim().isEmpty
             ? null
@@ -765,13 +813,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             : _utiNumberController.text.trim(),
         // A patient can occupy either a lobby or a room, never both.
         'lobby': _selectedRoom == null ? _selectedLobby : null,
-        // Keep the advance, due amount, and payment dashboard aligned with
-        // the selected room type and the current stay dates.
-        'advanceBilledAmount': _effectiveTotalAmount,
-        'billingAmountOverride':
-            _totalAmountOverrideController.text.trim().isEmpty
-            ? null
-            : _effectiveTotalAmount,
+        // Billing is recalculated after the patient and stay changes are
+        // saved. Do not replace it with a full-period attendant estimate.
+        'billingAmountOverride': null,
       };
       if (isRejoining) {
         updates.addAll({
@@ -782,9 +826,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           'totalAbsentDays': 0,
           'attendanceCharges': 0.0,
           'totalPaidAmount': 0.0,
-          'currentDueAmount': _effectiveTotalAmount,
-          'paymentPending': _effectiveTotalAmount > 0,
-          'paymentStatus': _effectiveTotalAmount > 0 ? 'Unpaid' : 'Paid',
+          'currentDueAmount': widget.patient.currentDueAmount ?? 0,
+          'paymentPending': widget.patient.hasEffectivePendingPayment,
+          'paymentStatus': widget.patient.paymentStatus,
         });
       }
 
@@ -793,8 +837,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final originalLobby = _loadedRoomId == null
           ? (widget.patient.lobby ?? _lobbyFromNotes(widget.patient.notes))
           : null;
-      final lobbyChanged = (_selectedLobby ?? '').trim() !=
-          (originalLobby ?? '').trim();
+      final lobbyChanged =
+          (_selectedLobby ?? '').trim() != (originalLobby ?? '').trim();
       bool bedsChanged = false;
       // Lobby stays have no beds. Do not mistake their history IDs for a bed
       // change and complete the current lobby cycle on every edit.
@@ -813,10 +857,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
 
       final placementChanged = roomChanged || bedsChanged || lobbyChanged;
+      if (placementChanged) updates['billingAmountOverride'] = null;
+      final shiftTime = DateTime.now();
       if (placementChanged) {
         // Complete all old stays
         for (final stayId in _currentStayIds) {
-          await roomService.completeStay(stayId);
+          await roomService.completeStay(stayId, completedAt: shiftTime);
         }
 
         if (_selectedRoom != null) {
@@ -845,17 +891,22 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               roomId: _selectedRoom!.id,
               roomNumber: _selectedRoom!.roomIdentifier,
               roomType: _selectedRoom!.roomType,
-              admissionDate: displayedStayStart,
+              admissionDate: editingDischargedPatient
+                  ? displayedStayStart
+                  : shiftTime,
               durationDays: _plannedStayDays,
               attendantCount: structuredAttendants.length,
               attendantLabels: structuredAttendants
-                  .map((a) => a.relation?.trim().isNotEmpty == true
-                      ? '${a.name} (${a.relation})'
-                      : a.name)
+                  .map(
+                    (a) => a.relation?.trim().isNotEmpty == true
+                        ? '${a.name} (${a.relation})'
+                        : a.name,
+                  )
                   .toList(),
               bedId: bed.id,
               bedLabel: bed.bedLabel,
-              notes: 'Room changed from ${widget.patient.roomNumber ?? "N/A"}',
+              notes:
+                  'Shifted from ${widget.patient.roomNumber ?? widget.patient.lobby ?? "Unassigned"} (beds: ${widget.patient.bedLabels?.join(", ") ?? "N/A"}) to ${_selectedRoom!.isPrivate ? "Private room" : "Dormitory"} ${_selectedRoom!.roomIdentifier}, bed ${bed.bedLabel}',
               createdBy: currentUser?.uid ?? 'system',
             );
           }
@@ -864,13 +915,17 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             patientId: widget.patient.id,
             patientName: _patientNameController.text.trim(),
             lobbyName: _selectedLobby!,
-            admissionDate: displayedStayStart,
+            admissionDate: editingDischargedPatient
+                ? displayedStayStart
+                : shiftTime,
             durationDays: _plannedStayDays,
             attendantCount: structuredAttendants.length,
             attendantLabels: structuredAttendants
-                .map((a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name)
+                .map(
+                  (a) => a.relation?.trim().isNotEmpty == true
+                      ? '${a.name} (${a.relation})'
+                      : a.name,
+                )
                 .toList(),
             createdBy:
                 ServiceLocator().authRestService.currentUser?.uid ?? 'system',
@@ -910,29 +965,18 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             stayId,
             structuredAttendants.length,
             attendantLabels: structuredAttendants
-                .map((a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name)
+                .map(
+                  (a) => a.relation?.trim().isNotEmpty == true
+                      ? '${a.name} (${a.relation})'
+                      : a.name,
+                )
                 .toList(),
+            attendants: structuredAttendants.map((a) => a.toMap()).toList(),
           );
         }
       }
-      if (_totalAmountOverrideController.text.trim().isEmpty) {
-        await ServiceLocator().paymentService
-            .recalculatePatientAttendanceAndBilling(widget.patient.id);
-      } else {
-        final paid = widget.patient.totalPaidAmount ?? 0.0;
-        final due = (_effectiveTotalAmount - paid).clamp(0.0, double.infinity);
-        await patientService.updatePatient(widget.patient.id, {
-          'attendanceCharges': 0.0,
-          'totalPaidAmount': paid,
-          'currentDueAmount': due,
-          'paymentPending': due > 0,
-          'paymentStatus': due > 0
-              ? (paid > 0 ? 'Partially Paid' : 'Unpaid')
-              : 'Paid',
-        });
-      }
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(widget.patient.id);
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -966,11 +1010,80 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             ),
           ),
           const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F9F0),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFC0DD97)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: const Color(0xFFEAF3DE),
+                  backgroundImage: _attendants[i].photoDataUrl == null
+                      ? null
+                      : MemoryImage(_decodePhoto(_attendants[i].photoDataUrl)!),
+                  child: _attendants[i].photoDataUrl == null
+                      ? const Icon(
+                          Icons.person_outline,
+                          color: Color(0xFF639922),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Attendant photo',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _pickAttendantPhoto(i),
+                  icon: const Icon(Icons.upload_rounded),
+                  label: Text(
+                    _attendants[i].photoDataUrl == null ? 'Upload' : 'Change',
+                  ),
+                ),
+                if (_attendants[i].photoDataUrl != null)
+                  IconButton(
+                    tooltip: 'Remove photo',
+                    onPressed: () =>
+                        setState(() => _attendants[i].photoDataUrl = null),
+                    icon: const Icon(Icons.close, color: Color(0xFFD32F2F)),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           _NatureField(
             label: 'Aadhaar number',
             hint: 'XXXX XXXX XXXX',
             keyboard: TextInputType.number,
             controller: _attendants[i].aadhaarController,
+          ),
+          const SizedBox(height: 8),
+          _NatureField(
+            label: 'Mobile number',
+            hint: '10-digit mobile number',
+            keyboard: TextInputType.phone,
+            controller: _attendants[i].mobileController,
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _attendants[i].isEmergencyContact,
+            title: const Text('Use as emergency contact'),
+            subtitle: const Text(
+              'This attendant will appear in emergency contact details',
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            onChanged: (value) => setState(() {
+              for (final attendant in _attendants) {
+                attendant.isEmergencyContact = false;
+              }
+              _attendants[i].isEmergencyContact = value ?? false;
+            }),
           ),
           if (_attendants.length > 1)
             Align(
@@ -1064,59 +1177,79 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                           children: [
                             // ── Patient Photo Upload ──
                             Center(
-                              child: GestureDetector(
-                                onTap: _pickPatientPhoto,
-                                child: Stack(
-                                  children: [
-                                    Container(
-                                      width: 88,
-                                      height: 88,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: const Color(0xFFEAF3DE),
-                                        border: Border.all(
-                                          color: const Color(0xFF97C459),
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: ClipOval(
-                                        child: _patientPhotoDataUrl != null
-                                            ? Image.memory(
-                                                _decodePhoto(
-                                                  _patientPhotoDataUrl,
-                                                )!,
-                                                fit: BoxFit.cover,
-                                              )
-                                            : const Icon(
-                                                Icons.person_outline_rounded,
-                                                size: 40,
-                                                color: Color(0xFF639922),
-                                              ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      bottom: 0,
-                                      right: 0,
-                                      child: Container(
-                                        width: 26,
-                                        height: 26,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF3B6D11),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 2,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  GestureDetector(
+                                    onTap: _pickPatientPhoto,
+                                    child: Stack(
+                                      children: [
+                                        Container(
+                                          width: 88,
+                                          height: 88,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: const Color(0xFFEAF3DE),
+                                            border: Border.all(
+                                              color: const Color(0xFF97C459),
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: ClipOval(
+                                            child: _patientPhotoDataUrl != null
+                                                ? Image.memory(
+                                                    _decodePhoto(
+                                                      _patientPhotoDataUrl,
+                                                    )!,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : const Icon(
+                                                    Icons
+                                                        .person_outline_rounded,
+                                                    size: 40,
+                                                    color: Color(0xFF639922),
+                                                  ),
                                           ),
                                         ),
-                                        child: const Icon(
-                                          Icons.camera_alt_rounded,
-                                          size: 13,
-                                          color: Colors.white,
+                                        Positioned(
+                                          bottom: 0,
+                                          right: 0,
+                                          child: Container(
+                                            width: 26,
+                                            height: 26,
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF3B6D11),
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: Colors.white,
+                                                width: 2,
+                                              ),
+                                            ),
+                                            child: const Icon(
+                                              Icons.camera_alt_rounded,
+                                              size: 13,
+                                              color: Colors.white,
+                                            ),
+                                          ),
                                         ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (_patientPhotoDataUrl != null)
+                                    TextButton.icon(
+                                      onPressed: () => setState(
+                                        () => _patientPhotoDataUrl = null,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Remove photo'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.red,
                                       ),
                                     ),
-                                  ],
-                                ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -1356,6 +1489,22 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                 ],
                                               ),
                                             ),
+                                            if (_attendants[i].photoDataUrl !=
+                                                null)
+                                              IconButton(
+                                                tooltip: 'Remove photo',
+                                                onPressed: () => setState(
+                                                  () =>
+                                                      _attendants[i]
+                                                              .photoDataUrl =
+                                                          null,
+                                                ),
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  color: Colors.red,
+                                                  size: 19,
+                                                ),
+                                              ),
                                             const Spacer(),
                                             if (_attendants.length > 1)
                                               IconButton(
@@ -1537,6 +1686,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                               ? const []
                                               : _lobbyOptionsByFloor[_selectedFloor]!,
                                           value: _selectedLobby,
+                                          disabledItems: _occupiedLobbies,
                                           onChanged:
                                               _selectedFloor != null &&
                                                   _selectedRoom == null
@@ -1589,7 +1739,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                           isRoomEnabled: (room) =>
                                               room.id == _selectedRoom?.id ||
                                               room.id == _loadedRoomId ||
-                                              room.id == widget.patient.roomId ||
+                                              room.id ==
+                                                  widget.patient.roomId ||
                                               BedHelper.selectableAvailableBeds(
                                                 room,
                                               ).isNotEmpty,
@@ -1621,50 +1772,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 ],
                               ),
                       ),
-                      const SizedBox(height: 20),
-                      _PaymentSummary(
-                        bedsCount: _selectedLobby != null
-                            ? 1
-                            : _selectedBeds.length,
-                        attendantsCount: _attendants
-                            .where(
-                              (a) => a.nameController.text.trim().isNotEmpty,
-                            )
-                            .length,
-                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
-                        roomIdentifier: _selectedRoom?.roomIdentifier,
-                        placementSelected:
-                            _selectedRoom != null || _selectedLobby != null,
-                        placementLabel: _selectedLobby,
-                        days: _plannedStayDays,
-                        pricing: _pricing,
-                        totalOverride: double.tryParse(
-                          _totalAmountOverrideController.text
-                              .trim()
-                              .replaceAll(',', ''),
-                        ),
-                      ),
                       const SizedBox(height: 12),
-                      PatientFormField(
-                        label: 'Override total amount (optional)',
-                        hint:
-                            'Calculated amount: ₹${_estimatedTotal.toStringAsFixed(0)}',
-                        controller: _totalAmountOverrideController,
-                        keyboard: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Leave blank to keep automatic pricing.',
-                          style: TextStyle(
-                            color: Color(0xFF6B7D5B),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
+                      _CurrentBillingSummary(patient: widget.patient),
+                      const SizedBox(height: 10),
+                      const _AutomaticBillingNotice(),
                       const SizedBox(height: 20),
                       _buildAttendantDetails(),
                     ],
@@ -1693,6 +1804,8 @@ class _AttendantEntry {
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();
   final TextEditingController aadhaarController = TextEditingController();
+  final TextEditingController mobileController = TextEditingController();
+  bool isEmergencyContact = false;
   String? photoDataUrl; // base64 data url
 
   void dispose() {
@@ -1700,6 +1813,7 @@ class _AttendantEntry {
     ageController.dispose();
     relationController.dispose();
     aadhaarController.dispose();
+    mobileController.dispose();
   }
 }
 
@@ -1758,8 +1872,17 @@ class _NatureField extends StatelessWidget {
           readOnly: isDate,
           onTap: onTap,
           keyboardType: isDate ? TextInputType.datetime : keyboard,
+          textInputAction: TextInputAction.next,
+          maxLength: keyboard == TextInputType.phone ? 10 : null,
+          inputFormatters: keyboard == TextInputType.phone
+              ? [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ]
+              : null,
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           decoration: InputDecoration(
+            counterText: '',
             hintText: isDate ? "DD / MM / YYYY" : hint,
             hintStyle: TextStyle(
               color: const Color(0xFF97C459).withValues(alpha: 0.75),
@@ -1794,6 +1917,112 @@ class _NatureField extends StatelessWidget {
       ],
     );
   }
+}
+
+class _AutomaticBillingNotice extends StatelessWidget {
+  const _AutomaticBillingNotice();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F9F0),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: const Color(0xFFC0DD97)),
+    ),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.calculate_outlined, color: Color(0xFF3B6D11), size: 20),
+        SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Billing updates after saving. Patient charges follow the registration and exit dates; attendant charges include only dates marked Present. Change a final charged amount from the Stays tab.',
+            style: TextStyle(
+              color: Color(0xFF365422),
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CurrentBillingSummary extends StatelessWidget {
+  final PatientModel patient;
+
+  const _CurrentBillingSummary({required this.patient});
+
+  String _money(double value) =>
+      '₹${value.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+\d(?!\d))'), (m) => '${m[1]},')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final total = patient.advanceBilledAmount + patient.attendanceCharges;
+    final paid = patient.effectivePaidAmount;
+    final pending = (total - paid).clamp(0.0, double.infinity);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF3B6D11), Color(0xFF5A9A1A)],
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'CURRENT BILLING',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .8,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _BillingValue(label: 'Total', value: _money(total)),
+              _BillingValue(label: 'Paid', value: _money(paid)),
+              _BillingValue(label: 'Pending', value: _money(pending)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillingValue extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _BillingValue({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _PaymentSummary extends StatelessWidget {
@@ -1832,10 +2061,14 @@ class _PaymentSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!placementSelected) return const SizedBox.shrink();
 
-    final privateBase = (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
-    final included = (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
-    final extraRate = (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
-    final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 150.0;
+    final privateBase =
+        (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
+    final included =
+        (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
+    final extraRate =
+        (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
+    final generalRate =
+        (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 200.0;
     final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
     final bedTotal = isPrivateRoom
         ? privateBase * days

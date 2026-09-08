@@ -9,8 +9,13 @@ import '../../../models/patient_model.dart';
 import '../../../models/stay_model.dart';
 import '../../../services/service_locator.dart';
 import 'widgets/edit_patient_dialog.dart';
+import 'widgets/stay_history_tab.dart';
+import 'widgets/refund_dialog.dart';
 import 'widgets/payment_dialog.dart';
+import 'widgets/shift_patient_dialog.dart';
+import 'widgets/photo_preview_dialog.dart';
 import '../../utils/bed_helper.dart';
+import '../../utils/stay_billing.dart';
 import 'utils/patient_info_download.dart';
 
 double _patientPaymentTotal(
@@ -23,7 +28,13 @@ double _patientPaymentTotal(
     total,
     payment,
   ) {
-    if (from != null && payment.date.isBefore(from)) return total;
+    if (from != null && payment.cycleId != null) {
+      if (payment.cycleId != from.millisecondsSinceEpoch.toString())
+        return total;
+    } else if (from != null &&
+        DateUtils.dateOnly(payment.date).isBefore(DateUtils.dateOnly(from))) {
+      return total;
+    }
     if (through != null && payment.date.isAfter(through)) return total;
     return total + payment.amount;
   });
@@ -44,11 +55,19 @@ class PatientProfileScreen extends StatefulWidget {
 class _PatientProfileScreenState extends State<PatientProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _isPreparingDischarge = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    // Refresh legacy admission balances when the profile opens. This also
+    // repairs same-day receipts saved before the recorded registration time.
+    unawaited(
+      ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(widget.patient.id)
+          .catchError((_) {}),
+    );
   }
 
   @override
@@ -124,6 +143,8 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         'totalPaidAmount': result.payment!.paidAmount,
         'currentDueAmount': result.payment!.pendingAmount,
       });
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(currentPatient.id);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -163,7 +184,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
           : '';
 
       final totalAmount =
-          (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+          patient.advanceBilledAmount + patient.attendanceCharges;
 
       print("STEP 3 - Creating Excel");
 
@@ -397,62 +418,142 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     }
   }
 
-  void _showDischargeConfirmation(
+  Future<void> _showDischargeConfirmation(
     BuildContext context,
     PatientModel currentPatient,
-  ) {
-    showDialog(
+  ) async {
+    if (_isPreparingDischarge) return;
+    setState(() => _isPreparingDischarge = true);
+    Map<String, dynamic> readiness;
+    try {
+      readiness = await ServiceLocator().patientService.getDischargeReadiness(
+        currentPatient.id,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not verify discharge: $e')),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _isPreparingDischarge = false);
+    }
+    if (!context.mounted) return;
+    final currency = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
+    final ready = readiness['ready'] == true;
+    final reasons = readiness['reasons'] is List
+        ? List<String>.from(readiness['reasons'])
+        : const <String>[];
+    var isSubmitting = false;
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Discharge Patient'),
-        content: Text(
-          'Are you sure you want to discharge ${currentPatient.fullName}? This will remove them from their assigned room.',
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: const Text('Discharge Patient'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Final balance for ${currentPatient.fullName}'),
+                const SizedBox(height: 14),
+                Text('Total charged: ${currency.format(readiness['total'])}'),
+                Text('Paid amount: ${currency.format(readiness['paid'])}'),
+                Text(
+                  'Pending amount: ${currency.format(readiness['pending'])}',
+                ),
+                Text('Refund due: ${currency.format(readiness['refundDue'])}'),
+                const SizedBox(height: 14),
+                if (ready)
+                  const Text(
+                    'Attendance and payment checks are complete. The patient can be discharged.',
+                    style: TextStyle(color: Color(0xFF3B6D11)),
+                  )
+                else ...[
+                  const Text(
+                    'Discharge is blocked:',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  for (final reason in reasons) Text('• $reason'),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF3B6D11),
+              ),
+              onPressed: isSubmitting
+                  ? null
+                  : () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: !ready || isSubmitting
+                  ? null
+                  : () async {
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await ServiceLocator().patientService.dischargePatient(
+                          currentPatient.id,
+                        );
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext);
+                        }
+                        if (mounted) {
+                          final messenger = ScaffoldMessenger.of(this.context);
+                          Navigator.pop(this.context);
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Patient discharged successfully'),
+                              backgroundColor: Color(0xFF3B6D11),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (dialogContext.mounted) {
+                          setDialogState(() => isSubmitting = false);
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(
+                              content: Text('Error: ${e.toString()}'),
+                              backgroundColor: const Color(0xFFD32F2F),
+                            ),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3B6D11),
+                foregroundColor: Colors.white,
+                elevation: 2,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
+              ),
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(ready ? 'Confirm discharge' : 'Discharge blocked'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF3B6D11),
-            ),
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await ServiceLocator().patientService.dischargePatient(
-                  currentPatient.id,
-                );
-                if (context.mounted) {
-                  Navigator.pop(context); // Close confirmation
-                  Navigator.pop(context); // Close profile page, back to listing
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Patient discharged successfully'),
-                      backgroundColor: Color(0xFF3B6D11),
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: ${e.toString()}'),
-                      backgroundColor: const Color(0xFFD32F2F),
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF3B6D11),
-              foregroundColor: Colors.white,
-              elevation: 2,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            ),
-            child: const Text('Discharge'),
-          ),
-        ],
       ),
     );
   }
@@ -483,9 +584,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
           double.infinity,
         );
         final showPayBtn = isActive && currentCycleDue > 0;
-        final payBtnLabel = currentCyclePaid > 0
-            ? 'Pay Remaining'
-            : 'Pay Now';
+        final payBtnLabel = currentCyclePaid > 0 ? 'Pay Remaining' : 'Pay Now';
         final photoBytes = _decodePhoto(currentPatient.photoDataUrl);
 
         return Scaffold(
@@ -568,17 +667,88 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                             ),
                             const SizedBox(width: 12),
                             if (isActive) ...[
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  try {
+                                    final shifted =
+                                        await showShiftPatientDialog(
+                                          context,
+                                          currentPatient,
+                                        );
+                                    if (shifted && context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Patient shifted successfully',
+                                          ),
+                                          backgroundColor: Color(0xFF3B6D11),
+                                        ),
+                                      );
+                                    }
+                                  } catch (error) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Could not shift patient: $error',
+                                          ),
+                                          backgroundColor: const Color(
+                                            0xFFD32F2F,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.swap_horiz_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Shift Patient'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF3B6D11),
+                                  side: const BorderSide(
+                                    color: Color(0xFF3B6D11),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
                               // Discharge Patient
                               OutlinedButton.icon(
-                                onPressed: () => _showDischargeConfirmation(
-                                  context,
-                                  currentPatient,
+                                onPressed: _isPreparingDischarge
+                                    ? null
+                                    : () => _showDischargeConfirmation(
+                                        context,
+                                        currentPatient,
+                                      ),
+                                icon: _isPreparingDischarge
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.logout_rounded,
+                                        size: 16,
+                                      ),
+                                label: Text(
+                                  _isPreparingDischarge
+                                      ? 'Checking…'
+                                      : 'Discharge Patient',
                                 ),
-                                icon: const Icon(
-                                  Icons.logout_rounded,
-                                  size: 16,
-                                ),
-                                label: const Text('Discharge Patient'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFF3B6D11),
                                   side: const BorderSide(
@@ -651,36 +821,46 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                     Row(
                       children: [
                         // Avatar
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: isActive
-                                ? const Color(0xFFEAF3DE)
-                                : const Color(0xFFE8E8E8),
-                            shape: BoxShape.circle,
-                            border: Border.all(
+                        InkWell(
+                          borderRadius: BorderRadius.circular(40),
+                          onTap: photoBytes == null
+                              ? null
+                              : () => showPhotoPreview(
+                                  context,
+                                  photoBytes: photoBytes,
+                                  title: currentPatient.fullName,
+                                ),
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
                               color: isActive
-                                  ? const Color(0xFF97C459)
-                                  : const Color(0xFFBDBDBD),
-                              width: 2,
+                                  ? const Color(0xFFEAF3DE)
+                                  : const Color(0xFFE8E8E8),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isActive
+                                    ? const Color(0xFF97C459)
+                                    : const Color(0xFFBDBDBD),
+                                width: 2,
+                              ),
                             ),
-                          ),
-                          child: ClipOval(
-                            child: photoBytes != null
-                                ? Image.memory(photoBytes, fit: BoxFit.cover)
-                                : Center(
-                                    child: Text(
-                                      _getInitials(currentPatient.fullName),
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,
-                                        color: isActive
-                                            ? const Color(0xFF3B6D11)
-                                            : const Color(0xFF757575),
+                            child: ClipOval(
+                              child: photoBytes != null
+                                  ? Image.memory(photoBytes, fit: BoxFit.cover)
+                                  : Center(
+                                      child: Text(
+                                        _getInitials(currentPatient.fullName),
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold,
+                                          color: isActive
+                                              ? const Color(0xFF3B6D11)
+                                              : const Color(0xFF757575),
+                                        ),
                                       ),
                                     ),
-                                  ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -774,7 +954,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                     _OverviewTab(patient: currentPatient),
                     _PaymentHistoryTab(patient: currentPatient),
                     _AttendanceTab(patient: currentPatient),
-                    _StaysTab(patient: currentPatient),
+                    StayHistoryTab(
+                      patient: currentPatient,
+                      onPayments: () => _tabController.animateTo(1),
+                    ),
                   ],
                 ),
               ),
@@ -1122,13 +1305,30 @@ class _OverviewTab extends StatelessWidget {
     );
     final total = patient.advanceBilledAmount + patient.attendanceCharges;
     final pending = (total - paidAmount).clamp(0, double.infinity);
-    final paymentStatus = pending > 0
+    final paymentStatus = paidAmount > total
+        ? 'Payment Exceeded'
+        : pending > 0
         ? (paidAmount > 0 ? 'Partially Paid' : 'Unpaid')
         : 'Paid';
     return _Section(
       label: "Financial Summary",
       child: Column(
         children: [
+          if (patient.totalRefundDueAmount > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Payment exceeded — refund due: ${currencyFmt.format(patient.totalRefundDueAmount)}',
+                style: const TextStyle(
+                  color: Colors.deepOrange,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          if (patient.totalRefundedAmount > 0)
+            Text(
+              'Refunded: ${currencyFmt.format(patient.totalRefundedAmount)}',
+            ),
           _Row2(
             _InfoField(
               label: "Total Amount",
@@ -1194,21 +1394,28 @@ class _OverviewTab extends StatelessWidget {
   }
 
   Widget _buildEmergencyInfo() {
+    final attendants = patient.attendants ?? const <AttendantModel>[];
+    final emergency =
+        attendants
+            .where((attendant) => attendant.isEmergencyContact)
+            .firstOrNull ??
+        attendants.firstOrNull;
+    final emergencyNumber = emergency?.mobileNumber?.trim().isNotEmpty == true
+        ? emergency!.mobileNumber!.trim()
+        : null;
     return _Section(
-      label: "Emergency Contact",
+      label: "Emergency Contact (Attendant)",
       child: _Row2(
         _InfoField(
-          label: "Contact Name",
-          value: patient.emergencyContactName.isNotEmpty
-              ? patient.emergencyContactName
-              : "N/A",
+          label: "Emergency Contact Name",
+          value: emergency == null
+              ? "—"
+              : '${emergency.name}${emergency.relation?.isNotEmpty == true ? ' (${emergency.relation})' : ''}',
           icon: Icons.contact_emergency_outlined,
         ),
         _InfoField(
-          label: "Contact Number",
-          value: patient.emergencyContact.isNotEmpty
-              ? patient.emergencyContact
-              : "N/A",
+          label: "Emergency Contact Number",
+          value: emergencyNumber ?? "—",
           icon: Icons.phone_in_talk_outlined,
         ),
       ),
@@ -1394,7 +1601,8 @@ class _OverviewTab extends StatelessWidget {
                         shrinkWrap: true,
                         itemCount: attendants.length,
                         itemBuilder: (context, index) {
-                          return _AttendantCard(attendant: attendants[index]);
+                          final attendant = attendants[index];
+                          return _AttendantCard(attendant: attendant);
                         },
                       ),
                     )
@@ -1546,11 +1754,82 @@ class _PaymentHistoryTab extends StatefulWidget {
 class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
   final Map<String, Map<String, dynamic>> _paymentOverrides = {};
   late final Stream<List<Map<String, dynamic>>> _paymentsStream;
+  StreamSubscription<List<StayModel>>? _staysSubscription;
+  List<StayModel> _stays = const [];
 
   @override
   void initState() {
     super.initState();
     _paymentsStream = ServiceLocator().paymentService.getAllPaymentsStream();
+    _staysSubscription = ServiceLocator().roomService
+        .getStaysByPatientStream(widget.patient.id)
+        .listen((stays) {
+          if (mounted) setState(() => _stays = stays);
+        });
+  }
+
+  @override
+  void dispose() {
+    _staysSubscription?.cancel();
+    super.dispose();
+  }
+
+  String _paymentPlacement(Map<String, dynamic> payment) {
+    final model = PaymentModel.fromMap(
+      payment['id']?.toString() ?? '',
+      payment,
+    );
+    final cycle = payment['cycleId']?.toString() ??
+        StayBilling.paymentCycle(model, widget.patient, _stays);
+    final segments = _stays
+        .where(
+          (stay) => StayBilling.cycleFor(stay, widget.patient) == cycle,
+        )
+        .toList()
+      ..sort((a, b) => a.admissionDate.compareTo(b.admissionDate));
+    if (segments.isEmpty) return 'Placement not recorded';
+    String label(StayModel stay) {
+      if (stay.roomType == 'lobby') return 'Lobby · ${stay.roomNumber}';
+      final bed = stay.bedLabel?.trim();
+      return 'Room ${stay.roomNumber} · ${bed?.isNotEmpty == true ? BedHelper.getBedDisplayName(bed!, roomIdentifier: stay.roomNumber) : 'Bed not recorded'}';
+    }
+    return segments.map(label).toSet().join('  →  ');
+  }
+
+  Future<void> _deletePayment(Map<String, dynamic> payment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete payment?'),
+        content: Text(
+          'Remove this payment of ${payment['amount']}? Paid and pending totals will be updated.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ServiceLocator().paymentService.deletePayment(
+        widget.patient.id,
+        payment['id'].toString(),
+        embeddedPaymentId: payment['_localId']?.toString(),
+      );
+      if (mounted) setState(() => _paymentOverrides.remove(payment['id']));
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete payment: $error')),
+        );
+    }
   }
 
   Future<void> _editPaymentDetails(
@@ -1558,10 +1837,37 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
     String currentNumber,
   ) async {
     final controller = TextEditingController(text: currentNumber);
+    final amountController = TextEditingController(
+      text: ((payment['amount'] as num?)?.abs() ?? 0).toString(),
+    );
+    final receiptController = TextEditingController(
+      text: payment['receiptNumber']?.toString() ?? '',
+    );
     final rawDate = payment['date'];
     var selectedDate = rawDate is int
         ? DateTime.fromMillisecondsSinceEpoch(rawDate)
         : DateTime.now();
+    final currentCycle = widget.patient.admissionDate.millisecondsSinceEpoch
+        .toString();
+    final admissionCycles = <String>{
+      ...widget.patient.admissionBalances.keys,
+      currentCycle,
+    }.toList()
+      ..sort((a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0));
+    var selectedCycle = payment['cycleId']?.toString();
+    if (!admissionCycles.contains(selectedCycle)) {
+      selectedCycle = admissionCycles.first;
+    }
+    String cycleLabel(String cycle) {
+      final stamp = int.tryParse(cycle);
+      final date = stamp == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(stamp);
+      final prefix = cycle == currentCycle ? 'Current admission' : 'Previous admission';
+      return date == null
+          ? prefix
+          : '$prefix · ${DateFormat('dd MMM yyyy, hh:mm a').format(date)}';
+    }
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1573,11 +1879,45 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Paid amount'),
+                ),
+                TextField(
+                  controller: receiptController,
+                  decoration: const InputDecoration(
+                    labelText: 'Receipt number',
+                  ),
+                ),
+                TextField(
                   controller: controller,
                   autofocus: true,
                   decoration: const InputDecoration(
                     labelText: 'Transaction / UTI number',
                   ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedCycle,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Apply payment to admission',
+                  ),
+                  items: admissionCycles
+                      .map(
+                        (cycle) => DropdownMenuItem(
+                          value: cycle,
+                          child: Text(
+                            cycleLabel(cycle),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => selectedCycle = value),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -1644,7 +1984,20 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () {
+                final amount = double.tryParse(amountController.text);
+                if (amount == null || !amount.isFinite || amount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Enter a valid paid amount greater than zero.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF3B6D11),
                 foregroundColor: Colors.white,
@@ -1658,10 +2011,16 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
     final paymentId = payment['id']?.toString();
     if (shouldSave != true || paymentId == null) {
       controller.dispose();
+      amountController.dispose();
+      receiptController.dispose();
       return;
     }
     final transactionNumber = controller.text;
+    final amount = double.parse(amountController.text);
+    final receipt = receiptController.text;
     controller.dispose();
+    amountController.dispose();
+    receiptController.dispose();
     try {
       await ServiceLocator().paymentService.updatePaymentDetails(
         widget.patient.id,
@@ -1669,6 +2028,9 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
         transactionNumber,
         selectedDate,
         embeddedPaymentId: payment['_localId']?.toString(),
+        amount: amount,
+        receiptNumber: receipt,
+        cycleId: selectedCycle,
       );
       if (mounted) {
         setState(() {
@@ -1677,6 +2039,9 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                 ? null
                 : transactionNumber.trim(),
             'date': selectedDate.millisecondsSinceEpoch,
+            'amount': (payment['amount'] as num) < 0 ? -amount : amount,
+            'receiptNumber': receipt,
+            'cycleId': selectedCycle,
           };
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1782,6 +2147,31 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (widget.patient.totalRefundDueAmount > 0)
+                Card(
+                  color: const Color(0xFFFFF3E0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Wrap(
+                      spacing: 16,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          'Payment exceeded — refund due: ${currencyFmt.format(widget.patient.totalRefundDueAmount)}',
+                          style: const TextStyle(
+                            color: Colors.deepOrange,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: () =>
+                              showRefundDialog(context, widget.patient),
+                          child: const Text('Record refund paid'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               // Total Paid Card
               Container(
                 padding: const EdgeInsets.all(20),
@@ -1807,7 +2197,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "TOTAL AMOUNT PAID",
+                          "NET AMOUNT PAID",
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -1817,7 +2207,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          "All payments recorded via Payments Module",
+                          "Payments received less recorded refunds",
                           style: TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
@@ -1858,7 +2248,8 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                   final date = DateTime.fromMillisecondsSinceEpoch(
                     payment['date'] ?? 0,
                   );
-                  final method = payment['method']?.toString() ?? "CASH";
+                  final method =
+                      '${(payment['amount'] as num? ?? 0) < 0 ? 'REFUND · ' : ''}${payment['method']?.toString() ?? 'CASH'}';
                   final storedTransaction = payment['transactionId']
                       ?.toString()
                       .trim();
@@ -1927,6 +2318,27 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                                   color: Color(0xFF27500A),
                                 ),
                               ),
+                              const SizedBox(height: 5),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.bed_outlined,
+                                    size: 15,
+                                    color: Color(0xFF639922),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      _paymentPlacement(payment),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF49613A),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                               if (payment['notes'] != null &&
                                   payment['notes'].toString().isNotEmpty) ...[
                                 const SizedBox(height: 4),
@@ -1979,11 +2391,19 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                             Icons.edit_outlined,
                             color: Color(0xFF3B6D11),
                           ),
-                          tooltip: 'Edit transaction number, date and time',
+                          tooltip: 'Edit amount, receipt, transaction and date',
                           onPressed: () => _editPaymentDetails(
                             payment,
                             transactionNumber ?? '',
                           ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                          tooltip: 'Delete payment',
+                          onPressed: () => _deletePayment(payment),
                         ),
                       ],
                     ),
@@ -2333,17 +2753,22 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                 .where((r) => r['status'] == 'Absent')
                 .length;
 
-            int attendantPresent = 0;
-            int attendantAbsent = 0;
+            final counts = <String, List<int>>{
+              for (final attendant
+                  in widget.patient.attendants ?? <AttendantModel>[])
+                attendant.name: [0, 0],
+            };
             attendantData.forEach((date, attendants) {
-              if (attendants is Map) {
+              if (attendants is Map)
                 attendants.forEach((key, val) {
                   if (val is Map) {
-                    if (val['status'] == 'Present') attendantPresent++;
-                    if (val['status'] == 'Absent') attendantAbsent++;
+                    final name =
+                        val['attendantName']?.toString() ?? key.toString();
+                    final count = counts.putIfAbsent(name, () => [0, 0]);
+                    if (val['status'] == 'Present') count[0]++;
+                    if (val['status'] == 'Absent') count[1]++;
                   }
                 });
-              }
             });
 
             return SingleChildScrollView(
@@ -2359,7 +2784,8 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                       patientData: patientData,
                       attendantData: attendantData,
                       patientName: widget.patient.fullName,
-                      registrationDate: widget.patient.registrationDate ??
+                      registrationDate:
+                          widget.patient.registrationDate ??
                           widget.patient.admissionDate,
                       admissionCycleStart: widget.patient.admissionDate,
                       exitDate: widget.patient.exitDate,
@@ -2433,52 +2859,53 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                         const SizedBox(height: 12),
 
                         // Attendant summary
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFFC0DD97).withOpacity(0.5),
+                        for (final entry in counts.entries)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFFC0DD97).withOpacity(0.5),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Color(0xFF27500A),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    _CountChip(
+                                      label: "Present",
+                                      count: entry.value[0],
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    _CountChip(
+                                      label: "Absent",
+                                      count: entry.value[1],
+                                      color: const Color(0xFFD32F2F),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    _CountChip(
+                                      label: "Total",
+                                      count: entry.value[0] + entry.value[1],
+                                      color: const Color(0xFF3B6D11),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Attendants",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                  color: Color(0xFF27500A),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  _CountChip(
-                                    label: "Present",
-                                    count: attendantPresent,
-                                    color: Colors.green,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  _CountChip(
-                                    label: "Absent",
-                                    count: attendantAbsent,
-                                    color: const Color(0xFFD32F2F),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  _CountChip(
-                                    label: "Total",
-                                    count: attendantPresent + attendantAbsent,
-                                    color: const Color(0xFF3B6D11),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -2559,740 +2986,6 @@ class _StatItemCard extends StatelessWidget {
 }
 
 // ── 4. Stays Tab ──
-class _StaysTab extends StatelessWidget {
-  final PatientModel patient;
-
-  const _StaysTab({required this.patient});
-
-  bool _sameMinute(DateTime a, DateTime b) =>
-      a.year == b.year &&
-      a.month == b.month &&
-      a.day == b.day &&
-      a.hour == b.hour &&
-      a.minute == b.minute;
-
-  List<StayModel> _deduplicateStayCycles(List<StayModel> stays) {
-    final byCycle = <String, StayModel>{};
-    for (final stay in stays) {
-      final start = stay.admissionDate;
-      final key = '${start.year}-${start.month}-${start.day}-${start.hour}-${start.minute}';
-      final existing = byCycle[key];
-      if (existing == null || stay.updatedAt.isAfter(existing.updatedAt)) {
-        byCycle[key] = stay;
-      }
-    }
-    final result = byCycle.values.toList()
-      ..sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
-    return result;
-  }
-
-  double _legacyPaidAmount(StayModel stay, DateTime? cycleExit) {
-    final matchingTotals = (patient.payments ?? const <PaymentModel>[])
-        .where(
-          (payment) => (payment.totalAmount - stay.totalCost).abs() < 0.01,
-        )
-        .toList();
-    if (matchingTotals.isNotEmpty) {
-      final highestRecordedPaid = matchingTotals
-          .map((payment) => payment.paidAmount)
-          .reduce((a, b) => a > b ? a : b);
-      return highestRecordedPaid.clamp(0.0, stay.totalCost).toDouble();
-    }
-    return _patientPaymentTotal(
-      patient,
-      from: stay.admissionDate,
-      through: cycleExit,
-    ).clamp(0.0, stay.totalCost).toDouble();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<StayModel>>(
-      stream: ServiceLocator().roomService.getStaysByPatientStream(patient.id),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
-          );
-        }
-
-        final stays = snapshot.data ?? [];
-        final isPatientActive = patient.status.toLowerCase() == 'active';
-        final activeStays = isPatientActive
-            ? stays.where((s) => s.status == 'active').toList()
-            : <StayModel>[];
-        final pastStays = stays.where((s) {
-          if (s.status == 'active') return false;
-          // While active, completed room/lobby segments created during the
-          // current admission are transfers, not previous discharged cycles.
-          // Compare the segment's exit/completion time with the current cycle
-          // boundary; createdAt can be a few milliseconds before a rejoin is
-          // saved and caused the same stay to be rendered in both sections.
-          if (!isPatientActive) return true;
-          // Completing a stay writes the completion timestamp to updatedAt.
-          // StayModel has no separate completedAt property.
-          final segmentEnd = s.updatedAt;
-          return segmentEnd.isBefore(patient.admissionDate);
-        }).toList();
-        final displayedActiveStays = _deduplicateStayCycles(activeStays);
-        final isDischarged = patient.status.toLowerCase() == 'discharged';
-        final currentRegistration =
-            patient.registrationDate ?? patient.admissionDate;
-        final matchingCurrentCycle = isDischarged
-            ? pastStays
-                .where(
-                  (stay) => _sameMinute(
-                    stay.admissionDate,
-                    currentRegistration,
-                  ) ||
-                  !stay.createdAt.isBefore(
-                    patient.admissionDate.subtract(const Duration(minutes: 1)),
-                  ),
-                )
-                .toList()
-            : <StayModel>[];
-        final currentDischargedStay = !isDischarged
-            ? null
-            : (matchingCurrentCycle.isNotEmpty
-                ? (matchingCurrentCycle
-                      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)))
-                    .first
-                : pastStays.firstOrNull);
-        final currentCycleIds = matchingCurrentCycle.isNotEmpty
-            ? matchingCurrentCycle.map((stay) => stay.id).toSet()
-            : <String>{if (currentDischargedStay != null) currentDischargedStay.id};
-        final historyStays = _deduplicateStayCycles(
-          pastStays
-              .where((stay) => !currentCycleIds.contains(stay.id))
-              .toList(),
-        );
-
-        final hasCurrentPlacement = isPatientActive &&
-            (patient.lobby?.trim().isNotEmpty == true ||
-                patient.roomNumber?.trim().isNotEmpty == true);
-        final hasDischargedLobby =
-            patient.status.toLowerCase() == 'discharged' &&
-            patient.lobby?.trim().isNotEmpty == true;
-
-        if (stays.isEmpty && !hasCurrentPlacement && !hasDischargedLobby) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.meeting_room_outlined,
-                  size: 64,
-                  color: const Color(0xFF639922).withOpacity(0.3),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  "No stays history found",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: const Color(0xFF639922).withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Active stays
-              if (isPatientActive &&
-                  (displayedActiveStays.isNotEmpty || hasCurrentPlacement)) ...[
-                const Text(
-                  "Active Stay Details",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...displayedActiveStays
-                    .map((stay) => _buildActiveStayCard(stay))
-                    .toList(),
-                if (displayedActiveStays.isEmpty && hasCurrentPlacement)
-                  _buildCurrentPlacementCard(),
-                const SizedBox(height: 32),
-              ],
-
-              if (displayedActiveStays.isEmpty &&
-                  isDischarged &&
-                  (pastStays.isNotEmpty ||
-                      patient.lobby?.trim().isNotEmpty == true)) ...[
-                const Text(
-                  "Discharged Stay Details",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildActiveStayCard(
-                  currentDischargedStay != null
-                      ? currentDischargedStay
-                      : _currentPlacementStay(),
-                  isDischarged: true,
-                  useCurrentCycleFinancials: true,
-                ),
-                if (historyStays.isNotEmpty) const SizedBox(height: 32),
-              ],
-
-              // Past stays
-              if (historyStays.isNotEmpty) ...[
-                const Text(
-                  "Stay History",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: historyStays.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final stay = historyStays[index];
-                    return _buildActiveStayCard(stay, isDischarged: true);
-                  },
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildActiveStayCard(
-    StayModel stay, {
-    bool isDischarged = false,
-    bool useCurrentCycleFinancials = false,
-  }) {
-    final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
-    final admissionDate = isDischarged && !useCurrentCycleFinancials
-        ? stay.admissionDate
-        : (patient.registrationDate ?? patient.admissionDate);
-    final admStr = dateFmt.format(admissionDate);
-    final cycleExit = isDischarged && !useCurrentCycleFinancials
-        ? stay.updatedAt
-        : patient.exitDate;
-    final exitStr = cycleExit == null ? 'Not set' : dateFmt.format(cycleExit);
-    final totalCost = !isDischarged || useCurrentCycleFinancials
-        ? patient.advanceBilledAmount + patient.attendanceCharges
-        : stay.totalCost;
-    final paidAmount = !isDischarged || useCurrentCycleFinancials
-        ? _patientPaymentTotal(patient, from: patient.admissionDate)
-        : stay.paidAmount ?? _legacyPaidAmount(stay, cycleExit);
-    final pendingAmount = !isDischarged || useCurrentCycleFinancials
-        ? (totalCost - paidAmount).clamp(0, double.infinity)
-        : stay.pendingAmount ??
-            (totalCost - paidAmount).clamp(0, double.infinity);
-    final attendantLabels = isDischarged
-        ? stay.attendantLabels
-        : (patient.attendants ?? const <AttendantModel>[])
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
-              .toList();
-    final notedRoom = RegExp(
-      r'Room:\s*([^\n]+)',
-      caseSensitive: false,
-    ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
-    final notedBeds = RegExp(
-      r'Beds?:\s*([^\n]+)',
-      caseSensitive: false,
-    ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
-    final resolvedRoom = patient.roomNumber?.trim().isNotEmpty == true
-        ? patient.roomNumber!.trim()
-        : notedRoom?.isNotEmpty == true
-        ? notedRoom!
-        : stay.roomNumber;
-    final sourceBedLabels = patient.bedLabels?.isNotEmpty == true
-        ? patient.bedLabels!
-        : notedBeds?.isNotEmpty == true
-        ? notedBeds!.split(',').map((value) => value.trim()).toList()
-        : stay.bedLabel?.trim().isNotEmpty == true
-        ? [stay.bedLabel!]
-        : const <String>[];
-    final bedLabel = sourceBedLabels.isNotEmpty
-        ? sourceBedLabels
-              .map(
-                (label) => BedHelper.getBedDisplayName(
-                  label,
-                  roomIdentifier: resolvedRoom,
-                ),
-              )
-              .toSet()
-              .join(', ')
-        : 'Bed not recorded';
-    final activePlacement = isDischarged && stay.roomType == 'lobby'
-        ? 'Lobby ${stay.roomNumber}'
-        : isDischarged
-        ? 'Room ${stay.roomNumber} • ${stay.bedLabel?.trim().isNotEmpty == true ? BedHelper.getBedDisplayName(stay.bedLabel!, roomIdentifier: stay.roomNumber) : 'Bed not recorded'}'
-        : patient.lobby?.trim().isNotEmpty == true
-        ? 'Lobby ${patient.lobby!.trim()}'
-        : 'Room $resolvedRoom • $bedLabel';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDischarged
-              ? const Color(0xFFCBD7C1)
-              : const Color(0xFFA8CC7B),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF27500A).withOpacity(0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: isDischarged
-                    ? const [Color(0xFF526348), Color(0xFF718265)]
-                    : const [Color(0xFF315F0C), Color(0xFF57951B)],
-              ),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(19),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.16),
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: Icon(
-                        activePlacement.startsWith('Lobby')
-                            ? Icons.weekend_outlined
-                            : Icons.bed_outlined,
-                        color: Colors.white,
-                        size: 21,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      activePlacement,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.35)),
-                  ),
-                  child: Text(
-                    isDischarged ? "DISCHARGED" : "ACTIVE OCCUPANCY",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Admission date",
-                        value: admStr,
-                        icon: Icons.calendar_today_rounded,
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Exit date",
-                        value: exitStr,
-                        icon: Icons.event_available_rounded,
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Total amount",
-                        value: currencyFmt.format(totalCost),
-                        icon: Icons.payments_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Paid amount",
-                        value: currencyFmt.format(paidAmount),
-                        icon: Icons.account_balance_wallet_outlined,
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildMicroDetail(
-                        label: "Pending amount",
-                        value: currencyFmt.format(
-                          pendingAmount,
-                        ),
-                        icon: Icons.pending_actions_outlined,
-                      ),
-                    ),
-                    const Spacer(),
-                  ],
-                ),
-                if (attendantLabels.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 11,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F9F0),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.people_outline_rounded,
-                          size: 17,
-                          color: Color(0xFF639922),
-                        ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Text(
-                            attendantLabels.join(', '),
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF27500A),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // Extensions Section if present
-                if (stay.extensions.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  const Divider(color: Color(0xFFC0DD97), thickness: 0.5),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Stay Extensions Timeline",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: Color(0xFF27500A),
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ...stay.extensions.map((ext) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF4F9F0),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFC0DD97).withOpacity(0.5),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.history_rounded,
-                            size: 16,
-                            color: Color(0xFF639922),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Extended by ${ext.additionalDays} days on ${dateFmt.format(ext.extendedOn)}",
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                    color: Color(0xFF27500A),
-                                  ),
-                                ),
-                                if (ext.reason.isNotEmpty)
-                                  Text(
-                                    "Reason: ${ext.reason}",
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          Text(
-                            "+${currencyFmt.format(ext.additionalCost)}",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: Color(0xFF3B6D11),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCurrentPlacementCard() {
-    return _buildActiveStayCard(_currentPlacementStay());
-  }
-
-  StayModel _currentPlacementStay() {
-    final lobby = patient.lobby?.trim();
-    return StayModel(
-      id: 'current-${patient.id}',
-      patientId: patient.id,
-      patientName: patient.fullName,
-      roomId: patient.roomId ?? '',
-      roomNumber: lobby?.isNotEmpty == true ? lobby! : (patient.roomNumber ?? ''),
-      roomType: 'general',
-      admissionDate: patient.admissionDate,
-      durationDays: 0,
-      expectedDischargeDate: patient.exitDate ?? patient.admissionDate,
-      expiryDate: patient.exitDate ?? patient.admissionDate,
-      status: 'active',
-      bedId: patient.bedLabels?.firstOrNull,
-      createdAt: patient.admissionDate,
-      updatedAt: DateTime.now(),
-      createdBy: 'system',
-    );
-  }
-
-  Widget _buildCompletedStayCard(
-    StayModel stay, {
-    bool useCurrentPatientData = false,
-  }) {
-    final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-    final dateFmt = DateFormat('dd MMM yyyy, hh:mm a');
-
-    final admissionDate = useCurrentPatientData
-        ? (patient.registrationDate ?? patient.admissionDate)
-        : stay.admissionDate;
-    final admStr = dateFmt.format(admissionDate);
-    final completionDate = useCurrentPatientData
-        ? (patient.exitDate ?? patient.dischargeDate ?? stay.updatedAt)
-        : stay.status == 'completed'
-        ? stay.updatedAt
-        : stay.effectiveExpiryDate;
-    final disStr = dateFmt.format(completionDate);
-    final paidAmount = _patientPaymentTotal(
-      patient,
-      from: admissionDate,
-      through: completionDate,
-    );
-    final historyPlacement = useCurrentPatientData &&
-            patient.lobby?.trim().isNotEmpty == true
-        ? 'Lobby ${patient.lobby!.trim()}'
-        : useCurrentPatientData && patient.roomNumber?.trim().isNotEmpty == true
-        ? 'Room ${patient.roomNumber} (${(patient.bedLabels ?? const <String>[]).map((label) => BedHelper.getBedDisplayName(label, roomIdentifier: patient.roomNumber)).toSet().join(', ')})'
-        : stay.roomType == 'lobby'
-        ? 'Lobby ${stay.roomNumber}'
-        : 'Room ${stay.roomNumber} (${BedHelper.getBedDisplayName(stay.bedId ?? stay.bedNumber?.toString() ?? '', roomIdentifier: stay.roomNumber)})';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.4)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8E8E8),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.meeting_room_outlined,
-              color: Colors.grey,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  historyPlacement,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Color(0xFF27500A),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  "Admitted $admStr • Completed $disStr",
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                "Paid ${currencyFmt.format(paidAmount)}",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: Color(0xFF639922),
-                ),
-              ),
-              if (stay.totalCost > 0) ...[
-                const SizedBox(height: 2),
-                Text(
-                  "Bill ${currencyFmt.format(stay.totalCost)}",
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              ],
-              const SizedBox(height: 2),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8E8E8),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  stay.status.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMicroDetail({
-    required String label,
-    required String value,
-    required IconData icon,
-    Color? valueColor,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(right: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7FAF4),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE1EDD7)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-        Row(
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: const Color(0xFF639922).withOpacity(0.7),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF639922),
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: valueColor ?? const Color(0xFF27500A),
-          ),
-        ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AttendantCard extends StatelessWidget {
   final AttendantModel attendant;
 
@@ -3313,6 +3006,9 @@ class _AttendantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final photoBytes = _decodePhoto(attendant.photoDataUrl);
+    final phone = attendant.mobileNumber?.trim().isNotEmpty == true
+        ? attendant.mobileNumber!.trim()
+        : null;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -3341,12 +3037,17 @@ class _AttendantCard extends StatelessWidget {
                   spacing: 12,
                   runSpacing: 4,
                   children: [
-                    if (attendant.age != null)
-                      _MiniChip(Icons.cake_outlined, '${attendant.age} yrs'),
                     if (attendant.relation != null)
                       _MiniChip(Icons.family_restroom, attendant.relation!),
                     if (attendant.aadhaarNumber != null)
                       _MiniChip(Icons.credit_card, attendant.aadhaarNumber!),
+                    if (phone?.isNotEmpty == true)
+                      _MiniChip(Icons.phone_outlined, phone!),
+                    if (attendant.isEmergencyContact)
+                      const _MiniChip(
+                        Icons.emergency_outlined,
+                        'Emergency contact',
+                      ),
                   ],
                 ),
               ],
@@ -3354,25 +3055,35 @@ class _AttendantCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           // ── Right: photo ──
-          ClipOval(
-            child: Container(
-              width: 56,
-              height: 56,
-              color: const Color(0xFFE3F2FD),
-              child: photoBytes != null
-                  ? Image.memory(photoBytes, fit: BoxFit.cover)
-                  : Center(
-                      child: Text(
-                        attendant.name.isNotEmpty
-                            ? attendant.name[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1565C0),
+          InkWell(
+            borderRadius: BorderRadius.circular(32),
+            onTap: photoBytes == null
+                ? null
+                : () => showPhotoPreview(
+                    context,
+                    photoBytes: photoBytes,
+                    title: attendant.name,
+                  ),
+            child: ClipOval(
+              child: Container(
+                width: 56,
+                height: 56,
+                color: const Color(0xFFE3F2FD),
+                child: photoBytes != null
+                    ? Image.memory(photoBytes, fit: BoxFit.cover)
+                    : Center(
+                        child: Text(
+                          attendant.name.isNotEmpty
+                              ? attendant.name[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1565C0),
+                          ),
                         ),
                       ),
-                    ),
+              ),
             ),
           ),
         ],
@@ -3566,7 +3277,9 @@ class _CalendarViewState extends State<_CalendarView> {
                 .where(
                   (stay) =>
                       stay.status != 'active' &&
-                      stay.updatedAt.isBefore(widget.admissionCycleStart),
+                      (stay.completedAt ?? stay.updatedAt).isBefore(
+                        widget.admissionCycleStart,
+                      ),
                 )
                 .toList();
             final historicalCycleStarts = historicalStays
@@ -3585,13 +3298,15 @@ class _CalendarViewState extends State<_CalendarView> {
                 .where(
                   (stay) =>
                       stay.status != 'active' &&
-                      stay.updatedAt.year == _currentMonth.year &&
-                      stay.updatedAt.month == _currentMonth.month &&
-                      stay.updatedAt.day == day,
+                      (stay.completedAt ?? stay.updatedAt).year ==
+                          _currentMonth.year &&
+                      (stay.completedAt ?? stay.updatedAt).month ==
+                          _currentMonth.month &&
+                      (stay.completedAt ?? stay.updatedAt).day == day,
                 )
                 .toList();
-            final isCycleStart = historicalCycleStarts.isNotEmpty ||
-                isCurrentRegistrationDate;
+            final isCycleStart =
+                historicalCycleStarts.isNotEmpty || isCurrentRegistrationDate;
             final historicalStart = historicalCycleStarts.firstOrNull;
             final markerDate = isCurrentRegistrationDate
                 ? widget.registrationDate
@@ -3599,8 +3314,10 @@ class _CalendarViewState extends State<_CalendarView> {
             final isRejoinDate = isCurrentRegistrationDate
                 ? historicalStays.isNotEmpty
                 : historicalStart != null &&
-                    sortedStays.indexOf(historicalStart) > 0;
-            final historicalExit = completedCycles.firstOrNull?.updatedAt;
+                      sortedStays.indexOf(historicalStart) > 0;
+            final historicalExit =
+                completedCycles.firstOrNull?.completedAt ??
+                completedCycles.firstOrNull?.updatedAt;
             final exit = widget.exitDate;
             final isExitDate =
                 exit != null &&
@@ -3785,11 +3502,19 @@ class _CalendarViewState extends State<_CalendarView> {
               label: "Absent",
             ),
             const _LegendItem(
-              child: Icon(Icons.login_rounded, size: 16, color: Color(0xFF3B6D11)),
+              child: Icon(
+                Icons.login_rounded,
+                size: 16,
+                color: Color(0xFF3B6D11),
+              ),
               label: "Joined / Rejoined",
             ),
             const _LegendItem(
-              child: Icon(Icons.exit_to_app, size: 16, color: Color(0xFFD32F2F)),
+              child: Icon(
+                Icons.exit_to_app,
+                size: 16,
+                color: Color(0xFFD32F2F),
+              ),
               label: "Exited",
             ),
           ],

@@ -180,6 +180,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
         'totalPaidAmount': result.payment!.paidAmount,
         'currentDueAmount': result.payment!.pendingAmount,
       });
+      await ServiceLocator().paymentService
+          .recalculatePatientAttendanceAndBilling(patient.id);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -192,17 +194,23 @@ class _PatientsScreenState extends State<PatientsScreen> {
     }
   }
 
-  Future<_RejoinPlacement?> _chooseRejoinPlacement(
-    PatientModel patient,
-  ) async {
+  Future<_RejoinPlacement?> _chooseRejoinPlacement(PatientModel patient) async {
     final roomService = ServiceLocator().roomService;
     final results = await Future.wait<dynamic>([
       roomService.getRoomsStream().first,
       roomService.getStaysByPatientStream(patient.id).first,
+      roomService.getStaysStream().first,
     ]);
     final rooms = results[0] as List<RoomModel>;
     final stays = List<StayModel>.from(results[1] as List<StayModel>)
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final occupiedLobbies = {
+      for (final stay in results[2] as List<StayModel>)
+        if (stay.roomType == 'lobby' &&
+            stay.status == 'active' &&
+            stay.patientId != patient.id)
+          stay.roomNumber,
+    };
     final previousStay = stays.where((stay) => stay.bedId != null).firstOrNull;
     final previousLobby = patient.lobby?.trim().isNotEmpty == true
         ? patient.lobby!.trim()
@@ -211,9 +219,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
             caseSensitive: false,
           ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
 
-    final placements = <_RejoinPlacement>[
-      const _RejoinPlacement.unassigned(),
-    ];
+    final placements = <_RejoinPlacement>[const _RejoinPlacement.unassigned()];
     for (final room in rooms) {
       if (room.status == 'maintenance' || room.status == 'unavailable') {
         continue;
@@ -224,7 +230,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   .where((candidate) => candidate.id == previousStay?.bedId)
                   .firstOrNull
             : null;
-        final isPrevious = previousBed != null &&
+        final isPrevious =
+            previousBed != null &&
             BedHelper.getBedDisplayName(
                   previousBed.bedLabel,
                   roomIdentifier: room.roomIdentifier,
@@ -234,11 +241,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   roomIdentifier: room.roomIdentifier,
                 );
         placements.add(
-          _RejoinPlacement.bed(
-            room: room,
-            bed: bed,
-            isPreviousBed: isPrevious,
-          ),
+          _RejoinPlacement.bed(room: room, bed: bed, isPreviousBed: isPrevious),
         );
       }
     }
@@ -265,6 +268,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
         (name) => _RejoinPlacement.lobby(
           name,
           isPreviousLobby: previousLobby == name,
+          isOccupied: occupiedLobbies.contains(name),
         ),
       ),
     );
@@ -280,7 +284,9 @@ class _PatientsScreenState extends State<PatientsScreen> {
       return null;
     }
     var selected = placements.firstWhere(
-      (placement) => placement.isPreviousBed || placement.isPreviousLobby,
+      (placement) =>
+          !placement.isOccupied &&
+          (placement.isPreviousBed || placement.isPreviousLobby),
       orElse: () => placements.first,
     );
     return showDialog<_RejoinPlacement>(
@@ -334,8 +340,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
                             (placement) => _RejoinPlacementTile(
                               placement: placement,
                               selected: identical(selected, placement),
-                              onTap: () =>
-                                  setDialogState(() => selected = placement),
+                              onTap: placement.isOccupied
+                                  ? null
+                                  : () => setDialogState(
+                                      () => selected = placement,
+                                    ),
                             ),
                           ),
                       const SizedBox(height: 10),
@@ -349,8 +358,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
                             (placement) => _RejoinPlacementTile(
                               placement: placement,
                               selected: identical(selected, placement),
-                              onTap: () =>
-                                  setDialogState(() => selected = placement),
+                              onTap: placement.isOccupied
+                                  ? null
+                                  : () => setDialogState(
+                                      () => selected = placement,
+                                    ),
                             ),
                           ),
                       const SizedBox(height: 10),
@@ -405,9 +417,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
       final priorEnd = patient.exitDate ?? patient.dischargeDate;
       if (patient.lobby?.trim().isNotEmpty == true &&
           priorEnd != null &&
-          !priorStays.any((stay) =>
-              stay.admissionDate.millisecondsSinceEpoch ==
-              priorStart.millisecondsSinceEpoch)) {
+          !priorStays.any(
+            (stay) =>
+                stay.admissionDate.millisecondsSinceEpoch ==
+                priorStart.millisecondsSinceEpoch,
+          )) {
         await roomService.createLobbyStay(
           patientId: patient.id,
           patientName: patient.fullName,
@@ -416,24 +430,43 @@ class _PatientsScreenState extends State<PatientsScreen> {
           durationDays: priorEnd.difference(priorStart).inDays.clamp(1, 3650),
           attendantCount: patient.attendants?.length ?? 0,
           attendantLabels: (patient.attendants ?? const <AttendantModel>[])
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
+              .map(
+                (a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name,
+              )
               .toList(),
           createdBy: 'system',
           status: 'completed',
           completedAt: priorEnd,
         );
       }
+      // Capture the last admission before editable patient fields change.
+      for (final stay in priorStays.where(
+        (stay) =>
+            stay.patientSnapshot.isEmpty &&
+            !(stay.completedAt ?? stay.updatedAt).isBefore(
+              patient.admissionDate,
+            ),
+      )) {
+        await ServiceLocator().rtdbService.patch('stays/${stay.id}', {
+          'patientSnapshot': {
+            'registrationNumber': patient.registrationNumber,
+            'photoDataUrl': patient.photoDataUrl,
+            'attendants': patient.attendants?.map((a) => a.toMap()).toList(),
+            'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
+          },
+        });
+      }
       final pricing = await ServiceLocator().roomService.getPricing();
       final estimatedTotal = placement.isUnassigned
           ? 0.0
           : PricingHelper.calculateDailyCharge(
-            placement.room?.isPrivate ?? false,
-            patient.attendants?.length ?? 0,
-            pricing: pricing,
-          ) *
-          PricingHelper.advanceDays;
+                  placement.room?.isPrivate ?? false,
+                  patient.attendants?.length ?? 0,
+                  pricing: pricing,
+                ) *
+                PricingHelper.advanceDays;
       final baseUpdates = <String, dynamic>{
         'status': 'active',
         'dischargeDate': null,
@@ -484,9 +517,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
             durationDays: PricingHelper.advanceDays,
             attendantCount: patient.attendants?.length ?? 0,
             attendantLabels: (patient.attendants ?? const <AttendantModel>[])
-                .map((a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name)
+                .map(
+                  (a) => a.relation?.trim().isNotEmpty == true
+                      ? '${a.name} (${a.relation})'
+                      : a.name,
+                )
                 .toList(),
             bedId: placement.bed!.id,
             bedLabel: placement.bed!.bedLabel,
@@ -535,9 +570,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
           durationDays: PricingHelper.advanceDays,
           attendantCount: patient.attendants?.length ?? 0,
           attendantLabels: (patient.attendants ?? const <AttendantModel>[])
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
+              .map(
+                (a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name,
+              )
               .toList(),
           createdBy:
               ServiceLocator().authRestService.currentUser?.uid ?? 'system',
@@ -745,7 +782,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
         final patient = selectedPatients[i];
         final attendants = patient.attendants ?? [];
         final totalAmount =
-            (patient.totalPaidAmount ?? 0) + (patient.currentDueAmount ?? 0);
+            patient.advanceBilledAmount + patient.attendanceCharges;
 
         patientSheet.appendRow([
           TextCellValue('${i + 1}'),
@@ -1788,6 +1825,7 @@ class _RejoinPlacement {
   final String? lobbyName;
   final bool isPreviousBed;
   final bool isPreviousLobby;
+  final bool isOccupied;
 
   const _RejoinPlacement._({
     this.room,
@@ -1795,6 +1833,7 @@ class _RejoinPlacement {
     this.lobbyName,
     this.isPreviousBed = false,
     this.isPreviousLobby = false,
+    this.isOccupied = false,
   });
 
   const _RejoinPlacement.unassigned() : this._();
@@ -1808,14 +1847,15 @@ class _RejoinPlacement {
   const _RejoinPlacement.lobby(
     String lobbyName, {
     required bool isPreviousLobby,
+    bool isOccupied = false,
   }) : this._(
          lobbyName: lobbyName,
          isPreviousLobby: isPreviousLobby,
+         isOccupied: isOccupied,
        );
 
-  int? get lobbyFloor => lobbyName?.isNotEmpty == true
-      ? int.tryParse(lobbyName![0])
-      : null;
+  int? get lobbyFloor =>
+      lobbyName?.isNotEmpty == true ? int.tryParse(lobbyName![0]) : null;
 
   bool get isUnassigned => room == null && bed == null && lobbyName == null;
 
@@ -1828,7 +1868,7 @@ class _RejoinPlacement {
       return '${isPreviousBed ? "Previous bed — " : ""}${room!.roomIdentifier} · $bedName · Floor ${room!.floor}';
     }
     if (lobbyName != null) {
-      return '${isPreviousLobby ? "Previous lobby — " : "Lobby — "}$lobbyName';
+      return '${isPreviousLobby ? "Previous lobby — " : "Lobby — "}$lobbyName${isOccupied ? " — Occupied" : ""}';
     }
     return 'Rejoin without room or lobby';
   }
@@ -1866,7 +1906,7 @@ class _RejoinSectionTitle extends StatelessWidget {
 class _RejoinPlacementTile extends StatelessWidget {
   final _RejoinPlacement placement;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _RejoinPlacementTile({
     required this.placement,
@@ -1884,7 +1924,11 @@ class _RejoinPlacementTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 7),
       child: Material(
-        color: selected ? const Color(0xFFE6F2DA) : Colors.white,
+        color: placement.isOccupied
+            ? const Color(0xFFF1F1F1)
+            : selected
+            ? const Color(0xFFE6F2DA)
+            : Colors.white,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: onTap,
@@ -1902,7 +1946,13 @@ class _RejoinPlacementTile extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(icon, size: 19, color: const Color(0xFF3B6D11)),
+                Icon(
+                  icon,
+                  size: 19,
+                  color: placement.isOccupied
+                      ? Colors.grey
+                      : const Color(0xFF3B6D11),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -1924,10 +1974,14 @@ class _RejoinPlacementTile extends StatelessWidget {
                   ),
                 ),
                 Icon(
-                  selected
+                  placement.isOccupied
+                      ? Icons.lock_outline_rounded
+                      : selected
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
-                  color: selected
+                  color: placement.isOccupied
+                      ? Colors.grey
+                      : selected
                       ? const Color(0xFF3B6D11)
                       : const Color(0xFF97C459),
                 ),

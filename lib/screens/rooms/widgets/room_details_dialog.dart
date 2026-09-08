@@ -4,7 +4,6 @@ import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
-import 'package:ngo/screens/rooms/widgets/create_stay_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/extend_stay_dialog.dart';
 import 'package:ngo/utils/bed_helper.dart';
 
@@ -200,31 +199,6 @@ class RoomDetailsDialog extends StatelessWidget {
                             color: Color(0xFF27500A),
                           ),
                         ),
-                        if (room.isDerivedAvailable || room.isPartiallyOccupied)
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              showDialog(
-                                context: context,
-                                builder: (context) =>
-                                    CreateStayDialog(room: room),
-                              );
-                            },
-                            icon: const Icon(Icons.add_rounded, size: 16),
-                            label: const Text("Create Stay"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF3B6D11),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -296,11 +270,12 @@ class RoomDetailsDialog extends StatelessWidget {
                                   roomType: room.roomType,
                                   // Bed-based room stays must not inherit a
                                   // patient's old lobby assignment.
-                                  lobby: stay.bedId != null ||
+                                  lobby:
+                                      stay.bedId != null ||
                                           stay.bedNumber != null
                                       ? null
                                       : _lobbyFromNotes(stay.notes) ??
-                                          lobbyByPatientId[stay.patientId],
+                                            lobbyByPatientId[stay.patientId],
                                 );
                               },
                             );
@@ -605,9 +580,9 @@ class _StayCard extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Complete Stay"),
+        title: const Text("Discharge Patient"),
         content: Text(
-          "Are you sure you want to complete the stay for ${stay.patientName}?",
+          "This will discharge ${stay.patientName} and release the assigned place. Attendance and payment must be complete. Continue?",
         ),
         actions: [
           TextButton(
@@ -620,7 +595,7 @@ class _StayCard extends StatelessWidget {
               backgroundColor: const Color(0xFF3B6D11),
               foregroundColor: Colors.white,
             ),
-            child: const Text("Complete"),
+            child: const Text("Discharge"),
           ),
         ],
       ),
@@ -628,11 +603,11 @@ class _StayCard extends StatelessWidget {
 
     if (confirmed == true && context.mounted) {
       try {
-        await ServiceLocator().roomService.completeStay(stay.id);
+        await ServiceLocator().patientService.dischargePatient(stay.patientId);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Stay completed successfully"),
+              content: Text("Patient discharged successfully"),
               backgroundColor: Color(0xFF3B6D11),
             ),
           );
@@ -641,7 +616,7 @@ class _StayCard extends StatelessWidget {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("Failed to complete stay: $e"),
+              content: Text("Could not discharge patient: $e"),
               backgroundColor: Colors.red,
             ),
           );
@@ -748,7 +723,7 @@ class _StayCard extends StatelessWidget {
                 ),
                 child: Text(
                   isExpired
-                      ? "EXPIRED"
+                      ? "STAY OVERDUE"
                       : isExpiringSoon
                       ? "$daysLeft days left"
                       : "$daysLeft days left",
@@ -798,7 +773,7 @@ class _StayCard extends StatelessWidget {
               ElevatedButton.icon(
                 onPressed: () => _completeStay(context),
                 icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                label: const Text("Complete"),
+                label: const Text("Discharge"),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF3B6D11),
                   foregroundColor: Colors.white,

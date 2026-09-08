@@ -68,7 +68,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
         extraAttendantFee: extraFee,
       );
     } else {
-      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 150).toDouble();
+      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 200).toDouble();
       calculatedCost = RoomModel.calculateGeneralRoomCost(
         days: durationDays,
         bedPrice: bedPrice,
