@@ -9,7 +9,11 @@ class PaymentService {
   final String _path = 'payments';
   PaymentService(this._rtdb);
   Future<List<StayModel>> loadStays(String patientId) async {
-    final data = await _rtdb.get('stays');
+    final data = await _rtdb.getByChildValue(
+      'stays',
+      child: 'patientId',
+      value: patientId,
+    );
     return [
       if (data is Map)
         for (final entry in data.entries)

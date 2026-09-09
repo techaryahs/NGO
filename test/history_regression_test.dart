@@ -13,6 +13,26 @@ class MemoryDatabase extends FirebaseRTDBRestService {
   @override
   Future<dynamic> get(String path) async => records[path];
   @override
+  Future<dynamic> getByChildValue(
+    String path, {
+    required String child,
+    required Object value,
+  }) async {
+    final data = records[path];
+    if (data is! Map) return null;
+    return {
+      for (final entry in data.entries)
+        if (entry.value is Map && entry.value[child] == value)
+          entry.key.toString(): entry.value,
+    };
+  }
+  @override
+  Future<dynamic> getByKeyRange(
+    String path, {
+    required String startKey,
+    required String endKey,
+  }) async => records[path];
+  @override
   Future<void> patch(String path, Map<String, dynamic> updates) async {
     expect(path, '');
     written = updates;

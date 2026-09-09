@@ -69,7 +69,13 @@
     },
     "payments": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": "auth != null",
+      ".indexOn": ["patientId"]
+    },
+    "paymentHistory": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["patientId"]
     },
     "sponsorships": {
       ".read": "auth != null",

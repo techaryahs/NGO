@@ -449,8 +449,8 @@ class _StayHistoryCardView extends StatelessWidget {
         Icons.calendar_today_rounded,
       ),
       _detail(
-        'Exit date',
-        exit == null ? 'Not set' : date.format(exit),
+        active ? 'Planned exit date' : 'Actual discharge date',
+        exit == null ? 'Not decided' : date.format(exit),
         Icons.event_available_rounded,
       ),
       _detail('Total amount', money.format(total), Icons.payments_outlined),

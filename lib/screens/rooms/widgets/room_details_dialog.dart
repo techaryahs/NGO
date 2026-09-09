@@ -6,6 +6,7 @@ import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/rooms/widgets/extend_stay_dialog.dart';
 import 'package:ngo/utils/bed_helper.dart';
+import 'dart:async';
 
 class RoomDetailsDialog extends StatelessWidget {
   final RoomModel room;
@@ -14,6 +15,66 @@ class RoomDetailsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return StreamBuilder<List<RoomModel>>(
+      stream: ServiceLocator().roomService.getRoomsStream(),
+      builder: (context, snapshot) {
+        var currentRoom = room;
+        for (final candidate in snapshot.data ?? const <RoomModel>[]) {
+          if (candidate.id == room.id) {
+            currentRoom = candidate;
+            break;
+          }
+        }
+        return StreamBuilder<List<PatientModel>>(
+          stream: ServiceLocator().patientService.getPatientsStream(),
+          builder: (context, patientSnapshot) {
+            if (!patientSnapshot.hasData) {
+              return _buildDialog(context, currentRoom);
+            }
+            final patientIds = patientSnapshot.data!
+                .map((patient) => patient.id)
+                .toSet();
+            final hasOrphanedBed = currentRoom.beds.any(
+              (bed) =>
+                  bed.currentPatientId != null &&
+                  !patientIds.contains(bed.currentPatientId),
+            );
+            if (hasOrphanedBed) {
+              unawaited(
+                ServiceLocator().patientService
+                    .repairOrphanedPatientRecordsNow()
+                    .catchError((_) => 0),
+              );
+              final visibleBeds = currentRoom.beds.map((bed) {
+                return bed.currentPatientId != null &&
+                        !patientIds.contains(bed.currentPatientId)
+                    ? bed.copyWith(
+                        status: 'available',
+                        clearPatientId: true,
+                        clearStayId: true,
+                      )
+                    : bed;
+              }).toList();
+              currentRoom = currentRoom.copyWith(
+                beds: visibleBeds,
+                occupiedBeds: visibleBeds
+                    .where((bed) => bed.isOccupied)
+                    .length,
+                status: visibleBeds.every((bed) => bed.isAvailable)
+                    ? 'available'
+                    : visibleBeds.every((bed) => bed.isOccupied)
+                    ? 'occupied'
+                    : 'partially_occupied',
+              );
+            }
+            return _buildDialog(context, currentRoom);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDialog(BuildContext context, RoomModel room) {
     final roomService = ServiceLocator().roomService;
     final isLobbyRoom = BedHelper.isLobbyRoom(room.roomIdentifier);
 
@@ -253,6 +314,49 @@ class RoomDetailsDialog extends StatelessWidget {
                           stream: ServiceLocator().patientService
                               .getPatientsStream(),
                           builder: (context, patientSnapshot) {
+                            if (!patientSnapshot.hasData) {
+                              return const Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                            final patientById = {
+                              for (final patient in patientSnapshot.data ?? [])
+                                patient.id: patient,
+                            };
+                            final orphanedStayExists = stays.any(
+                              (stay) => !patientById.containsKey(stay.patientId),
+                            );
+                            if (orphanedStayExists) {
+                              unawaited(
+                                ServiceLocator().patientService
+                                    .repairOrphanedPatientRecordsNow()
+                                    .then((repaired) {
+                                      if (repaired > 0 && context.mounted) {
+                                        final messenger =
+                                            ScaffoldMessenger.of(context);
+                                        Navigator.of(context).pop();
+                                        messenger.showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Deleted patient records removed and bed released.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return repaired;
+                                    })
+                                    .catchError((_) => 0),
+                              );
+                            }
+                            final visibleStays = stays
+                                .where(
+                                  (stay) =>
+                                      patientById.containsKey(stay.patientId),
+                                )
+                                .toList();
                             final lobbyByPatientId = {
                               for (final patient in patientSnapshot.data ?? [])
                                 patient.id:
@@ -262,12 +366,15 @@ class RoomDetailsDialog extends StatelessWidget {
                             return ListView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: stays.length,
+                              itemCount: visibleStays.length,
                               itemBuilder: (context, index) {
-                                final stay = stays[index];
+                                final stay = visibleStays[index];
                                 return _StayCard(
                                   stay: stay,
                                   roomType: room.roomType,
+                                  hasPlannedExit:
+                                      patientById[stay.patientId]?.exitDate !=
+                                      null,
                                   // Bed-based room stays must not inherit a
                                   // patient's old lobby assignment.
                                   lobby:
@@ -566,8 +673,14 @@ class _StayCard extends StatelessWidget {
   final StayModel stay;
   final String roomType;
   final String? lobby;
+  final bool hasPlannedExit;
 
-  const _StayCard({required this.stay, required this.roomType, this.lobby});
+  const _StayCard({
+    required this.stay,
+    required this.roomType,
+    required this.hasPlannedExit,
+    this.lobby,
+  });
 
   void _showExtendDialog(BuildContext context) {
     showDialog(
@@ -628,8 +741,8 @@ class _StayCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final daysLeft = stay.daysRemaining;
-    final isExpiringSoon = daysLeft <= 3 && daysLeft > 0;
-    final isExpired = daysLeft < 0;
+    final isExpiringSoon = hasPlannedExit && daysLeft <= 3 && daysLeft >= 0;
+    final isExpired = hasPlannedExit && daysLeft < 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -722,7 +835,9 @@ class _StayCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  isExpired
+                  !hasPlannedExit
+                      ? "ONGOING"
+                      : isExpired
                       ? "STAY OVERDUE"
                       : isExpiringSoon
                       ? "$daysLeft days left"

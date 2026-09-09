@@ -127,6 +127,39 @@ class FirebaseRTDBRestService {
     }
   }
 
+  /// Fetch children whose indexed child property equals [value].
+  Future<dynamic> getByChildValue(
+    String path, {
+    required String child,
+    required Object value,
+  }) async {
+    try {
+      final token = await _getIdToken();
+      final baseUrl = Uri.parse(_buildUrl(path));
+      final query = <String, String>{
+        'orderBy': json.encode(child),
+        'equalTo': json.encode(value),
+        if (token != null) 'auth': token,
+      };
+      final response = await http
+          .get(baseUrl.replace(queryParameters: query))
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw Exception(
+              'Request timeout - check your internet connection',
+            ),
+          );
+      if (response.statusCode == 200) {
+        return response.body == 'null' ? null : json.decode(response.body);
+      }
+      throw Exception(
+        'GET filtered data failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      throw Exception('Failed to GET filtered $path: $e');
+    }
+  }
+
   // ===========================================================================
   // PUT — Write/Replace data
   // ===========================================================================

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:excel/excel.dart' hide Border;
+import 'package:excel/excel.dart' hide Border, TextSpan;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/patient_model.dart';
@@ -1532,7 +1532,10 @@ class _OverviewTab extends StatelessWidget {
 
   Widget _buildAdmissionDetails() {
     final registrationDate = patient.registrationDate ?? patient.admissionDate;
-    final actualExitDate = patient.exitDate ?? patient.dischargeDate;
+    final discharged = patient.status.toLowerCase() == 'discharged';
+    final displayedExitDate = discharged
+        ? patient.dischargeDate ?? patient.exitDate
+        : patient.exitDate;
     final dateTimeFormat = DateFormat('d/M/y, hh:mm a');
     final registrationStr = dateTimeFormat.format(registrationDate);
     return _Section(
@@ -1544,12 +1547,10 @@ class _OverviewTab extends StatelessWidget {
           icon: Icons.event_outlined,
         ),
         _InfoField(
-          label: patient.exitDate == null && patient.dischargeDate != null
-              ? "Discharge Date"
-              : "Exit Date",
-          value: actualExitDate == null
-              ? 'Not set'
-              : dateTimeFormat.format(actualExitDate),
+          label: discharged ? "Actual Discharge Date" : "Planned Exit Date",
+          value: displayedExitDate == null
+              ? 'Not decided'
+              : dateTimeFormat.format(displayedExitDate),
           icon: Icons.event_available_outlined,
         ),
       ),
@@ -2799,109 +2800,151 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          "Overall Summary",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF27500A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Patient summary
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFFC0DD97).withOpacity(0.5),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Patient",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                  color: Color(0xFF27500A),
-                                ),
+                        Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF3B6D11),
+                                borderRadius: BorderRadius.circular(11),
                               ),
-                              const SizedBox(height: 10),
-                              Row(
+                              child: const Icon(
+                                Icons.insights_rounded,
+                                color: Colors.white,
+                                size: 17,
+                              ),
+                            ),
+                            const SizedBox(width: 11),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _CountChip(
-                                    label: "Present",
-                                    count: patientPresent,
-                                    color: Colors.green,
+                                  Text(
+                                    'Overall Summary',
+                                    style: TextStyle(
+                                    fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF27500A),
+                                    ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  _CountChip(
-                                    label: "Absent",
-                                    count: patientAbsent,
-                                    color: const Color(0xFFD32F2F),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  _CountChip(
-                                    label: "Total",
-                                    count: patientPresent + patientAbsent,
-                                    color: const Color(0xFF3B6D11),
+                                  Text(
+                                    'Attendance recorded for this admission',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF6B7D5D),
+                                    ),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F3DE),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '${1 + counts.length} people',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF3B6D11),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-
-                        // Attendant summary
-                        for (final entry in counts.entries)
+                        const SizedBox(height: 10),
+                        _AttendanceSummaryCard(
+                          role: 'PATIENT',
+                          name: widget.patient.fullName,
+                          icon: Icons.personal_injury_outlined,
+                          present: patientPresent,
+                          absent: patientAbsent,
+                        ),
+                        const SizedBox(height: 8),
+                        if (counts.isNotEmpty)
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: const Color(0xFFC0DD97).withOpacity(0.5),
+                                color: const Color(0xFFD5E7C6),
                               ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x0D234D0D),
+                                  blurRadius: 18,
+                                  offset: Offset(0, 6),
+                                ),
+                              ],
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  entry.key,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: Color(0xFF27500A),
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 2, bottom: 3),
+                                  child: Text(
+                                    'ATTENDANTS',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      letterSpacing: .9,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF639922),
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    _CountChip(
-                                      label: "Present",
-                                      count: entry.value[0],
-                                      color: Colors.green,
+                                for (
+                                  var index = 0;
+                                  index < counts.entries.length;
+                                  index++
+                                ) ...[
+                                  _AttendanceSummaryCard(
+                                    role: 'ATTENDANT ${index + 1}',
+                                    name: counts.entries.elementAt(index).key,
+                                    icon: Icons.support_agent_rounded,
+                                    present:
+                                        counts.entries.elementAt(index).value[0],
+                                    absent:
+                                        counts.entries.elementAt(index).value[1],
+                                    embedded: true,
+                                  ),
+                                  if (index < counts.entries.length - 1)
+                                    const Divider(
+                                      height: 1,
+                                      color: Color(0xFFE3EDD9),
                                     ),
-                                    const SizedBox(width: 10),
-                                    _CountChip(
-                                      label: "Absent",
-                                      count: entry.value[1],
-                                      color: const Color(0xFFD32F2F),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    _CountChip(
-                                      label: "Total",
-                                      count: entry.value[0] + entry.value[1],
-                                      color: const Color(0xFF3B6D11),
-                                    ),
-                                  ],
+                                ],
+                              ],
+                            ),
+                          ),
+                        if (counts.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7FAF4),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFD9E8CC),
+                              ),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.person_off_outlined,
+                                  color: Color(0xFF6B7D5D),
+                                ),
+                                SizedBox(width: 10),
+                                Text(
+                                  'No attendant added for this admission',
+                                  style: TextStyle(color: Color(0xFF6B7D5D)),
                                 ),
                               ],
                             ),
@@ -2917,6 +2960,161 @@ class _AttendanceTabState extends State<_AttendanceTab> {
       },
     );
   }
+}
+
+class _AttendanceSummaryCard extends StatelessWidget {
+  final String role;
+  final String name;
+  final IconData icon;
+  final int present;
+  final int absent;
+  final bool embedded;
+
+  const _AttendanceSummaryCard({
+    required this.role,
+    required this.name,
+    required this.icon,
+    required this.present,
+    required this.absent,
+    this.embedded = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = present + absent;
+    final percentage = total == 0 ? 0 : ((present / total) * 100).round();
+    return Container(
+      width: double.infinity,
+      padding: embedded
+          ? const EdgeInsets.symmetric(horizontal: 0, vertical: 8)
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: embedded ? Colors.transparent : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: embedded
+            ? null
+            : Border.all(color: const Color(0xFFD5E7C6)),
+        boxShadow: embedded
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x0D234D0D),
+                  blurRadius: 18,
+                  offset: Offset(0, 6),
+                ),
+              ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF4E1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: const Color(0xFF3B6D11), size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  role,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    letterSpacing: .8,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF639922),
+                  ),
+                ),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF214B0B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _CompactAttendanceStat(
+            label: 'P',
+            count: present,
+            color: const Color(0xFF36A44A),
+          ),
+          const SizedBox(width: 6),
+          _CompactAttendanceStat(
+            label: 'A',
+            count: absent,
+            color: const Color(0xFFD83B3B),
+          ),
+          const SizedBox(width: 6),
+          _CompactAttendanceStat(
+            label: 'Total',
+            count: total,
+            color: const Color(0xFF3B6D11),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 34,
+            child: Text(
+              '$percentage%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Color(0xFF527B2C),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactAttendanceStat extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+
+  const _CompactAttendanceStat({
+    required this.label,
+    required this.count,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withOpacity(.09),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: color.withOpacity(.22)),
+    ),
+    child: Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '$count ',
+            style: TextStyle(fontWeight: FontWeight.w800, color: color),
+          ),
+          TextSpan(
+            text: label,
+            style: TextStyle(fontSize: 9, color: color),
+          ),
+        ],
+      ),
+      maxLines: 1,
+    ),
+  );
 }
 
 // ── Micro Stat Item Card ──

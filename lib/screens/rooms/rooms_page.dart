@@ -7,6 +7,7 @@ import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/models/room_model.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/models/stay_model.dart';
+import 'dart:async';
 
 class RoomsPage extends StatefulWidget {
   const RoomsPage({super.key});
@@ -23,6 +24,16 @@ class _RoomsPageState extends State<RoomsPage> {
       'all'; // 'all', 'available', 'occupied', 'partially_occupied', 'maintenance'
   String searchQuery = '';
   final TextEditingController searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
+        (_) => 0,
+      ),
+    );
+  }
 
   void _showAddRoomDialog() {
     showDialog(
@@ -1089,8 +1100,11 @@ class _LobbyPatientStay extends StatelessWidget {
             ),
           ]
         : const <AttendantModel>[];
-    final isExpired = currentStay != null && currentStay.daysRemaining < 0;
+    final hasPlannedExit = patient.exitDate != null;
+    final isExpired =
+        hasPlannedExit && currentStay != null && currentStay.daysRemaining < 0;
     final isExpiringSoon =
+        hasPlannedExit &&
         currentStay != null &&
         currentStay.daysRemaining >= 0 &&
         currentStay.daysRemaining <= 3;
@@ -1151,11 +1165,15 @@ class _LobbyPatientStay extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isExpired
+                    !hasPlannedExit
+                        ? 'ONGOING'
+                        : isExpired
                         ? 'STAY OVERDUE'
                         : '${currentStay.daysRemaining} days left',
                     style: TextStyle(
-                      color: isExpired
+                      color: !hasPlannedExit
+                          ? const Color(0xFF3B6D11)
+                          : isExpired
                           ? const Color(0xFFD32F2F)
                           : isExpiringSoon
                           ? const Color(0xFFE65100)

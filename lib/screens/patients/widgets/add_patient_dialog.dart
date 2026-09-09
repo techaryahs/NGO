@@ -875,6 +875,50 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                 onTap: () => _selectExitTime(context),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            CheckboxListTile(
+                              value: _selectedExitDate == null,
+                              onChanged: (noExitDate) {
+                                setState(() {
+                                  if (noExitDate == true) {
+                                    _selectedExitDate = null;
+                                    _exitDateController.clear();
+                                    _exitTimeController.clear();
+                                  } else {
+                                    final registration =
+                                        _selectedRegistrationDate ??
+                                        DateTime.now();
+                                    _selectedExitDate = registration.add(
+                                      const Duration(
+                                        days: PricingHelper.advanceDays,
+                                      ),
+                                    );
+                                    final exit = _selectedExitDate!;
+                                    _exitDateController.text =
+                                        '${exit.day.toString().padLeft(2, '0')} / ${exit.month.toString().padLeft(2, '0')} / ${exit.year}';
+                                    _exitTimeController.text = _formatTime(
+                                      _selectedExitDate,
+                                    );
+                                  }
+                                });
+                              },
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              activeColor: const Color(0xFF3B6D11),
+                              title: const Text(
+                                'Planned exit date not decided',
+                                style: TextStyle(
+                                  color: Color(0xFF27500A),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'The stay starts with a 7-day estimate and continues until an exit date is entered.',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                            ),
                             const SizedBox(height: 12),
                             _Row2(
                               _NatureField(

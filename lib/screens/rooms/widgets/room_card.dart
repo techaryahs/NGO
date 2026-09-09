@@ -4,11 +4,15 @@ import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/screens/rooms/widgets/room_details_dialog.dart';
 import 'package:ngo/screens/rooms/widgets/edit_room_dialog.dart';
 import 'package:ngo/utils/bed_helper.dart';
+import 'package:ngo/services/service_locator.dart';
 
 class RoomCard extends StatelessWidget {
   final RoomModel room;
+  final bool _usesLivePatients;
 
-  const RoomCard({super.key, required this.room});
+  const RoomCard({super.key, required this.room}) : _usesLivePatients = true;
+
+  const RoomCard._live({required this.room}) : _usesLivePatients = false;
 
   void _showRoomDetails(BuildContext context) {
     showDialog(
@@ -26,6 +30,57 @@ class RoomCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_usesLivePatients) {
+      return StreamBuilder(
+        stream: ServiceLocator().patientService.getPatientsStream(),
+        builder: (context, snapshot) {
+          // Keep the database snapshot while the patient list is loading. This
+          // prevents valid occupied beds from briefly flashing as available.
+          if (!snapshot.hasData) return RoomCard._live(room: room);
+
+          final patients = snapshot.data!;
+          final activePatientIds = patients
+              .where((patient) => patient.status.toLowerCase() == 'active')
+              .map((patient) => patient.id)
+              .toSet();
+
+          var removedStaleAssignment = false;
+          final liveBeds = room.beds.map((bed) {
+            final assignedPatientId = bed.currentPatientId?.trim();
+            final isOrphaned = bed.isOccupied &&
+                assignedPatientId != null &&
+                assignedPatientId.isNotEmpty &&
+                !activePatientIds.contains(assignedPatientId);
+            if (!isOrphaned) return bed;
+
+            removedStaleAssignment = true;
+            return bed.copyWith(
+              status: 'available',
+              clearPatientId: true,
+              clearStayId: true,
+            );
+          }).toList();
+
+          if (!removedStaleAssignment) return RoomCard._live(room: room);
+
+          final occupied = liveBeds.where((bed) => bed.isOccupied).length;
+          final liveRoom = room.copyWith(
+            beds: liveBeds,
+            occupiedBeds: occupied,
+            status: room.status == 'maintenance'
+                ? 'maintenance'
+                : occupied == 0
+                    ? 'available'
+                    : occupied >= liveBeds.length
+                        ? 'occupied'
+                        : 'partially_occupied',
+            clearExpectedVacancyDate: true,
+          );
+          return RoomCard._live(room: liveRoom);
+        },
+      );
+    }
+
     final occupancyStatus = room.derivedOccupancyStatus;
 
     final isMaintenance = occupancyStatus == 'maintenance';

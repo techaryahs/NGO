@@ -249,6 +249,7 @@ class RoomModel {
     int? totalBeds,
     int? occupiedBeds,
     DateTime? expectedVacancyDate,
+    bool clearExpectedVacancyDate = false,
     DateTime? lastUpdated,
     String? notes,
     DateTime? createdAt,
@@ -268,7 +269,9 @@ class RoomModel {
       beds: beds ?? this.beds,
       totalBeds: totalBeds ?? this.totalBeds,
       occupiedBeds: occupiedBeds ?? this.occupiedBeds,
-      expectedVacancyDate: expectedVacancyDate ?? this.expectedVacancyDate,
+      expectedVacancyDate: clearExpectedVacancyDate
+          ? null
+          : (expectedVacancyDate ?? this.expectedVacancyDate),
       lastUpdated: lastUpdated ?? this.lastUpdated,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,

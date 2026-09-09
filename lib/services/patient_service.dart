@@ -15,6 +15,7 @@ class PatientService {
 
   /// Base path for patient records.
   final String _patientsPath = 'patients';
+  Future<int>? _orphanCleanupFuture;
 
   PatientService({required FirebaseRTDBRestService rtdbService})
     : _rtdb = rtdbService;
@@ -805,75 +806,170 @@ class PatientService {
   /// Permanently deletes a patient record.
   Future<void> deletePatient(String patientId) async {
     try {
-      // Release every active stay before removing the patient so beds and room
-      // census data cannot retain an orphaned occupant.
-      final activeStays = await ServiceLocator().roomService
-          .getStaysByPatientStream(patientId)
-          .first;
-      for (final stay in activeStays.where((stay) => stay.status == 'active')) {
-        try {
-          await ServiceLocator().roomService.completeStay(stay.id);
-        } catch (_) {
-          // Do not make an inconsistent legacy stay prevent the explicitly
-          // requested patient deletion.
-        }
-      }
-
-      // Attendance is keyed by date, so remove this patient's records from
-      // every date (including attendant attendance) in one root patch.
-      dynamic attendance;
-      dynamic attendantAttendance;
-      try {
-        attendance = await _rtdb.get('attendance/daily');
-      } catch (_) {}
-      try {
-        attendantAttendance = await _rtdb.get('attendant_attendance/daily');
-      } catch (_) {}
-      final cleanup = <String, dynamic>{};
-      if (attendance is Map) {
-        attendance.forEach((date, records) {
-          if (records is Map && records.containsKey(patientId)) {
-            cleanup['attendance/daily/$date/$patientId'] = null;
-          }
-        });
-      }
-      if (attendantAttendance is Map) {
-        attendantAttendance.forEach((date, records) {
-          if (records is Map && records.containsKey(patientId)) {
-            cleanup['attendant_attendance/daily/$date/$patientId'] = null;
-          }
-        });
-      }
-      // Payment dashboards read these global collections, while the patient
-      // record holds the detailed payment list. Remove matching ledger rows.
-      for (final path in const ['payments', 'paymentHistory']) {
-        dynamic payments;
-        try {
-          payments = await _rtdb.get(path);
-        } catch (_) {
-          continue;
-        }
-        if (payments is Map) {
-          payments.forEach((paymentId, payment) {
-            if (payment is Map &&
-                payment['patientId']?.toString() == patientId) {
-              cleanup['$path/$paymentId'] = null;
-            }
-          });
-        }
-      }
-      if (cleanup.isNotEmpty) {
-        try {
-          await _rtdb.patch('', cleanup);
-        } catch (_) {
-          // Some older deployments do not grant access to every optional
-          // ledger path. The patient record can still be deleted.
-        }
-      }
-      await _rtdb.delete('$_patientsPath/$patientId');
+      final rawPatient = await _rtdb.get('$_patientsPath/$patientId');
+      final patient = rawPatient is Map
+          ? PatientModel.fromMap(patientId, rawPatient)
+          : null;
+      final stays = await ServiceLocator().paymentService.loadStays(patientId);
+      await _purgePatientArtifacts(
+        patientId,
+        stays,
+        attendanceStart:
+            patient?.registrationDate ?? patient?.admissionDate,
+      );
     } catch (e) {
       throw Exception('Failed to delete patient: $e');
     }
+  }
+
+  /// Repairs records left by older versions that deleted the patient before
+  /// completing the related cleanup.
+  Future<int> purgeOrphanedPatientRecords() async {
+    final running = _orphanCleanupFuture;
+    if (running != null) return running;
+    final cleanup = _purgeOrphanedPatientRecords();
+    _orphanCleanupFuture = cleanup;
+    try {
+      return await cleanup;
+    } finally {
+      // Re-check whenever another data screen opens. This also repairs an
+      // orphan created after an earlier successful no-op check.
+      if (identical(_orphanCleanupFuture, cleanup)) {
+        _orphanCleanupFuture = null;
+      }
+    }
+  }
+
+  /// Runs an immediate repair when a screen has directly observed an orphan.
+  Future<int> repairOrphanedPatientRecordsNow() =>
+      _purgeOrphanedPatientRecords();
+
+  Future<int> _purgeOrphanedPatientRecords() async {
+    final rawPatients = await _rtdb.get(_patientsPath);
+    final patientIds = rawPatients is Map
+        ? rawPatients.keys.map((key) => key.toString()).toSet()
+        : <String>{};
+    final rawActive = await _rtdb.getByChildValue(
+      'stays',
+      child: 'status',
+      value: 'active',
+    );
+    if (rawActive is! Map) return 0;
+    final orphanIds = <String>{
+      for (final value in rawActive.values)
+        if (value is Map &&
+            value['patientId'] != null &&
+            !patientIds.contains(value['patientId'].toString()))
+          value['patientId'].toString(),
+    };
+    for (final patientId in orphanIds) {
+      final stays = await ServiceLocator().paymentService.loadStays(patientId);
+      await _purgePatientArtifacts(patientId, stays);
+    }
+    return orphanIds.length;
+  }
+
+  Future<void> _purgePatientArtifacts(
+    String patientId,
+    List<StayModel> stays, {
+    DateTime? attendanceStart,
+  }) async {
+    final cleanup = <String, dynamic>{
+      'patients/$patientId': null,
+      for (final stay in stays) 'stays/${stay.id}': null,
+    };
+    final stayIds = stays.map((stay) => stay.id).toSet();
+    final roomService = ServiceLocator().roomService;
+    for (final roomId in stays
+        .where((stay) => stay.roomType != 'lobby' && stay.roomId.isNotEmpty)
+        .map((stay) => stay.roomId)
+        .toSet()) {
+      final room = await roomService.getRoom(roomId);
+      if (room == null) continue;
+      final fixedBeds = room.beds.map((bed) {
+        final belongsToPatient = bed.currentPatientId == patientId;
+        final belongsToStay =
+            bed.currentStayId != null && stayIds.contains(bed.currentStayId);
+        return belongsToPatient || belongsToStay
+            ? bed.copyWith(
+                status: 'available',
+                clearPatientId: true,
+                clearStayId: true,
+              )
+            : bed;
+      }).toList();
+      final occupied = fixedBeds.where((bed) => bed.isOccupied).length;
+      final removedAttendants = stays
+          .where(
+            (stay) =>
+                stay.roomId == roomId && stay.isActive && room.isPrivate,
+          )
+          .fold<int>(0, (sum, stay) => sum + stay.attendantCount);
+      cleanup.addAll({
+        'rooms/$roomId/beds': roomService.bedsToRtdbMap(fixedBeds),
+        'rooms/$roomId/occupiedBeds': occupied,
+        'rooms/$roomId/currentAttendants':
+            (room.currentAttendants - removedAttendants).clamp(0, 999),
+        'rooms/$roomId/status': room.status == 'maintenance'
+            ? 'maintenance'
+            : occupied == 0
+            ? 'available'
+            : room.isPrivate && occupied < room.actualTotalBeds
+            ? 'partially_occupied'
+            : occupied >= room.actualTotalBeds
+            ? 'occupied'
+            : 'available',
+        'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+    }
+
+    if (stays.isNotEmpty || attendanceStart != null) {
+      final starts = <DateTime>[
+        if (attendanceStart != null) attendanceStart,
+        ...stays.map((stay) => stay.admissionDate),
+      ]..sort();
+      final startKey = StayBilling.dateKey(starts.first);
+      final endKey = StayBilling.dateKey(DateTime.now());
+      final attendanceReads = await Future.wait<dynamic>([
+        _rtdb.getByKeyRange(
+          'attendance/daily',
+          startKey: startKey,
+          endKey: endKey,
+        ),
+        _rtdb.getByKeyRange(
+          'attendant_attendance/daily',
+          startKey: startKey,
+          endKey: endKey,
+        ),
+      ]);
+      for (final pathIndex in [0, 1]) {
+        final records = attendanceReads[pathIndex];
+        if (records is! Map) continue;
+        final path = pathIndex == 0
+            ? 'attendance/daily'
+            : 'attendant_attendance/daily';
+        for (final entry in records.entries) {
+          if (entry.value is Map &&
+              (entry.value as Map).containsKey(patientId)) {
+            cleanup['$path/${entry.key}/$patientId'] = null;
+          }
+        }
+      }
+    }
+
+    for (final path in const ['payments', 'paymentHistory']) {
+      final records = await _rtdb.getByChildValue(
+        path,
+        child: 'patientId',
+        value: patientId,
+      );
+      if (records is Map) {
+        for (final id in records.keys) {
+          cleanup['$path/$id'] = null;
+        }
+      }
+    }
+    await _rtdb.patch('', cleanup);
   }
 
   // ===========================================================================

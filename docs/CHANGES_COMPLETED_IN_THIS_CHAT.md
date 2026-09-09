@@ -185,3 +185,39 @@ Focused billing tests were expanded to cover exit-date billing, transfer-day bil
 - For Komal's 1–10 August period with a 9:00 AM checkout, the patient has nine billable days. At ₹200 per day the patient charge is ₹1,800. Six attendant Present dates add ₹1,200, producing a ₹3,000 total, ₹800 paid, and ₹2,200 pending.
 - Edit Patient again displays a compact Current Billing summary with Total, Paid, and Pending. It no longer displays a provisional ₹150/₹300 daily estimate that assumes every attendant is present for every patient day.
 - General room and lobby test expectations were updated from the retired ₹150 fallback to ₹200, and a regression case now confirms that a legacy ₹3,600 override cannot replace Komal's ₹3,000 attendance-aware stay bill.
+
+## 15. Ongoing stays after shifting
+
+- The shift confirmation now includes **No exit date — stay is ongoing**. It is selected automatically when the patient has no exit date, and the saved shift keeps `exitDate` empty.
+- Edit Patient contains the same option, allowing an existing exit date to be cleared. With no exit date, billing continues under the rolling/default stay rule until a date is entered.
+- Add Patient now also supports **Planned exit date not decided**. It uses the seven-day estimate initially without saving that estimate as an actual exit date.
+- The current segment in Edit Shifting Timeline can display **Planned exit date: Not decided** while keeping the stay open.
+- Active patient Overview and Stay cards label the value **Planned Exit Date**. Completed patients and stays label the recorded value **Actual Discharge Date**.
+
+## 16. Shifting timeline save timeout
+
+- Timeline saving no longer downloads the complete stay history before recalculating billing. It queries the indexed `patientId` field and loads only the selected patient's stays, preventing the `Failed to GET stays: Request timeout` error on larger databases.
+
+## 17. Patient attendance overall summary
+
+- The Overall Summary now identifies the patient by name with a **PATIENT** label and identifies every accompanying person with an **ATTENDANT** label.
+- Summary cards now use a compact modern layout with role icons, Present, Absent, Marked totals, attendance percentage, consistent spacing, rounded cards, and a people count in the heading.
+- The cards were further condensed into single-row summaries with small `P`, `A`, and `Total` pills so the complete list requires much less vertical scrolling.
+- All attendant rows now share one white **Attendants** card with subtle dividers, while the patient keeps a separate card.
+
+## 18. Ongoing stay badge
+
+- Room and lobby cards now show **ONGOING** when the planned exit date is not decided. The `days left` and `STAY OVERDUE` states are shown only when the patient has an actual planned exit date.
+
+## 19. Complete patient deletion and orphan repair
+
+- Patient deletion is now one coordinated cleanup: patient record, all stay records, patient and attendant attendance, payment history, transaction ledger entries, room/lobby occupancy, bed ownership, and room census are removed together.
+- Cleanup queries stays and payments by indexed `patientId` instead of downloading their complete collections.
+- Patient, Attendance, Payments, and Rooms screens run a guarded orphan repair for records left by the older partial-delete behavior. This releases beds such as Komal's 10/11 and removes her remaining dashboard and ledger rows.
+- Orphan checks are no longer permanently cached after an earlier empty result. Room Details directly detects a stay whose patient no longer exists, runs an immediate repair, closes the stale dialog, refreshes the room, and confirms that the bed was released.
+- Room Details now subscribes to the live room record instead of retaining the room snapshot from the moment the dialog opened. It also immediately hides an occupied bed whose `currentPatientId` no longer exists while the backend repair finishes, keeping the status, occupied count, bed badges, and active-stay list consistent.
+# Room card cleanup after patient deletion
+
+- Room cards now verify occupied bed assignments against the live active-patient list.
+- A deleted patient's bed is immediately displayed as available, and the card recalculates its occupied count and room status.
+- Stale vacancy dates linked to removed assignments are no longer displayed.

@@ -1322,6 +1322,50 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 onTap: () => _pickTime(isExitTime: true),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            CheckboxListTile(
+                              value: _selectedExitDate == null,
+                              onChanged: (noExitDate) {
+                                setState(() {
+                                  if (noExitDate == true) {
+                                    _selectedExitDate = null;
+                                    _exitDateController.clear();
+                                    _exitTimeController.clear();
+                                  } else {
+                                    final registration =
+                                        _selectedRegistrationDate ??
+                                        widget.patient.admissionDate;
+                                    _selectedExitDate = registration.add(
+                                      const Duration(
+                                        days: PricingHelper.advanceDays,
+                                      ),
+                                    );
+                                    _exitDateController.text = _formatDate(
+                                      _selectedExitDate,
+                                    );
+                                    _exitTimeController.text = _formatTime(
+                                      _selectedExitDate,
+                                    );
+                                  }
+                                });
+                              },
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              activeColor: const Color(0xFF3B6D11),
+                              title: const Text(
+                                'No exit date — stay is ongoing',
+                                style: TextStyle(
+                                  color: Color(0xFF27500A),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Billing will continue until an exit date is entered.',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                            ),
                             const SizedBox(height: 12),
                             PatientFormRow2(
                               PatientFormField(

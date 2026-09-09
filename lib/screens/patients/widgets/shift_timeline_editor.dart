@@ -24,11 +24,45 @@ class ShiftTimelineEditor extends StatefulWidget {
   State<ShiftTimelineEditor> createState() => _ShiftTimelineEditorState();
 }
 
+class _NoPlannedExitField extends StatelessWidget {
+  const _NoPlannedExitField();
+
+  @override
+  Widget build(BuildContext context) => InputDecorator(
+    decoration: InputDecoration(
+      labelText: 'Planned exit date',
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFD7E5CB)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFD7E5CB)),
+      ),
+      suffixIcon: const Icon(
+        Icons.event_busy_outlined,
+        color: Color(0xFF527B2C),
+      ),
+    ),
+    child: const Text(
+      'Not decided',
+      style: TextStyle(
+        color: Color(0xFF527B2C),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
 class _ShiftTimelineEditorState extends State<ShiftTimelineEditor> {
   late final List<StayModel> segments;
   late final List<DateTime> starts, ends;
   late final List<TextEditingController> chargeOverrides;
   late final List<double?> originalOverrides;
+  late bool noPlannedExitDate;
   bool saving = false;
   String? error;
 
@@ -51,6 +85,7 @@ class _ShiftTimelineEditorState extends State<ShiftTimelineEditor> {
     ];
     final charges = widget.summary['segmentCharges'];
     originalOverrides = [for (final segment in segments) segment.costOverride];
+    noPlannedExitDate = widget.patient.exitDate == null;
     chargeOverrides = [
       for (final segment in segments)
         TextEditingController(
@@ -299,16 +334,38 @@ class _ShiftTimelineEditorState extends State<ShiftTimelineEditor> {
                   ),
                   SizedBox(
                     width: dateWidth,
-                    child: _picker(index, start: false, time: false),
+                    child: segment.isActive && noPlannedExitDate
+                        ? const _NoPlannedExitField()
+                        : _picker(index, start: false, time: false),
                   ),
-                  SizedBox(
-                    width: timeWidth,
-                    child: _picker(index, start: false, time: true),
-                  ),
+                  if (!(segment.isActive && noPlannedExitDate))
+                    SizedBox(
+                      width: timeWidth,
+                      child: _picker(index, start: false, time: true),
+                    ),
                 ],
               );
             },
           ),
+          if (segment.isActive) ...[
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              value: noPlannedExitDate,
+              onChanged: saving
+                  ? null
+                  : (value) => setState(
+                      () => noPlannedExitDate = value ?? true,
+                    ),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              activeColor: const Color(0xFF3B6D11),
+              title: const Text('Planned exit date not decided'),
+              subtitle: const Text(
+                'The current placement remains open until discharge or a planned exit is entered.',
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -349,7 +406,7 @@ class _ShiftTimelineEditorState extends State<ShiftTimelineEditor> {
       ).updateShiftTimeline(widget.patient.id, [
         for (var i = 0; i < segments.length; i++)
           (stay: segments[i], start: starts[i], end: ends[i]),
-      ], costOverrides: overrides);
+      ], costOverrides: overrides, noPlannedExitDate: noPlannedExitDate);
       if (mounted) widget.onSaved();
     } catch (e) {
       if (mounted) {

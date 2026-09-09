@@ -117,6 +117,7 @@ class StayHistoryService {
     String patientId,
     List<({StayModel stay, DateTime start, DateTime end})> edits, {
     List<double?>? costOverrides,
+    bool noPlannedExitDate = false,
   }) async {
     if (edits.length < 2) return;
     if (costOverrides != null && costOverrides.length != edits.length) {
@@ -188,10 +189,12 @@ class StayHistoryService {
     final last = edits.last;
     if (cycleId == StayBilling.currentCycle(patient)) {
       patientData['registrationDate'] = first.start.millisecondsSinceEpoch;
-      patientData['exitDate'] = last.end.millisecondsSinceEpoch;
+      patientData['exitDate'] = last.stay.isActive && noPlannedExitDate
+          ? null
+          : last.end.millisecondsSinceEpoch;
       root['patients/$patientId/registrationDate'] =
           first.start.millisecondsSinceEpoch;
-      root['patients/$patientId/exitDate'] = last.end.millisecondsSinceEpoch;
+      root['patients/$patientId/exitDate'] = patientData['exitDate'];
       if (last.stay.isActive && last.stay.roomType != 'lobby') {
         root['rooms/${last.stay.roomId}/expectedVacancyDate'] =
             last.end.millisecondsSinceEpoch;

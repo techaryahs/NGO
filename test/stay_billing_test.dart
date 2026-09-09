@@ -99,6 +99,21 @@ class TestDatabase extends FirebaseRTDBRestService {
   }
 
   @override
+  Future<dynamic> getByChildValue(
+    String path, {
+    required String child,
+    required Object value,
+  }) async {
+    final data = await get(path);
+    if (data is! Map) return null;
+    return {
+      for (final entry in data.entries)
+        if (entry.value is Map && entry.value[child] == value)
+          entry.key.toString(): entry.value,
+    };
+  }
+
+  @override
   Future<void> patch(String path, Map<String, dynamic> updates) async {
     expect(path, '');
     writes++;

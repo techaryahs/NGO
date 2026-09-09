@@ -63,6 +63,11 @@ class _AttendanceState extends State<Attendance>
   @override
   void initState() {
     super.initState();
+    unawaited(
+      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
+        (_) => 0,
+      ),
+    );
     _fadeCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),

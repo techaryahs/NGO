@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +31,11 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChanged);
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    unawaited(
+      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
+        (_) => 0,
+      ),
+    );
     // Billing is recalculated when a patient is admitted, edited, or their
     // attendance changes. Avoid a full historical recalculation on every
     // visit to Payments because it can make the whole application sluggish.

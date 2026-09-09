@@ -147,24 +147,62 @@ Future<bool> showShiftPatientDialog(
   final total = patient.advanceBilledAmount + patient.attendanceCharges;
   final paid = patient.totalPaidAmount ?? 0;
   final pending = (total - paid).clamp(0.0, double.infinity);
+  var noExitDate = patient.exitDate == null;
+  DateTime? shiftExitDate = patient.exitDate;
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Confirm room shift'),
-      content: Text(
-        '${pending > 0 ? '₹${pending.toStringAsFixed(0)} from the current admission remains unpaid. It will remain in the admission balance and new room charges will be added.\n\n' : ''}'
-        'Shift to ${choice.label}?',
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Confirm room shift'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${pending > 0 ? '₹${pending.toStringAsFixed(0)} from the current admission remains unpaid. It will remain in the admission balance and new room charges will be added.\n\n' : ''}'
+                'Shift to ${choice.label}?',
+              ),
+              const SizedBox(height: 14),
+              CheckboxListTile(
+                value: noExitDate,
+                onChanged: (value) => setDialogState(() {
+                  noExitDate = value ?? true;
+                  if (!noExitDate && shiftExitDate == null) {
+                    final suggested = DateTime.now().add(
+                      const Duration(days: PricingHelper.advanceDays),
+                    );
+                    shiftExitDate = DateTime(
+                      suggested.year,
+                      suggested.month,
+                      suggested.day,
+                      9,
+                    );
+                  }
+                }),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                activeColor: const Color(0xFF3B6D11),
+                title: const Text('No exit date — stay is ongoing'),
+                subtitle: const Text(
+                  'Billing continues until an exit date is entered.',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Shift patient'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Shift patient'),
-        ),
-      ],
     ),
   );
   if (confirmed != true) return false;
@@ -207,6 +245,7 @@ Future<bool> showShiftPatientDialog(
       'bedIds': [choice.bed!.id],
       'bedLabels': [choice.bed!.bedLabel],
       'lobby': null,
+      'exitDate': noExitDate ? null : shiftExitDate?.millisecondsSinceEpoch,
       'billingAmountOverride': null,
     });
   } else {
@@ -227,6 +266,7 @@ Future<bool> showShiftPatientDialog(
       'bedIds': null,
       'bedLabels': null,
       'lobby': choice.lobby,
+      'exitDate': noExitDate ? null : shiftExitDate?.millisecondsSinceEpoch,
       'billingAmountOverride': null,
     });
   }

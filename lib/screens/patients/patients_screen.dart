@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'dart:async';
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({super.key});
@@ -55,6 +56,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
     // render an empty list while a new REST stream starts.
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
     _roomsStream = ServiceLocator().roomService.getRoomsStream();
+    unawaited(
+      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
+        (_) => 0,
+      ),
+    );
   }
 
   @override
