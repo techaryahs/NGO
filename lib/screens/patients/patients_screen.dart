@@ -1337,16 +1337,17 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            const Expanded(
-                              child: Text(
-                                "Patient Management",
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF27500A),
-                                ),
+                            const Text(
+                              "Patient Management",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF27500A),
                               ),
                             ),
                             ElevatedButton.icon(
@@ -1372,123 +1373,109 @@ class _PatientsScreenState extends State<PatientsScreen> {
                                 ),
                               ),
                             ),
-                            Expanded(
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    PopupMenuButton<String>(
-                                      tooltip: 'Download patient info',
-                                      padding: EdgeInsets.zero,
-                                      offset: const Offset(0, 8),
-                                      color: Colors.white,
-                                      elevation: 6,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        side: const BorderSide(
-                                          color: Color(0xFFC0DD97),
-                                        ),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                PopupMenuButton<String>(
+                                  tooltip: 'Download patient info',
+                                  padding: EdgeInsets.zero,
+                                  offset: const Offset(0, 8),
+                                  color: Colors.white,
+                                  elevation: 6,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(
+                                      color: Color(0xFFC0DD97),
+                                    ),
+                                  ),
+                                  onSelected: (status) =>
+                                      _downloadPatientsInfoByStatus(
+                                        allPatients,
+                                        status,
                                       ),
-                                      onSelected: (status) =>
-                                          _downloadPatientsInfoByStatus(
-                                            allPatients,
-                                            status,
-                                          ),
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(
-                                          value: 'active',
-                                          child: _DownloadMenuItem(
-                                            icon: Icons.person_rounded,
-                                            label: 'Active Patients',
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'inactive',
-                                          child: _DownloadMenuItem(
-                                            icon: Icons.person_off_outlined,
-                                            label: 'Inactive Patients',
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'discharged',
-                                          child: _DownloadMenuItem(
-                                            icon: Icons.logout_rounded,
-                                            label: 'Discharged Patients',
-                                          ),
-                                        ),
-                                      ],
-                                      child: Container(
-                                        width: 154,
-                                        height: 44,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFF3B6D11),
-                                          ),
-                                        ),
-                                        child: const Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.download_outlined,
-                                              size: 18,
-                                              color: Color(0xFF3B6D11),
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text(
-                                              'Download',
-                                              style: TextStyle(
-                                                color: Color(0xFF3B6D11),
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            SizedBox(width: 4),
-                                            Icon(
-                                              Icons.keyboard_arrow_down_rounded,
-                                              size: 18,
-                                              color: Color(0xFF3B6D11),
-                                            ),
-                                          ],
-                                        ),
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(
+                                      value: 'active',
+                                      child: _DownloadMenuItem(
+                                        icon: Icons.person_rounded,
+                                        label: 'Active Patients',
                                       ),
                                     ),
-                                    ElevatedButton.icon(
-                                      onPressed: _showAddPatientDialog,
-                                      icon: const Icon(
-                                        Icons.add_rounded,
-                                        size: 18,
+                                    PopupMenuItem(
+                                      value: 'inactive',
+                                      child: _DownloadMenuItem(
+                                        icon: Icons.person_off_outlined,
+                                        label: 'Inactive Patients',
                                       ),
-                                      label: const Text("Add Patient"),
-                                      style: ElevatedButton.styleFrom(
-                                        fixedSize: const Size(154, 44),
-                                        backgroundColor: const Color(
-                                          0xFF3B6D11,
-                                        ),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'discharged',
+                                      child: _DownloadMenuItem(
+                                        icon: Icons.logout_rounded,
+                                        label: 'Discharged Patients',
                                       ),
                                     ),
                                   ],
+                                  child: Container(
+                                    width: 154,
+                                    height: 44,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: const Color(0xFF3B6D11),
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.download_outlined,
+                                          size: 18,
+                                          color: Color(0xFF3B6D11),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Download',
+                                          style: TextStyle(
+                                            color: Color(0xFF3B6D11),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        SizedBox(width: 4),
+                                        Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          size: 18,
+                                          color: Color(0xFF3B6D11),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                ElevatedButton.icon(
+                                  onPressed: _showAddPatientDialog,
+                                  icon: const Icon(Icons.add_rounded, size: 18),
+                                  label: const Text("Add Patient"),
+                                  style: ElevatedButton.styleFrom(
+                                    fixedSize: const Size(154, 44),
+                                    backgroundColor: const Color(0xFF3B6D11),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

@@ -48,9 +48,7 @@ class _MainLayoutState extends State<MainLayout> {
   ];
 
   void _navigateToSettings() {
-    final index = navItems.indexWhere(
-          (item) => item.label == "Settings",
-    );
+    final index = navItems.indexWhere((item) => item.label == "Settings");
 
     if (index != -1) {
       setState(() => selectedIndex = index);
@@ -58,54 +56,71 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   void _navigateToProfile() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ProfilePage(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const ProfilePage()));
   }
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 900;
+    void selectPage(int index) {
+      setState(() => selectedIndex = index);
+      if (isCompact) Navigator.of(context).pop();
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F7EA),
-
+      drawer: isCompact
+          ? Drawer(
+              child: SafeArea(
+                child: Sidebar(
+                  items: navItems,
+                  selectedIndex: selectedIndex,
+                  onSelect: selectPage,
+                  onProfileTap: _navigateToProfile,
+                ),
+              ),
+            )
+          : null,
       body: Row(
         children: [
-
-          // SIDEBAR
-          Sidebar(
-            items: navItems,
-            selectedIndex: selectedIndex,
-            onSelect: (i) {
-              setState(() {
-                selectedIndex = i;
-              });
-            },
-            onProfileTap: _navigateToProfile,
-          ),
+          if (!isCompact)
+            Sidebar(
+              items: navItems,
+              selectedIndex: selectedIndex,
+              onSelect: selectPage,
+              onProfileTap: _navigateToProfile,
+            ),
 
           // MAIN CONTENT
           Expanded(
             child: Column(
               children: [
-
                 // TOP BAR
-                TopBar(
-                  title: navItems[selectedIndex].label,
-                  onProfileTap: _navigateToProfile,
-                  onSettingsTap: _navigateToSettings,
+                Builder(
+                  builder: (topBarContext) => TopBar(
+                    title: navItems[selectedIndex].label,
+                    onProfileTap: _navigateToProfile,
+                    onSettingsTap: _navigateToSettings,
+                    onMenuTap: isCompact
+                        ? () => Scaffold.of(topBarContext).openDrawer()
+                        : null,
+                  ),
                 ),
 
                 // PAGE CONTENT
                 Expanded(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 1400,
-                        minWidth: 1000,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Align(
+                      alignment: Alignment.topCenter,
+                      child: SizedBox(
+                        width: constraints.maxWidth
+                            .clamp(0.0, 1400.0)
+                            .toDouble(),
+                        height: constraints.maxHeight,
+                        child: pages[selectedIndex],
                       ),
-                      child: pages[selectedIndex],
                     ),
                   ),
                 ),

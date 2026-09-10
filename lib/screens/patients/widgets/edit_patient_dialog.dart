@@ -1310,14 +1310,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                               PatientFormField(
                                 label: "Registration time",
                                 hint: "",
-                                isDate: true,
+                                isTime: true,
                                 controller: _registrationTimeController,
                                 onTap: () => _pickTime(isExitTime: false),
                               ),
                               PatientFormField(
                                 label: "Exit time",
                                 hint: "",
-                                isDate: true,
+                                isTime: true,
                                 controller: _exitTimeController,
                                 onTap: () => _pickTime(isExitTime: true),
                               ),
@@ -2054,7 +2054,10 @@ class _BillingValue extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
+        ),
         const SizedBox(height: 3),
         Text(
           value,

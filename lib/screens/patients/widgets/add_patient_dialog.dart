@@ -812,615 +812,629 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final compact = screenSize.width < 600;
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(24),
-      child: Container(
-        width: 620,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.97),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+      insetPadding: EdgeInsets.all(compact ? 12 : 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 620,
+          maxHeight: screenSize.height - (compact ? 24 : 48),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const PatientDialogHeader(
-                title: "Add patient",
-                subtitle: "Fill in the details below to register a new patient",
-                icon: Icons.person_add_outlined,
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      PatientFormSection(
-                        label: "Patient information",
-                        child: Column(
-                          children: [
-                            PatientFormRow2(
-                              PatientFormField(
-                                label: "Registration date",
-                                hint: "",
-                                isDate: true,
-                                controller: _registrationDateController,
-                                onTap: () => _selectRegistrationDate(context),
-                              ),
-                              PatientFormField(
-                                label: "Exit date",
-                                hint: "",
-                                isDate: true,
-                                controller: _exitDateController,
-                                onTap: () => _selectExitDate(context),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            PatientFormRow2(
-                              PatientFormField(
-                                label: "Registration time",
-                                hint: "",
-                                isDate: true,
-                                controller: _registrationTimeController,
-                                onTap: () => _selectRegistrationTime(context),
-                              ),
-                              PatientFormField(
-                                label: "Exit time",
-                                hint: "",
-                                isDate: true,
-                                controller: _exitTimeController,
-                                onTap: () => _selectExitTime(context),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            CheckboxListTile(
-                              value: _selectedExitDate == null,
-                              onChanged: (noExitDate) {
-                                setState(() {
-                                  if (noExitDate == true) {
-                                    _selectedExitDate = null;
-                                    _exitDateController.clear();
-                                    _exitTimeController.clear();
-                                  } else {
-                                    final registration =
-                                        _selectedRegistrationDate ??
-                                        DateTime.now();
-                                    _selectedExitDate = registration.add(
-                                      const Duration(
-                                        days: PricingHelper.advanceDays,
-                                      ),
-                                    );
-                                    final exit = _selectedExitDate!;
-                                    _exitDateController.text =
-                                        '${exit.day.toString().padLeft(2, '0')} / ${exit.month.toString().padLeft(2, '0')} / ${exit.year}';
-                                    _exitTimeController.text = _formatTime(
-                                      _selectedExitDate,
-                                    );
-                                  }
-                                });
-                              },
-                              controlAffinity: ListTileControlAffinity.leading,
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
-                              activeColor: const Color(0xFF3B6D11),
-                              title: const Text(
-                                'Planned exit date not decided',
-                                style: TextStyle(
-                                  color: Color(0xFF27500A),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.97),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const PatientDialogHeader(
+                  title: "Add patient",
+                  subtitle:
+                      "Fill in the details below to register a new patient",
+                  icon: Icons.person_add_outlined,
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(compact ? 16 : 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        PatientFormSection(
+                          label: "Patient information",
+                          child: Column(
+                            children: [
+                              PatientFormRow2(
+                                PatientFormField(
+                                  label: "Registration date",
+                                  hint: "",
+                                  isDate: true,
+                                  controller: _registrationDateController,
+                                  onTap: () => _selectRegistrationDate(context),
+                                ),
+                                PatientFormField(
+                                  label: "Exit date",
+                                  hint: "",
+                                  isDate: true,
+                                  controller: _exitDateController,
+                                  onTap: () => _selectExitDate(context),
                                 ),
                               ),
-                              subtitle: const Text(
-                                'The stay starts with a 7-day estimate and continues until an exit date is entered.',
-                                style: TextStyle(fontSize: 11),
+                              const SizedBox(height: 12),
+                              PatientFormRow2(
+                                PatientFormField(
+                                  label: "Registration time",
+                                  hint: "",
+                                  isTime: true,
+                                  controller: _registrationTimeController,
+                                  onTap: () => _selectRegistrationTime(context),
+                                ),
+                                PatientFormField(
+                                  label: "Exit time",
+                                  hint: "",
+                                  isTime: true,
+                                  controller: _exitTimeController,
+                                  onTap: () => _selectExitTime(context),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
-                                label: "File no",
-                                hint: "e.g. F-2024-001",
-                                controller: _fileNoController,
-                              ),
-                              _NatureField(
-                                label: "Registration number",
-                                hint: "",
-                                controller: _registrationNumberController,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            PatientFormField(
-                              label: "Date of Birth",
-                              hint: "",
-                              isDate: true,
-                              controller: _dateController,
-                              onTap: () => _selectDate(context),
-                            ),
-                            const SizedBox(height: 12),
-                            _Row2(
-                              _NatureField(
-                                label: "Patient name",
-                                hint: "Full name",
-                                controller: _patientNameController,
-                              ),
-                              _PatientPhotoPicker(
-                                imageBytes: _patientPhotoBytes,
-                                fileName: _patientPhotoFileName,
-                                onPick: _pickPatientPhoto,
-                                onRemove: _removePatientPhoto,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            PatientFormField(
-                              label: "Mobile no",
-                              hint: "+91 XXXXX XXXXX",
-                              keyboard: TextInputType.phone,
-                              controller: _mobileController,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(10),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            PatientFormRow2(
-                              PatientFormDropdown(
-                                label: "Gender",
-                                items: const ["Male", "Female", "Other"],
-                                value: _selectedGender,
-                                onChanged: (value) {
-                                  setState(() => _selectedGender = value);
+                              const SizedBox(height: 8),
+                              CheckboxListTile(
+                                value: _selectedExitDate == null,
+                                onChanged: (noExitDate) {
+                                  setState(() {
+                                    if (noExitDate == true) {
+                                      _selectedExitDate = null;
+                                      _exitDateController.clear();
+                                      _exitTimeController.clear();
+                                    } else {
+                                      final registration =
+                                          _selectedRegistrationDate ??
+                                          DateTime.now();
+                                      _selectedExitDate = registration.add(
+                                        const Duration(
+                                          days: PricingHelper.advanceDays,
+                                        ),
+                                      );
+                                      final exit = _selectedExitDate!;
+                                      _exitDateController.text =
+                                          '${exit.day.toString().padLeft(2, '0')} / ${exit.month.toString().padLeft(2, '0')} / ${exit.year}';
+                                      _exitTimeController.text = _formatTime(
+                                        _selectedExitDate,
+                                      );
+                                    }
+                                  });
                                 },
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                activeColor: const Color(0xFF3B6D11),
+                                title: const Text(
+                                  'Planned exit date not decided',
+                                  style: TextStyle(
+                                    color: Color(0xFF27500A),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: const Text(
+                                  'The stay is billed using the default 7-day estimate until an exit date is entered.',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                               ),
+                              const SizedBox(height: 12),
+                              _Row2(
+                                _NatureField(
+                                  label: "File no",
+                                  hint: "e.g. F-2024-001",
+                                  controller: _fileNoController,
+                                ),
+                                _NatureField(
+                                  label: "Registration number",
+                                  hint: "",
+                                  controller: _registrationNumberController,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               PatientFormField(
-                                label: "Age",
-                                hint: "Years",
-                                keyboard: TextInputType.number,
-                                controller: _ageController,
+                                label: "Date of Birth",
+                                hint: "",
+                                isDate: true,
+                                controller: _dateController,
+                                onTap: () => _selectDate(context),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            PatientFormField(
-                              label: "Permanent address",
-                              hint: "Street, city, district",
-                              controller: _addressController,
-                            ),
-                          ],
+                              const SizedBox(height: 12),
+                              _Row2(
+                                _NatureField(
+                                  label: "Patient name",
+                                  hint: "Full name",
+                                  controller: _patientNameController,
+                                ),
+                                _PatientPhotoPicker(
+                                  imageBytes: _patientPhotoBytes,
+                                  fileName: _patientPhotoFileName,
+                                  onPick: _pickPatientPhoto,
+                                  onRemove: _removePatientPhoto,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              PatientFormField(
+                                label: "Mobile no",
+                                hint: "+91 XXXXX XXXXX",
+                                keyboard: TextInputType.phone,
+                                controller: _mobileController,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(10),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              PatientFormRow2(
+                                PatientFormDropdown(
+                                  label: "Gender",
+                                  items: const ["Male", "Female", "Other"],
+                                  value: _selectedGender,
+                                  onChanged: (value) {
+                                    setState(() => _selectedGender = value);
+                                  },
+                                ),
+                                PatientFormField(
+                                  label: "Age",
+                                  hint: "Years",
+                                  keyboard: TextInputType.number,
+                                  controller: _ageController,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              PatientFormField(
+                                label: "Permanent address",
+                                hint: "Street, city, district",
+                                controller: _addressController,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      PatientFormSection(
-                        label: "Medical details",
-                        child: Column(
-                          children: [
-                            PatientFormField(
-                              label: "Diagnosis",
-                              hint: "Primary diagnosis",
-                              controller: _diagnosisController,
-                            ),
-                            const SizedBox(height: 12),
-                            // PatientFormRow2(
-                            //   PatientFormField(
-                            //     label: "Doctor name",
-                            //     hint: "Dr. name",
-                            //     controller: _doctorNameController,
-                            //   ),
-                            //   PatientFormField(
-                            //     label: "Hospital name",
-                            //     hint: "Hospital / clinic",
-                            //     controller: _hospitalNameController,
-                            //   ),
-                            // ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      if (_showLegacyAttendantSection)
+                        const SizedBox(height: 20),
                         PatientFormSection(
-                          label: "Attendant details",
+                          label: "Medical details",
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              for (int i = 0; i < _attendants.length; i++)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12.0),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF4F9F0),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: const Color(0xFFC0DD97),
-                                        width: 1,
+                              PatientFormField(
+                                label: "Diagnosis",
+                                hint: "Primary diagnosis",
+                                controller: _diagnosisController,
+                              ),
+                              const SizedBox(height: 12),
+                              // PatientFormRow2(
+                              //   PatientFormField(
+                              //     label: "Doctor name",
+                              //     hint: "Dr. name",
+                              //     controller: _doctorNameController,
+                              //   ),
+                              //   PatientFormField(
+                              //     label: "Hospital name",
+                              //     hint: "Hospital / clinic",
+                              //     controller: _hospitalNameController,
+                              //   ),
+                              // ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        if (_showLegacyAttendantSection)
+                          PatientFormSection(
+                            label: "Attendant details",
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (int i = 0; i < _attendants.length; i++)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      bottom: 12.0,
+                                    ),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF4F9F0),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: const Color(0xFFC0DD97),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        10,
+                                        8,
+                                        12,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            width: 22,
+                                            height: 22,
+                                            margin: const EdgeInsets.only(
+                                              top: 18,
+                                              right: 8,
+                                            ),
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xFF3B6D11),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                '${i + 1}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          // Expanded(
+                                          //   child: _Row3(
+                                          //     _NatureField(
+                                          //       label: "Attendant name",
+                                          //       hint: "Full name",
+                                          //       controller:
+                                          //           _attendants[i].nameController,
+                                          //     ),
+                                          //     _NatureField(
+                                          //       label: "Age",
+                                          //       hint: "Years",
+                                          //       keyboard: TextInputType.number,
+                                          //       controller:
+                                          //           _attendants[i].ageController,
+                                          //     ),
+                                          //     _NatureField(
+                                          //       label: "Relation",
+                                          //       hint: "e.g. Spouse",
+                                          //       controller: _attendants[i]
+                                          //           .relationController,
+                                          //     ),
+                                          //   ),
+                                          // ),
+                                          Expanded(
+                                            child: Column(
+                                              children: [
+                                                _Row2(
+                                                  _NatureField(
+                                                    label: "Attendant name",
+                                                    hint: "Full name",
+                                                    controller: _attendants[i]
+                                                        .nameController,
+                                                  ),
+                                                  _NatureField(
+                                                    label: "Relation",
+                                                    hint: "e.g. Spouse",
+                                                    controller: _attendants[i]
+                                                        .relationController,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                _Row2(
+                                                  _NatureField(
+                                                    label: "Aadhaar number",
+                                                    hint: "XXXX XXXX XXXX",
+                                                    keyboard:
+                                                        TextInputType.number,
+                                                    controller: _attendants[i]
+                                                        .aadhaarController,
+                                                  ),
+                                                  _AttendantPhotoPicker(
+                                                    imageBytes: _attendants[i]
+                                                        .photoBytes,
+                                                    fileName: _attendants[i]
+                                                        .photoFileName,
+                                                    onPick: () async {
+                                                      final idx = i;
+                                                      final result =
+                                                          await FilePicker
+                                                              .platform
+                                                              .pickFiles(
+                                                                type: FileType
+                                                                    .custom,
+                                                                allowedExtensions:
+                                                                    const [
+                                                                      'jpg',
+                                                                      'jpeg',
+                                                                      'png',
+                                                                      'webp',
+                                                                    ],
+                                                                withData: true,
+                                                              );
+                                                      if (result == null)
+                                                        return;
+                                                      final file =
+                                                          result.files.single;
+                                                      final bytes = file.bytes;
+                                                      if (bytes == null) return;
+                                                      if (bytes.length >
+                                                          1500 * 1024) {
+                                                        _showError(
+                                                          'Image must be under 1.5 MB',
+                                                        );
+                                                        return;
+                                                      }
+                                                      final ext =
+                                                          (file.extension ?? '')
+                                                              .toLowerCase();
+                                                      final mime = ext == 'png'
+                                                          ? 'image/png'
+                                                          : 'image/jpeg';
+                                                      setState(() {
+                                                        _attendants[idx]
+                                                                .photoBytes =
+                                                            bytes;
+                                                        _attendants[idx]
+                                                                .photoFileName =
+                                                            file.name;
+                                                        _attendants[idx]
+                                                                .photoDataUrl =
+                                                            'data:$mime;base64,${base64Encode(bytes)}';
+                                                      });
+                                                    },
+                                                    onRemove: () {
+                                                      final idx = i;
+                                                      setState(() {
+                                                        _attendants[idx]
+                                                                .photoBytes =
+                                                            null;
+                                                        _attendants[idx]
+                                                                .photoDataUrl =
+                                                            null;
+                                                        _attendants[idx]
+                                                                .photoFileName =
+                                                            null;
+                                                      });
+                                                    },
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (_attendants.length > 1)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 14,
+                                              ),
+                                              child: IconButton(
+                                                icon: const Icon(
+                                                  Icons.remove_circle_outline,
+                                                  color: Color(0xFFD32F2F),
+                                                  size: 20,
+                                                ),
+                                                tooltip: "Remove attendant",
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minWidth: 32,
+                                                      minHeight: 32,
+                                                    ),
+                                                padding: EdgeInsets.zero,
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _attendants[i].dispose();
+                                                    _attendants.removeAt(i);
+                                                  });
+                                                },
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      10,
-                                      8,
-                                      12,
+                                  ),
+                                // ── Add Attendant Button ──
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _attendants.add(_AttendantEntry());
+                                    });
+                                  },
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
                                     ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEAF3DE),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: const Color(0xFF3B6D11),
+                                        width: 1,
+                                        style: BorderStyle.solid,
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        Container(
-                                          width: 22,
-                                          height: 22,
-                                          margin: const EdgeInsets.only(
-                                            top: 18,
-                                            right: 8,
-                                          ),
-                                          decoration: const BoxDecoration(
+                                        Icon(
+                                          Icons.add_circle_rounded,
+                                          size: 18,
+                                          color: Color(0xFF3B6D11),
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          "Add another attendant",
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
                                             color: Color(0xFF3B6D11),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Center(
-                                            child: Text(
-                                              '${i + 1}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
                                           ),
                                         ),
-                                        // Expanded(
-                                        //   child: _Row3(
-                                        //     _NatureField(
-                                        //       label: "Attendant name",
-                                        //       hint: "Full name",
-                                        //       controller:
-                                        //           _attendants[i].nameController,
-                                        //     ),
-                                        //     _NatureField(
-                                        //       label: "Age",
-                                        //       hint: "Years",
-                                        //       keyboard: TextInputType.number,
-                                        //       controller:
-                                        //           _attendants[i].ageController,
-                                        //     ),
-                                        //     _NatureField(
-                                        //       label: "Relation",
-                                        //       hint: "e.g. Spouse",
-                                        //       controller: _attendants[i]
-                                        //           .relationController,
-                                        //     ),
-                                        //   ),
-                                        // ),
-                                        Expanded(
-                                          child: Column(
-                                            children: [
-                                              _Row2(
-                                                _NatureField(
-                                                  label: "Attendant name",
-                                                  hint: "Full name",
-                                                  controller: _attendants[i]
-                                                      .nameController,
-                                                ),
-                                                _NatureField(
-                                                  label: "Relation",
-                                                  hint: "e.g. Spouse",
-                                                  controller: _attendants[i]
-                                                      .relationController,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              _Row2(
-                                                _NatureField(
-                                                  label: "Aadhaar number",
-                                                  hint: "XXXX XXXX XXXX",
-                                                  keyboard:
-                                                      TextInputType.number,
-                                                  controller: _attendants[i]
-                                                      .aadhaarController,
-                                                ),
-                                                _AttendantPhotoPicker(
-                                                  imageBytes:
-                                                      _attendants[i].photoBytes,
-                                                  fileName: _attendants[i]
-                                                      .photoFileName,
-                                                  onPick: () async {
-                                                    final idx = i;
-                                                    final result =
-                                                        await FilePicker
-                                                            .platform
-                                                            .pickFiles(
-                                                              type: FileType
-                                                                  .custom,
-                                                              allowedExtensions:
-                                                                  const [
-                                                                    'jpg',
-                                                                    'jpeg',
-                                                                    'png',
-                                                                    'webp',
-                                                                  ],
-                                                              withData: true,
-                                                            );
-                                                    if (result == null) return;
-                                                    final file =
-                                                        result.files.single;
-                                                    final bytes = file.bytes;
-                                                    if (bytes == null) return;
-                                                    if (bytes.length >
-                                                        1500 * 1024) {
-                                                      _showError(
-                                                        'Image must be under 1.5 MB',
-                                                      );
-                                                      return;
-                                                    }
-                                                    final ext =
-                                                        (file.extension ?? '')
-                                                            .toLowerCase();
-                                                    final mime = ext == 'png'
-                                                        ? 'image/png'
-                                                        : 'image/jpeg';
-                                                    setState(() {
-                                                      _attendants[idx]
-                                                              .photoBytes =
-                                                          bytes;
-                                                      _attendants[idx]
-                                                              .photoFileName =
-                                                          file.name;
-                                                      _attendants[idx]
-                                                              .photoDataUrl =
-                                                          'data:$mime;base64,${base64Encode(bytes)}';
-                                                    });
-                                                  },
-                                                  onRemove: () {
-                                                    final idx = i;
-                                                    setState(() {
-                                                      _attendants[idx]
-                                                              .photoBytes =
-                                                          null;
-                                                      _attendants[idx]
-                                                              .photoDataUrl =
-                                                          null;
-                                                      _attendants[idx]
-                                                              .photoFileName =
-                                                          null;
-                                                    });
-                                                  },
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        if (_attendants.length > 1)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 14,
-                                            ),
-                                            child: IconButton(
-                                              icon: const Icon(
-                                                Icons.remove_circle_outline,
-                                                color: Color(0xFFD32F2F),
-                                                size: 20,
-                                              ),
-                                              tooltip: "Remove attendant",
-                                              constraints: const BoxConstraints(
-                                                minWidth: 32,
-                                                minHeight: 32,
-                                              ),
-                                              padding: EdgeInsets.zero,
-                                              onPressed: () {
-                                                setState(() {
-                                                  _attendants[i].dispose();
-                                                  _attendants.removeAt(i);
-                                                });
-                                              },
-                                            ),
-                                          ),
                                       ],
                                     ),
                                   ),
                                 ),
-                              // ── Add Attendant Button ──
-                              GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _attendants.add(_AttendantEntry());
-                                  });
-                                },
-                                child: Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEAF3DE),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: const Color(0xFF3B6D11),
-                                      width: 1,
-                                      style: BorderStyle.solid,
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 20),
+                        _Section(
+                          label: "Identity documents",
+                          child: _Row2(
+                            _NatureField(
+                              label: "PAN card number",
+                              hint: "ABCDE1234F",
+                              controller: _panCardController,
+                            ),
+                            _NatureField(
+                              label: "Aadhaar card number",
+                              hint: "XXXX XXXX XXXX",
+                              keyboard: TextInputType.number,
+                              controller: _aadhaarCardController,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        _Section(
+                          label: "Office use",
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              PatientFormDropdown(
+                                label: 'Floor',
+                                hint: 'Select floor first',
+                                items: const ['1', '2'],
+                                value: _selectedFloor?.toString(),
+                                onChanged: _onFloorSelected,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: PatientFormDropdown(
+                                      label: 'Lobby',
+                                      hint: _selectedFloor == null
+                                          ? 'Select floor first'
+                                          : _selectedRoom != null
+                                          ? 'Clear room to select a lobby'
+                                          : 'Select lobby placement',
+                                      items: _selectedFloor == null
+                                          ? const []
+                                          : _lobbyOptionsByFloor[_selectedFloor]!,
+                                      value: _selectedLobby,
+                                      disabledItems: _occupiedLobbies,
+                                      onChanged:
+                                          _selectedFloor != null &&
+                                              _selectedRoom == null
+                                          ? (value) => setState(
+                                              () => _selectedLobby = value,
+                                            )
+                                          : null,
                                     ),
                                   ),
-                                  child: const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.add_circle_rounded,
-                                        size: 18,
-                                        color: Color(0xFF3B6D11),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "Add another attendant",
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF3B6D11),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                  if (_selectedLobby != null) ...[
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip: 'Clear lobby selection',
+                                      onPressed: _clearLobby,
+                                      icon: const Icon(Icons.close_rounded),
+                                    ),
+                                  ],
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                      const SizedBox(height: 20),
-                      _Section(
-                        label: "Identity documents",
-                        child: _Row2(
-                          _NatureField(
-                            label: "PAN card number",
-                            hint: "ABCDE1234F",
-                            controller: _panCardController,
-                          ),
-                          _NatureField(
-                            label: "Aadhaar card number",
-                            hint: "XXXX XXXX XXXX",
-                            keyboard: TextInputType.number,
-                            controller: _aadhaarCardController,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _Section(
-                        label: "Office use",
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            PatientFormDropdown(
-                              label: 'Floor',
-                              hint: 'Select floor first',
-                              items: const ['1', '2'],
-                              value: _selectedFloor?.toString(),
-                              onChanged: _onFloorSelected,
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: PatientFormDropdown(
-                                    label: 'Lobby',
-                                    hint: _selectedFloor == null
-                                        ? 'Select floor first'
-                                        : _selectedRoom != null
-                                        ? 'Clear room to select a lobby'
-                                        : 'Select lobby placement',
-                                    items: _selectedFloor == null
-                                        ? const []
-                                        : _lobbyOptionsByFloor[_selectedFloor]!,
-                                    value: _selectedLobby,
-                                    disabledItems: _occupiedLobbies,
-                                    onChanged:
-                                        _selectedFloor != null &&
-                                            _selectedRoom == null
-                                        ? (value) => setState(
-                                            () => _selectedLobby = value,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                                if (_selectedLobby != null) ...[
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    tooltip: 'Clear lobby selection',
-                                    onPressed: _clearLobby,
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: _RoomDropdown(
-                                    label: "Room",
-                                    rooms: _selectedFloor == null
-                                        ? const []
-                                        : _availableRooms
-                                              .where(
-                                                (room) =>
-                                                    room.floor ==
-                                                    _selectedFloor,
-                                              )
-                                              .toList(),
-                                    selectedRoom: _selectedRoom,
-                                    onChanged:
-                                        _selectedFloor != null &&
-                                            _selectedLobby == null
-                                        ? _onRoomSelected
-                                        : null,
-                                  ),
-                                ),
-                                if (_selectedRoom != null) ...[
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    tooltip: 'Clear room selection',
-                                    onPressed: _clearRoom,
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (_selectedRoom != null) ...[
                               const SizedBox(height: 12),
-                              _BedSelection(
-                                label: "Bed",
-                                beds: _availableBeds,
-                                selectedBeds: _selectedBeds,
-                                roomIdentifier: _selectedRoom!.roomIdentifier,
-                                onChanged: (beds) {
-                                  setState(() => _selectedBeds = beds);
-                                },
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: _RoomDropdown(
+                                      label: "Room",
+                                      rooms: _selectedFloor == null
+                                          ? const []
+                                          : _availableRooms
+                                                .where(
+                                                  (room) =>
+                                                      room.floor ==
+                                                      _selectedFloor,
+                                                )
+                                                .toList(),
+                                      selectedRoom: _selectedRoom,
+                                      onChanged:
+                                          _selectedFloor != null &&
+                                              _selectedLobby == null
+                                          ? _onRoomSelected
+                                          : null,
+                                    ),
+                                  ),
+                                  if (_selectedRoom != null) ...[
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip: 'Clear room selection',
+                                      onPressed: _clearRoom,
+                                      icon: const Icon(Icons.close_rounded),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              if (_selectedRoom != null) ...[
+                                const SizedBox(height: 12),
+                                _BedSelection(
+                                  label: "Bed",
+                                  beds: _availableBeds,
+                                  selectedBeds: _selectedBeds,
+                                  roomIdentifier: _selectedRoom!.roomIdentifier,
+                                  onChanged: (beds) {
+                                    setState(() => _selectedBeds = beds);
+                                  },
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              _NatureField(
+                                label: "Transaction number (UTI number)",
+                                hint: "Unique transaction identifier",
+                                controller: _utiNumberController,
                               ),
                             ],
-                            const SizedBox(height: 12),
-                            _NatureField(
-                              label: "Transaction number (UTI number)",
-                              hint: "Unique transaction identifier",
-                              controller: _utiNumberController,
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      // ── Payment Summary ──
-                      _PaymentSummary(
-                        bedsCount: _selectedLobby != null
-                            ? 1
-                            : _selectedBeds.length,
-                        attendantsCount: _attendants
-                            .where(
-                              (a) => a.nameController.text.trim().isNotEmpty,
-                            )
-                            .length,
-                        isPrivateRoom: _selectedRoom?.isPrivate ?? false,
-                        roomIdentifier: _selectedRoom?.roomIdentifier,
-                        placementSelected:
-                            _selectedRoom != null || _selectedLobby != null,
-                        placementLabel: _selectedLobby,
-                        days: _plannedStayDays,
-                        pricing: _pricing,
-                        pricingLoaded: _pricingLoaded,
-                      ),
-                      const SizedBox(height: 20),
-                      _buildAttendantDetails(),
-                    ],
+                        const SizedBox(height: 20),
+                        // ── Payment Summary ──
+                        _PaymentSummary(
+                          bedsCount: _selectedLobby != null
+                              ? 1
+                              : _selectedBeds.length,
+                          attendantsCount: _attendants
+                              .where(
+                                (a) => a.nameController.text.trim().isNotEmpty,
+                              )
+                              .length,
+                          isPrivateRoom: _selectedRoom?.isPrivate ?? false,
+                          roomIdentifier: _selectedRoom?.roomIdentifier,
+                          placementSelected:
+                              _selectedRoom != null || _selectedLobby != null,
+                          placementLabel: _selectedLobby,
+                          days: _plannedStayDays,
+                          pricing: _pricing,
+                          pricingLoaded: _pricingLoaded,
+                        ),
+                        const SizedBox(height: 20),
+                        _buildAttendantDetails(),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              _DialogFooter(
-              onCancel: () => Navigator.pop(context),
-              onSave:
-                  _isLoading ||
-                      ((_selectedRoom != null || _selectedLobby != null) &&
-                          !_pricingLoaded)
-                  ? null
-                  : _savePatient,
-              isLoading: _isLoading,
-              ),
-            ],
+                _DialogFooter(
+                  onCancel: () => Navigator.pop(context),
+                  onSave:
+                      _isLoading ||
+                          ((_selectedRoom != null || _selectedLobby != null) &&
+                              !_pricingLoaded)
+                      ? null
+                      : _savePatient,
+                  isLoading: _isLoading,
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -52,6 +52,9 @@ class PatientFormRow2 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width < 500) {
+      return Column(children: [a, const SizedBox(height: 12), b]);
+    }
     return Row(
       children: [
         Expanded(child: a),
@@ -71,6 +74,17 @@ class PatientFormRow3 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width < 620) {
+      return Column(
+        children: [
+          a,
+          const SizedBox(height: 12),
+          b,
+          const SizedBox(height: 12),
+          c,
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(child: a),
@@ -87,6 +101,7 @@ class PatientFormField extends StatelessWidget {
   final String label;
   final String hint;
   final bool isDate;
+  final bool isTime;
   final TextInputType keyboard;
   final TextEditingController? controller;
   final VoidCallback? onTap;
@@ -99,6 +114,7 @@ class PatientFormField extends StatelessWidget {
     required this.label,
     required this.hint,
     this.isDate = false,
+    this.isTime = false,
     this.keyboard = TextInputType.text,
     this.controller,
     this.onTap,
@@ -125,22 +141,28 @@ class PatientFormField extends StatelessWidget {
         TextField(
           controller: controller,
           enabled: enabled,
-          readOnly: isDate,
+          readOnly: isDate || isTime,
           onTap: onTap,
-          keyboardType: isDate ? TextInputType.datetime : keyboard,
+          keyboardType: isDate || isTime ? TextInputType.datetime : keyboard,
           maxLines: maxLines,
           inputFormatters: inputFormatters,
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           decoration: InputDecoration(
-            hintText: isDate ? 'DD / MM / YYYY' : hint,
+            hintText: isDate
+                ? 'DD / MM / YYYY'
+                : isTime
+                ? 'HH : MM'
+                : hint,
             hintStyle: TextStyle(
               color: const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
             ),
-            suffixIcon: isDate
-                ? const Icon(
-                    Icons.calendar_today_outlined,
-                    color: Color(0xFF639922),
+            suffixIcon: isDate || isTime
+                ? Icon(
+                    isTime
+                        ? Icons.access_time_rounded
+                        : Icons.calendar_today_outlined,
+                    color: const Color(0xFF639922),
                     size: 16,
                   )
                 : null,

@@ -149,6 +149,24 @@ void main() {
     expect(bill.days['active'], 7);
   });
 
+  test('an active stay without an exit date remains billed for seven days', () {
+    final bill = StayBilling.calculate(
+      patient: patient(status: 'active'),
+      stays: [
+        StayModel.fromMap(
+          'active',
+          segment('active', 'general', 1, 8, status: 'active'),
+        ),
+      ],
+      pricing: {'generalRoomBedPrice': 200},
+      // A much later date must not extend the default estimate.
+      now: DateTime(2026, 2, 7),
+    ).single;
+
+    expect(bill.days['active'], 7);
+    expect(bill.total, 1400);
+  });
+
   test('only manually present attendant days are charged', () {
     final data = segment('general', 'general', 1, 3);
     data['attendantCount'] = 1;
@@ -192,16 +210,10 @@ void main() {
     data['attendantCount'] = 1;
     final present = <String, Map<String, String>>{
       for (var day = 1; day <= 6; day++)
-        '2026-01-${day.toString().padLeft(2, '0')}': {
-          'Attendant': 'Present',
-        },
+        '2026-01-${day.toString().padLeft(2, '0')}': {'Attendant': 'Present'},
     };
     final bill = StayBilling.calculate(
-      patient: patient(
-        status: 'active',
-        exit: 8,
-        payments: [payment(800)],
-      ),
+      patient: patient(status: 'active', exit: 8, payments: [payment(800)]),
       stays: [StayModel.fromMap('lobby', data)],
       pricing: {'generalRoomBedPrice': 200},
       attendantAttendance: present,
@@ -213,44 +225,50 @@ void main() {
     expect(bill.due, 1800);
   });
 
-  test('legacy generated daily rate does not override attendant attendance', () {
-    final data = segment('lobby', 'lobby', 1, 10, status: 'active');
-    data['dailyRate'] = 400;
-    data['attendantCount'] = 1;
-    final bill = StayBilling.calculate(
-      patient: patient(status: 'active', exit: 10),
-      stays: [StayModel.fromMap('lobby', data)],
-      pricing: {'generalRoomBedPrice': 200},
-      attendantAttendance: {
-        for (final day in [1, 2, 3, 6, 7, 8])
-          '2026-01-${day.toString().padLeft(2, '0')}': {
-            'Attendant': 'Present',
-          },
-      },
-    ).single;
+  test(
+    'legacy generated daily rate does not override attendant attendance',
+    () {
+      final data = segment('lobby', 'lobby', 1, 10, status: 'active');
+      data['dailyRate'] = 400;
+      data['attendantCount'] = 1;
+      final bill = StayBilling.calculate(
+        patient: patient(status: 'active', exit: 10),
+        stays: [StayModel.fromMap('lobby', data)],
+        pricing: {'generalRoomBedPrice': 200},
+        attendantAttendance: {
+          for (final day in [1, 2, 3, 6, 7, 8])
+            '2026-01-${day.toString().padLeft(2, '0')}': {
+              'Attendant': 'Present',
+            },
+        },
+      ).single;
 
-    expect(bill.total, 3000);
-  });
+      expect(bill.total, 3000);
+    },
+  );
 
-  test('legacy patient override does not replace attendance-aware stay bill', () {
-    final patientData = patient(status: 'active', exit: 10).toMap()
-      ..['billingAmountOverride'] = 3600;
-    final data = segment('lobby', 'lobby', 1, 10, status: 'active')
-      ..['attendantCount'] = 1;
-    final bill = StayBilling.calculate(
-      patient: PatientModel.fromMap('p', patientData),
-      stays: [StayModel.fromMap('lobby', data)],
-      pricing: {'generalRoomBedPrice': 200},
-      attendantAttendance: {
-        for (final day in [1, 2, 3, 6, 7, 8])
-          '2026-01-${day.toString().padLeft(2, '0')}': {
-            'Attendant': 'Present',
-          },
-      },
-    ).single;
+  test(
+    'legacy patient override does not replace attendance-aware stay bill',
+    () {
+      final patientData = patient(status: 'active', exit: 10).toMap()
+        ..['billingAmountOverride'] = 3600;
+      final data = segment('lobby', 'lobby', 1, 10, status: 'active')
+        ..['attendantCount'] = 1;
+      final bill = StayBilling.calculate(
+        patient: PatientModel.fromMap('p', patientData),
+        stays: [StayModel.fromMap('lobby', data)],
+        pricing: {'generalRoomBedPrice': 200},
+        attendantAttendance: {
+          for (final day in [1, 2, 3, 6, 7, 8])
+            '2026-01-${day.toString().padLeft(2, '0')}': {
+              'Attendant': 'Present',
+            },
+        },
+      ).single;
 
-    expect(bill.total, 3000);
-  });
+      expect(bill.total, 3000);
+    },
+  );
 
   test('a gap between room segments does not charge the departed room', () {
     final stays = [
@@ -300,11 +318,11 @@ void main() {
           'general': room('general'),
         },
       });
-      await StayHistoryService(db).updateStay('current', {
-        'roomId': 'general',
-        'roomType': 'general',
-        'roomNumber': 'general',
-      }, expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)));
+      await StayHistoryService(db).updateStay(
+        'current',
+        {'roomId': 'general', 'roomType': 'general', 'roomNumber': 'general'},
+        expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)),
+      );
       expect(db.writes, 1);
       expect((await db.get('rooms/private/beds/bed'))['status'], 'available');
       expect((await db.get('rooms/general/beds/bed'))['currentPatientId'], 'p');
@@ -325,11 +343,11 @@ void main() {
       },
     });
     await expectLater(
-      StayHistoryService(db).updateStay('current', {
-        'roomId': 'general',
-        'roomType': 'general',
-        'roomNumber': 'general',
-      }, expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8))),
+      StayHistoryService(db).updateStay(
+        'current',
+        {'roomId': 'general', 'roomType': 'general', 'roomNumber': 'general'},
+        expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)),
+      ),
       throwsStateError,
     );
     expect(db.writes, 0);
@@ -408,7 +426,7 @@ void main() {
     );
     expect(bills.firstWhere((b) => b.id == cycle).refundDue, 0);
     expect(bills.firstWhere((b) => b.id == newCycle).netPaid, 300);
-    expect(bills.firstWhere((b) => b.id == newCycle).due, 0);
+    expect(bills.firstWhere((b) => b.id == newCycle).due, 100);
   });
 
   test('legacy payment earlier on the admission day belongs to that cycle', () {
@@ -450,13 +468,17 @@ void main() {
         'patients': {'p': data},
         'stays': {for (final s in mixedStays()) s.id: s.toMap()},
       });
-      await StayHistoryService(db).updateStay('general', {
-        'completedAt': stamp(7),
-        'patientSnapshot': {
-          'registrationNumber': 'REG-CORRECTED',
-          'attendants': [],
+      await StayHistoryService(db).updateStay(
+        'general',
+        {
+          'completedAt': stamp(7),
+          'patientSnapshot': {
+            'registrationNumber': 'REG-CORRECTED',
+            'attendants': [],
+          },
         },
-      }, expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)));
+        expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)),
+      );
       expect(db.writes, 1);
       final result = await db.get('patients/p');
       expect(result['advanceBilledAmount'], 3200);
@@ -484,16 +506,20 @@ void main() {
           'new': segment('new', 'general', 15, 17, cycleId: newCycle),
         },
       });
-      await StayHistoryService(db).updateStay('general', {
-        'completedAt': stamp(7),
-        'patientSnapshot': {
-          'registrationNumber': 'OLD-CORRECTED',
-          'attendants': [],
+      await StayHistoryService(db).updateStay(
+        'general',
+        {
+          'completedAt': stamp(7),
+          'patientSnapshot': {
+            'registrationNumber': 'OLD-CORRECTED',
+            'attendants': [],
+          },
         },
-      }, expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)));
+        expectedUpdatedAt: DateTime.fromMillisecondsSinceEpoch(stamp(8)),
+      );
       final result = await db.get('patients/p');
       expect(result['registrationNumber'], 'NEW-REG');
-      expect(result['advanceBilledAmount'], 300);
+      expect(result['advanceBilledAmount'], 400);
       expect(result['totalPaidAmount'], 300);
       expect(result['totalRefundDueAmount'], 800);
     },

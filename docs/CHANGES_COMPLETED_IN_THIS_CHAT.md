@@ -30,7 +30,7 @@
   - Exit at or before 9:00 AM does not add another billed day.
   - Exit after 9:00 AM adds that calendar day to billing.
 - An active patient with a recorded exit date is billed only through that exit boundary.
-- If no exit date is recorded, the application uses the seven-day estimate and extends the active calculation as the stay continues.
+- If no exit date is recorded, the application uses the seven-day estimate until an exit date is entered.
 - A patient marked manually **Absent** for a date is not charged for that date.
 - Paid money is never removed when the bill is recalculated. The system recalculates total, keeps receipts as credits, and derives pending or refundable amounts.
 
@@ -189,7 +189,7 @@ Focused billing tests were expanded to cover exit-date billing, transfer-day bil
 ## 15. Ongoing stays after shifting
 
 - The shift confirmation now includes **No exit date — stay is ongoing**. It is selected automatically when the patient has no exit date, and the saved shift keeps `exitDate` empty.
-- Edit Patient contains the same option, allowing an existing exit date to be cleared. With no exit date, billing continues under the rolling/default stay rule until a date is entered.
+- Edit Patient contains the same option, allowing an existing exit date to be cleared. With no exit date, billing uses the seven-day default until a date is entered.
 - Add Patient now also supports **Planned exit date not decided**. It uses the seven-day estimate initially without saving that estimate as an actual exit date.
 - The current segment in Edit Shifting Timeline can display **Planned exit date: Not decided** while keeping the stay open.
 - Active patient Overview and Stay cards label the value **Planned Exit Date**. Completed patients and stays label the recorded value **Actual Discharge Date**.

@@ -3,7 +3,7 @@
     "patients": {
       ".read": "auth != null",
       ".write": "auth != null",
-      ".indexOn": ["status", "roomId", "floor", "searchKey"],
+      ".indexOn": ["status", "roomId", "floor", "searchKey", "registrationNumber"],
       "$patientId": {
         ".validate": "newData.hasChildren(['id', 'fullName', 'searchKey', 'dateOfBirth', 'age', 'gender', 'contactNumber', 'emergencyContact', 'emergencyContactName', 'medicalCondition', 'admissionDate', 'status', 'createdAt', 'updatedAt', 'createdBy'])"
       }

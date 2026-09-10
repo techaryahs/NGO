@@ -6,12 +6,14 @@ class TopBar extends StatelessWidget {
   final String title;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
+  final VoidCallback? onMenuTap;
 
   const TopBar({
     super.key,
     required this.title,
     required this.onProfileTap,
     required this.onSettingsTap,
+    this.onMenuTap,
   });
 
   @override
@@ -22,7 +24,7 @@ class TopBar extends StatelessWidget {
 
     return Container(
       height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.symmetric(horizontal: onMenuTap == null ? 20 : 8),
       decoration: const BoxDecoration(
         color: Color(0xFFFAFDf7),
         border: Border(
@@ -32,12 +34,28 @@ class TopBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF27500A),
+          Expanded(
+            child: Row(
+              children: [
+                if (onMenuTap != null)
+                  IconButton(
+                    onPressed: onMenuTap,
+                    icon: const Icon(Icons.menu_rounded),
+                    color: const Color(0xFF27500A),
+                    tooltip: 'Open navigation',
+                  ),
+                Expanded(
+                  child: Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF27500A),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Row(

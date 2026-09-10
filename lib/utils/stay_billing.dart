@@ -117,15 +117,12 @@ class StayBilling {
         if (active) {
           // A recorded exit date is the billing boundary even while the
           // patient is still awaiting formal discharge. Without an exit date,
-          // retain the seven-day estimate and grow it through the current day.
+          // bill only the initial seven-day estimate. An open stay must not
+          // silently grow its bill just because the current date advances.
           if (patient.exitDate != null) {
             end = patient.exitDate!;
           } else {
             end = start.add(const Duration(days: PricingHelper.advanceDays));
-            final today = day(
-              now ?? DateTime.now(),
-            ).add(const Duration(days: 1));
-            if (end.isBefore(today)) end = today;
           }
         } else {
           end = segments
@@ -218,7 +215,9 @@ class StayBilling {
       // A patient-level override is legacy data from the old admission form.
       // Once stay segments exist, their calculated charges (or an explicit
       // stay costOverride) are authoritative so attendance can adjust totals.
-      if (isCurrent && segments.isEmpty && patient.billingAmountOverride != null)
+      if (isCurrent &&
+          segments.isEmpty &&
+          patient.billingAmountOverride != null)
         total = patient.billingAmountOverride!;
       var paid = 0.0;
       var refunded = 0.0;

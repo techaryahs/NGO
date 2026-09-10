@@ -858,7 +858,7 @@ class _StayHistoryCardView extends StatelessWidget {
                                   children: [
                                     _detail(
                                       'PLACEMENT PERIOD',
-                                      '${DateFormat('dd MMM, hh:mm a').format(stay.admissionDate)} → ${DateFormat('dd MMM, hh:mm a').format(exit ?? stay.updatedAt)}',
+                                      '${DateFormat('dd MMM, hh:mm a').format(stay.admissionDate)} → ${DateFormat('dd MMM, hh:mm a').format(exit ?? (active ? stay.expectedDischargeDate : stay.updatedAt))}',
                                       Icons.date_range_outlined,
                                     ),
                                     if (stay.dailyRate != null)

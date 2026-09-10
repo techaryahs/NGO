@@ -186,7 +186,7 @@ Future<bool> showShiftPatientDialog(
                 activeColor: const Color(0xFF3B6D11),
                 title: const Text('No exit date — stay is ongoing'),
                 subtitle: const Text(
-                  'Billing continues until an exit date is entered.',
+                  'Billing uses the default 7-day estimate until an exit date is entered.',
                 ),
               ),
             ],

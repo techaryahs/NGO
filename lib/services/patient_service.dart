@@ -175,11 +175,19 @@ class PatientService {
 
     // Ask Firebase for matching records only. Downloading the entire patient
     // collection made a simple add/edit fail on slower connections.
-    final data = await _rtdb.query(
-      _patientsPath,
-      orderBy: 'registrationNumber',
-      equalTo: registrationNumber.trim(),
-    );
+    dynamic data;
+    try {
+      data = await _rtdb.query(
+        _patientsPath,
+        orderBy: 'registrationNumber',
+        equalTo: registrationNumber.trim(),
+      );
+    } catch (_) {
+      // Older Firebase projects can be missing the registrationNumber index
+      // during a rules rollout. Preserve duplicate protection (at the cost of
+      // one full read) instead of blocking a new admission with a 400 error.
+      data = await _rtdb.get(_patientsPath);
+    }
     if (data is! Map) return null;
     for (final entry in Map<String, dynamic>.from(data).entries) {
       if (entry.key == excludingPatientId || entry.value is! Map) continue;
@@ -485,7 +493,8 @@ class PatientService {
       desiredDates.add(dateKey);
       final daily = attendance[dateKey];
       final existing = daily is Map ? daily[patientId] : null;
-      final isManual = existing is Map &&
+      final isManual =
+          existing is Map &&
           existing['source'] != 'automatic_registration_period' &&
           {'Present', 'Absent'}.contains(existing['status']);
       if (isManual) continue;
@@ -618,8 +627,11 @@ class PatientService {
         (summary['refundDue'] as num?)?.toDouble() ??
         (paid - total).clamp(0, double.infinity);
 
-    final patientAttendance = await _rtdb.get('attendance/daily');
-    final attendantAttendance = await _rtdb.get('attendant_attendance/daily');
+    // Discharge needs an explicit planned exit boundary. Do not use today as
+    // an implicit exit date and then ask staff to mark attendance beyond the
+    // agreed stay period.
+    final needsPlannedExit = patient.exitDate == null;
+
     // Attendance readiness belongs to the current admission cycle. Older
     // admission/registration values can remain on rejoined records, so use
     // the later current-cycle boundary and stop at the recorded exit date.
@@ -630,50 +642,54 @@ class PatientService {
     final start = registrationDay.isAfter(admissionDay)
         ? registrationDay
         : admissionDay;
-    final requestedEnd = StayBilling.day(
-      patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
-    );
-    final end = requestedEnd.isBefore(start) ? start : requestedEnd;
     var missingPatientDays = 0;
     var missingAttendantMarks = 0;
-    String key(DateTime date) => StayBilling.dateKey(date);
-    for (
-      var date = start;
-      !date.isAfter(end);
-      date = DateTime(date.year, date.month, date.day + 1)
-    ) {
-      final dateKey = key(date);
-      final patientRecord =
-          patientAttendance is Map && patientAttendance[dateKey] is Map
-          ? patientAttendance[dateKey][patientId]
-          : null;
-      if (patientRecord is! Map ||
-          !{'Present', 'Absent'}.contains(patientRecord['status'])) {
-        missingPatientDays++;
-      }
-      final segment = _segmentForDate(cycleSegments, date);
-      if (segment == null) continue;
-      final names = _attendantNames(segment, patient);
-      final daily =
-          attendantAttendance is Map &&
-              attendantAttendance[dateKey] is Map &&
-              attendantAttendance[dateKey][patientId] is Map
-          ? attendantAttendance[dateKey][patientId] as Map
-          : const {};
-      for (final name in names) {
-        final safe = name.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
-        final record = daily[safe];
-        if (record is! Map ||
-            !{'Present', 'Absent'}.contains(record['status'])) {
-          missingAttendantMarks++;
+    DateTime? end;
+    if (!needsPlannedExit) {
+      final patientAttendance = await _rtdb.get('attendance/daily');
+      final attendantAttendance = await _rtdb.get('attendant_attendance/daily');
+      final requestedEnd = StayBilling.day(patient.exitDate!);
+      end = requestedEnd.isBefore(start) ? start : requestedEnd;
+      for (
+        var date = start;
+        !date.isAfter(end);
+        date = DateTime(date.year, date.month, date.day + 1)
+      ) {
+        final dateKey = StayBilling.dateKey(date);
+        final patientRecord =
+            patientAttendance is Map && patientAttendance[dateKey] is Map
+            ? patientAttendance[dateKey][patientId]
+            : null;
+        if (patientRecord is! Map ||
+            !{'Present', 'Absent'}.contains(patientRecord['status'])) {
+          missingPatientDays++;
+        }
+        final segment = _segmentForDate(cycleSegments, date);
+        if (segment == null) continue;
+        final names = _attendantNames(segment, patient);
+        final daily =
+            attendantAttendance is Map &&
+                attendantAttendance[dateKey] is Map &&
+                attendantAttendance[dateKey][patientId] is Map
+            ? attendantAttendance[dateKey][patientId] as Map
+            : const {};
+        for (final name in names) {
+          final safe = name.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
+          final record = daily[safe];
+          if (record is! Map ||
+              !{'Present', 'Absent'}.contains(record['status'])) {
+            missingAttendantMarks++;
+          }
         }
       }
     }
     final reasons = <String>[
+      if (needsPlannedExit)
+        'Set the planned exit date before discharging this patient.',
       if (missingPatientDays > 0)
-        '$missingPatientDays patient attendance day(s) are unmarked between ${_shortDate(start)} and ${_shortDate(end)}.',
+        'Mark $missingPatientDays patient attendance day(s) through the planned exit date (${_shortDate(end!)}).',
       if (missingAttendantMarks > 0)
-        '$missingAttendantMarks attendant attendance record(s) are unmarked between ${_shortDate(start)} and ${_shortDate(end)}.',
+        'Mark $missingAttendantMarks attendant attendance record(s) through the planned exit date (${_shortDate(end!)}).',
       if (pending > 0.005) '₹${pending.toStringAsFixed(0)} remains to be paid.',
       if (refundDue > 0.005)
         '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
@@ -814,8 +830,7 @@ class PatientService {
       await _purgePatientArtifacts(
         patientId,
         stays,
-        attendanceStart:
-            patient?.registrationDate ?? patient?.admissionDate,
+        attendanceStart: patient?.registrationDate ?? patient?.admissionDate,
       );
     } catch (e) {
       throw Exception('Failed to delete patient: $e');
@@ -880,10 +895,11 @@ class PatientService {
     };
     final stayIds = stays.map((stay) => stay.id).toSet();
     final roomService = ServiceLocator().roomService;
-    for (final roomId in stays
-        .where((stay) => stay.roomType != 'lobby' && stay.roomId.isNotEmpty)
-        .map((stay) => stay.roomId)
-        .toSet()) {
+    for (final roomId
+        in stays
+            .where((stay) => stay.roomType != 'lobby' && stay.roomId.isNotEmpty)
+            .map((stay) => stay.roomId)
+            .toSet()) {
       final room = await roomService.getRoom(roomId);
       if (room == null) continue;
       final fixedBeds = room.beds.map((bed) {
@@ -901,8 +917,7 @@ class PatientService {
       final occupied = fixedBeds.where((bed) => bed.isOccupied).length;
       final removedAttendants = stays
           .where(
-            (stay) =>
-                stay.roomId == roomId && stay.isActive && room.isPrivate,
+            (stay) => stay.roomId == roomId && stay.isActive && room.isPrivate,
           )
           .fold<int>(0, (sum, stay) => sum + stay.attendantCount);
       cleanup.addAll({
@@ -958,11 +973,28 @@ class PatientService {
     }
 
     for (final path in const ['payments', 'paymentHistory']) {
-      final records = await _rtdb.getByChildValue(
-        path,
-        child: 'patientId',
-        value: patientId,
-      );
+      dynamic records;
+      try {
+        records = await _rtdb.getByChildValue(
+          path,
+          child: 'patientId',
+          value: patientId,
+        );
+      } catch (_) {
+        // Some deployed databases may not yet have the payment index even
+        // though the current rules define it. Fall back to one full read so a
+        // patient can still be deleted, then filter locally to preserve the
+        // exact cleanup scope.
+        final allRecords = await _rtdb.get(path);
+        records = allRecords is Map
+            ? {
+                for (final entry in allRecords.entries)
+                  if (entry.value is Map &&
+                      entry.value['patientId']?.toString() == patientId)
+                    entry.key: entry.value,
+              }
+            : null;
+      }
       if (records is Map) {
         for (final id in records.keys) {
           cleanup['$path/$id'] = null;

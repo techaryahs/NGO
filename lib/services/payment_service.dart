@@ -8,12 +8,21 @@ class PaymentService {
   final FirebaseRTDBRestService _rtdb;
   final String _path = 'payments';
   PaymentService(this._rtdb);
+
   Future<List<StayModel>> loadStays(String patientId) async {
-    final data = await _rtdb.getByChildValue(
-      'stays',
-      child: 'patientId',
-      value: patientId,
-    );
+    dynamic data;
+    try {
+      data = await _rtdb.getByChildValue(
+        'stays',
+        child: 'patientId',
+        value: patientId,
+      );
+    } catch (_) {
+      // A patient update has already succeeded by the time billing runs.
+      // Avoid reporting a false failure when an older RTDB deployment has not
+      // yet received the patientId index defined in database.rules.json.
+      data = await _rtdb.get('stays');
+    }
     return [
       if (data is Map)
         for (final entry in data.entries)
@@ -37,7 +46,8 @@ class PaymentService {
     // dynamic rate; manually edited rates remain untouched.
     final migratedDynamicRateIds = <String>{};
     stays = stays.map((stay) {
-      final isGeneratedRate = stay.costOverride == null &&
+      final isGeneratedRate =
+          stay.costOverride == null &&
           !stay.dailyRateIsManual &&
           stay.dailyRate != null;
       if (!isGeneratedRate) return stay;
@@ -51,9 +61,7 @@ class PaymentService {
     ];
     final rangeEnds = <DateTime>[
       patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
-      ...stays.map(
-        (stay) => stay.completedAt ?? stay.expectedDischargeDate,
-      ),
+      ...stays.map((stay) => stay.completedAt ?? stay.expectedDischargeDate),
     ];
     rangeStarts.sort();
     rangeEnds.sort();
@@ -76,8 +84,8 @@ class PaymentService {
     final pricing = rawPricing is Map
         ? Map<String, dynamic>.from(rawPricing)
         : <String, dynamic>{};
-    final savedGeneralRate =
-        (pricing['generalRoomBedPrice'] as num?)?.toDouble();
+    final savedGeneralRate = (pricing['generalRoomBedPrice'] as num?)
+        ?.toDouble();
     final migrateGeneralRate =
         savedGeneralRate == null || savedGeneralRate == 150;
     if (migrateGeneralRate) pricing['generalRoomBedPrice'] = 200;
@@ -343,7 +351,8 @@ class PaymentService {
         ? Map<String, dynamic>.from(global)
         : payments[index];
     final stays = await loadStays(patientId);
-    final cycleId = changes?['cycleId']?.toString() ??
+    final cycleId =
+        changes?['cycleId']?.toString() ??
         StayBilling.paymentCycle(
           PaymentModel.fromMap(paymentId, original),
           patient,
