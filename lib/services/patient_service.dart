@@ -747,14 +747,14 @@ class PatientService {
       final patient = await getPatient(patientId);
       if (patient == null) throw Exception('Patient not found');
 
-      final dischargeActionTime = DateTime.now();
+      final actualDischargeDate = patient.exitDate!;
       final billingAdmissionDate =
           patient.registrationDate ?? patient.admissionDate;
       // Lifecycle status is the primary action and must not depend on room or
       // legacy stay cleanup succeeding.
       await updatePatient(patientId, {
         'status': 'discharged',
-        'dischargeDate': dischargeActionTime.millisecondsSinceEpoch,
+        'dischargeDate': actualDischargeDate.millisecondsSinceEpoch,
       });
 
       // Release all active placements as best-effort cleanup.
@@ -768,7 +768,7 @@ class PatientService {
           try {
             await roomService.completeStay(
               activeStay.id,
-              completedAt: patient.exitDate ?? dischargeActionTime,
+              completedAt: actualDischargeDate,
               billingAdmissionDate:
                   activeStay.notes?.startsWith('Shifted from ') == true
                   ? null
@@ -799,7 +799,7 @@ class PatientService {
       // lifecycle state.
       await updatePatient(patientId, {
         'status': 'discharged',
-        'dischargeDate': dischargeActionTime.millisecondsSinceEpoch,
+        'dischargeDate': actualDischargeDate.millisecondsSinceEpoch,
       });
     } catch (e) {
       throw Exception('Failed to discharge patient: $e');

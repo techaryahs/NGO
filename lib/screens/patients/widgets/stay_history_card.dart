@@ -8,6 +8,7 @@ import '../../../utils/bed_helper.dart';
 import '../../../models/room_model.dart';
 import '../../../services/service_locator.dart';
 import '../../../services/stay_history_service.dart';
+import '../../../utils/stay_billing.dart';
 import 'inline_stay_editor.dart';
 import 'shift_timeline_editor.dart';
 
@@ -367,8 +368,10 @@ class _StayHistoryCardView extends StatelessWidget {
         ? stay.admissionDate
         : orderedSegments.first.admissionDate;
     final lastSegment = orderedSegments.isEmpty ? stay : orderedSegments.last;
-    final exit = active
-        ? patient.exitDate
+    final currentCycle =
+        StayBilling.cycleFor(stay, patient) == StayBilling.currentCycle(patient);
+    final exit = active || currentCycle
+        ? patient.exitDate ?? patient.dischargeDate
         : lastSegment.completedAt ?? lastSegment.updatedAt;
     final total =
         (summary['total'] as num?)?.toDouble() ??
@@ -777,6 +780,7 @@ class _StayHistoryCardView extends StatelessWidget {
                     ).copyWith(dividerColor: Colors.transparent),
                     child: ExpansionTile(
                       tilePadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
                       title: const Text(
                         'Stay details',
                         style: TextStyle(

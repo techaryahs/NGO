@@ -1534,7 +1534,7 @@ class _OverviewTab extends StatelessWidget {
     final registrationDate = patient.registrationDate ?? patient.admissionDate;
     final discharged = patient.status.toLowerCase() == 'discharged';
     final displayedExitDate = discharged
-        ? patient.dischargeDate ?? patient.exitDate
+        ? patient.exitDate ?? patient.dischargeDate
         : patient.exitDate;
     final dateTimeFormat = DateFormat('d/M/y, hh:mm a');
     final registrationStr = dateTimeFormat.format(registrationDate);
