@@ -445,7 +445,7 @@ class PatientService {
             patientId: patientId,
             patientName: revised!.fullName,
             start: revised.registrationDate ?? revised.admissionDate,
-            end: revised.exitDate!,
+            end: _lastRequiredAttendanceDay(exit: revised.exitDate!),
             cycleId: revised.admissionDate.millisecondsSinceEpoch.toString(),
           );
         } else if (revised != null) {
@@ -590,20 +590,15 @@ class PatientService {
   // STATUS TRANSITIONS
   // ===========================================================================
 
-  Future<Map<String, dynamic>> getDischargeReadiness(String patientId) async {
+  Future<Map<String, dynamic>> getDischargeReadiness(
+    String patientId, {
+    PatientModel? patientOverride,
+  }) async {
+    await _persistOverrideExitDate(patientId, patientOverride);
     await ServiceLocator().paymentService
         .recalculatePatientAttendanceAndBilling(patientId);
-    final patient = await getPatient(patientId);
+    final patient = patientOverride ?? await getPatient(patientId);
     if (patient == null) throw StateError('Patient not found');
-    if (patient.exitDate != null) {
-      await syncAutomaticPatientAttendance(
-        patientId: patientId,
-        patientName: patient.fullName,
-        start: patient.registrationDate ?? patient.admissionDate,
-        end: patient.exitDate!,
-        cycleId: patient.admissionDate.millisecondsSinceEpoch.toString(),
-      );
-    }
     final stays = await ServiceLocator().roomService
         .getStaysByPatientStream(patientId)
         .first;
@@ -611,6 +606,24 @@ class PatientService {
     final cycleSegments = stays
         .where((stay) => StayBilling.cycleFor(stay, patient) == cycleId)
         .toList();
+    final plannedExit = _effectivePlannedExitDate(patient, cycleSegments);
+    final requiredThrough = plannedExit == null
+        ? null
+        : _lastRequiredAttendanceDay(exit: plannedExit);
+    final start = _attendanceStartDay(
+      patient,
+      cycleSegments,
+      through: requiredThrough,
+    );
+    if (plannedExit != null) {
+      await syncAutomaticPatientAttendance(
+        patientId: patientId,
+        patientName: patient.fullName,
+        start: start,
+        end: requiredThrough!,
+        cycleId: patient.admissionDate.millisecondsSinceEpoch.toString(),
+      );
+    }
     final balance = patient.admissionBalances[cycleId];
     final summary = balance is Map ? balance : const <String, dynamic>{};
     final total =
@@ -630,26 +643,13 @@ class PatientService {
     // Discharge needs an explicit planned exit boundary. Do not use today as
     // an implicit exit date and then ask staff to mark attendance beyond the
     // agreed stay period.
-    final needsPlannedExit = patient.exitDate == null;
+    final needsPlannedExit = plannedExit == null;
 
-    // Attendance readiness belongs to the current admission cycle. Older
-    // admission/registration values can remain on rejoined records, so use
-    // the later current-cycle boundary and stop at the recorded exit date.
-    final admissionDay = StayBilling.day(patient.admissionDate);
-    final registrationDay = patient.registrationDate == null
-        ? admissionDay
-        : StayBilling.day(patient.registrationDate!);
-    final start = registrationDay.isAfter(admissionDay)
-        ? registrationDay
-        : admissionDay;
     var missingPatientDays = 0;
-    var missingAttendantMarks = 0;
     DateTime? end;
     if (!needsPlannedExit) {
       final patientAttendance = await _rtdb.get('attendance/daily');
-      final attendantAttendance = await _rtdb.get('attendant_attendance/daily');
-      final requestedEnd = StayBilling.day(patient.exitDate!);
-      end = requestedEnd.isBefore(start) ? start : requestedEnd;
+      end = requiredThrough!;
       for (
         var date = start;
         !date.isAfter(end);
@@ -664,32 +664,13 @@ class PatientService {
             !{'Present', 'Absent'}.contains(patientRecord['status'])) {
           missingPatientDays++;
         }
-        final segment = _segmentForDate(cycleSegments, date);
-        if (segment == null) continue;
-        final names = _attendantNames(segment, patient);
-        final daily =
-            attendantAttendance is Map &&
-                attendantAttendance[dateKey] is Map &&
-                attendantAttendance[dateKey][patientId] is Map
-            ? attendantAttendance[dateKey][patientId] as Map
-            : const {};
-        for (final name in names) {
-          final safe = name.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
-          final record = daily[safe];
-          if (record is! Map ||
-              !{'Present', 'Absent'}.contains(record['status'])) {
-            missingAttendantMarks++;
-          }
-        }
       }
     }
     final reasons = <String>[
       if (needsPlannedExit)
         'Set the planned exit date before discharging this patient.',
       if (missingPatientDays > 0)
-        'Mark $missingPatientDays patient attendance day(s) through the planned exit date (${_shortDate(end!)}).',
-      if (missingAttendantMarks > 0)
-        'Mark $missingAttendantMarks attendant attendance record(s) through the planned exit date (${_shortDate(end!)}).',
+        'Mark $missingPatientDays patient attendance day(s) through ${_shortDate(end!)} for planned exit ${_shortDateTime(plannedExit!)}.',
       if (pending > 0.005) '₹${pending.toStringAsFixed(0)} remains to be paid.',
       if (refundDue > 0.005)
         '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
@@ -699,8 +680,9 @@ class PatientService {
       'paid': paid,
       'pending': pending,
       'refundDue': refundDue,
+      'plannedExitDate': plannedExit?.millisecondsSinceEpoch,
       'missingPatientDays': missingPatientDays,
-      'missingAttendantMarks': missingAttendantMarks,
+      'missingAttendantMarks': 0,
       'ready': reasons.isEmpty,
       'reasons': reasons,
     };
@@ -709,51 +691,124 @@ class PatientService {
   String _shortDate(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
 
-  StayModel? _segmentForDate(List<StayModel> segments, DateTime date) {
-    final candidates = segments.where((segment) {
-      if (StayBilling.day(segment.admissionDate).isAfter(date)) return false;
-      if (segment.isActive) return true;
-      return !StayBilling.day(
-        segment.completedAt ?? segment.updatedAt,
-      ).isBefore(date);
-    }).toList()..sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
-    return candidates.firstOrNull;
+  String _shortDateTime(DateTime value) {
+    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final minute = value.minute.toString().padLeft(2, '0');
+    final suffix = value.hour >= 12 ? 'PM' : 'AM';
+    return '${_shortDate(value)} $hour:$minute $suffix';
   }
 
-  List<String> _attendantNames(StayModel stay, PatientModel patient) {
-    final raw = stay.patientSnapshot['attendants'];
-    if (raw is List) {
-      return [
-        for (final item in raw)
-          if (item is Map && item['name']?.toString().trim().isNotEmpty == true)
-            item['name'].toString().trim(),
-      ];
+  Future<void> _persistOverrideExitDate(
+    String patientId,
+    PatientModel? patientOverride,
+  ) async {
+    final visibleExit = patientOverride?.exitDate;
+    if (visibleExit == null) return;
+
+    final rawPatient = await _rtdb.get('$_patientsPath/$patientId');
+    final rawExit = rawPatient is Map ? rawPatient['exitDate'] : null;
+    final savedExit = rawExit == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            rawExit is num
+                ? rawExit.toInt()
+                : int.tryParse(rawExit.toString()) ?? 0,
+          );
+    if (savedExit?.millisecondsSinceEpoch == visibleExit.millisecondsSinceEpoch)
+      return;
+
+    await _rtdb.patch('', {
+      '$_patientsPath/$patientId/exitDate': visibleExit.millisecondsSinceEpoch,
+      '$_patientsPath/$patientId/updatedAt':
+          DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  DateTime _lastRequiredAttendanceDay({required DateTime exit}) {
+    var exclusiveEnd = StayBilling.day(exit);
+    if (exit.hour > 9 || (exit.hour == 9 && exit.minute > 0)) {
+      exclusiveEnd = exclusiveEnd.add(const Duration(days: 1));
     }
-    if (stay.attendantLabels.isNotEmpty) return stay.attendantLabels;
-    return [
-      for (final attendant in patient.attendants ?? const []) attendant.name,
-    ];
+    return exclusiveEnd.subtract(const Duration(days: 1));
+  }
+
+  DateTime _attendanceStartDay(
+    PatientModel patient,
+    List<StayModel> cycleSegments, {
+    DateTime? through,
+  }) {
+    final candidates = <DateTime>[
+      patient.admissionDate,
+      if (patient.registrationDate != null) patient.registrationDate!,
+      for (final segment in cycleSegments) segment.admissionDate,
+    ].map(StayBilling.day).toList();
+
+    if (through != null) {
+      final usable = candidates
+          .where((date) => !date.isAfter(through))
+          .toList();
+      if (usable.isNotEmpty) {
+        usable.sort();
+        return usable.last;
+      }
+      return StayBilling.day(through);
+    }
+
+    candidates.sort();
+    return candidates.last;
+  }
+
+  DateTime? _effectivePlannedExitDate(
+    PatientModel patient,
+    List<StayModel> cycleSegments,
+  ) {
+    final recordedExit = patient.exitDate;
+    if (recordedExit == null) return null;
+
+    final activeExpectedDates =
+        cycleSegments
+            .where((stay) => stay.isActive)
+            .map((stay) => stay.expectedDischargeDate)
+            .where((date) => date.millisecondsSinceEpoch > 0)
+            .toList()
+          ..sort();
+    if (activeExpectedDates.isEmpty) return recordedExit;
+
+    final currentStayExit = activeExpectedDates.first;
+    return currentStayExit.isBefore(recordedExit)
+        ? currentStayExit
+        : recordedExit;
   }
 
   /// Discharges a patient: sets status to 'discharged' and clears room.
   /// Also releases the bed by completing the active stay.
-  Future<void> dischargePatient(String patientId) async {
+  Future<void> dischargePatient(
+    String patientId, {
+    PatientModel? patientOverride,
+  }) async {
     try {
-      final readiness = await getDischargeReadiness(patientId);
+      final readiness = await getDischargeReadiness(
+        patientId,
+        patientOverride: patientOverride,
+      );
       if (readiness['ready'] != true) {
         throw StateError((readiness['reasons'] as List).join(' '));
       }
       // Get patient to find their room/bed
-      final patient = await getPatient(patientId);
+      final patient = patientOverride ?? await getPatient(patientId);
       if (patient == null) throw Exception('Patient not found');
 
-      final actualDischargeDate = patient.exitDate!;
+      final readinessExit = readiness['plannedExitDate'];
+      final actualDischargeDate = readinessExit is int
+          ? DateTime.fromMillisecondsSinceEpoch(readinessExit)
+          : patient.exitDate!;
       final billingAdmissionDate =
           patient.registrationDate ?? patient.admissionDate;
       // Lifecycle status is the primary action and must not depend on room or
       // legacy stay cleanup succeeding.
       await updatePatient(patientId, {
         'status': 'discharged',
+        'exitDate': actualDischargeDate.millisecondsSinceEpoch,
         'dischargeDate': actualDischargeDate.millisecondsSinceEpoch,
       });
 

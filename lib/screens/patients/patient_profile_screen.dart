@@ -430,6 +430,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     try {
       readiness = await ServiceLocator().patientService.getDischargeReadiness(
         currentPatient.id,
+        patientOverride: currentPatient,
       );
     } catch (e) {
       if (context.mounted) {
@@ -447,6 +448,13 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     final reasons = readiness['reasons'] is List
         ? List<String>.from(readiness['reasons'])
         : const <String>[];
+    final plannedExitValue = readiness['plannedExitDate'];
+    final plannedExitDate = plannedExitValue is int
+        ? DateTime.fromMillisecondsSinceEpoch(plannedExitValue)
+        : currentPatient.exitDate;
+    final plannedExitText = plannedExitDate == null
+        ? 'Not decided'
+        : DateFormat('dd MMM yyyy, hh:mm a').format(plannedExitDate);
     var isSubmitting = false;
     await showDialog(
       context: context,
@@ -471,6 +479,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                   'Pending amount: ${currency.format(readiness['pending'])}',
                 ),
                 Text('Refund due: ${currency.format(readiness['refundDue'])}'),
+                Text('Planned exit: $plannedExitText'),
                 const SizedBox(height: 14),
                 if (ready)
                   const Text(
@@ -508,6 +517,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                       try {
                         await ServiceLocator().patientService.dischargePatient(
                           currentPatient.id,
+                          patientOverride: currentPatient,
                         );
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext);

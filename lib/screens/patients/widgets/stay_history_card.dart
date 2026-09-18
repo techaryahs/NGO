@@ -369,7 +369,8 @@ class _StayHistoryCardView extends StatelessWidget {
         : orderedSegments.first.admissionDate;
     final lastSegment = orderedSegments.isEmpty ? stay : orderedSegments.last;
     final currentCycle =
-        StayBilling.cycleFor(stay, patient) == StayBilling.currentCycle(patient);
+        StayBilling.cycleFor(stay, patient) ==
+        StayBilling.currentCycle(patient);
     final exit = active || currentCycle
         ? patient.exitDate ?? patient.dischargeDate
         : lastSegment.completedAt ?? lastSegment.updatedAt;
@@ -445,6 +446,20 @@ class _StayHistoryCardView extends StatelessWidget {
 
     int? daysFor(StayModel segment) =>
         segmentDays is Map ? (segmentDays[segment.id] as num?)?.toInt() : null;
+    DateTime displayStartFor(int index) {
+      final segment = orderedSegments[index];
+      if (index == 0 ||
+          segment.notes?.trim().toLowerCase().startsWith('shifted from ') !=
+              true) {
+        return segment.admissionDate;
+      }
+      final previous = orderedSegments[index - 1];
+      final previousEnd = previous.completedAt ?? previous.updatedAt;
+      return segment.admissionDate.isBefore(previousEnd)
+          ? previousEnd
+          : segment.admissionDate;
+    }
+
     final fields = [
       _detail(
         'Admission date',
@@ -827,6 +842,9 @@ class _StayHistoryCardView extends StatelessWidget {
                                               (segment.isActive
                                                   ? patient.exitDate
                                                   : segment.updatedAt);
+                                          final segmentStart = displayStartFor(
+                                            index,
+                                          );
                                           final days = daysFor(segment);
                                           final charge = chargeFor(segment);
                                           return ListTile(
@@ -846,7 +864,7 @@ class _StayHistoryCardView extends StatelessWidget {
                                               ),
                                             ),
                                             subtitle: Text(
-                                              '${DateFormat('dd MMM, hh:mm a').format(segment.admissionDate)} → ${segmentEnd == null ? 'Current' : DateFormat('dd MMM, hh:mm a').format(segmentEnd)}\n${money.format(charge)}${days == null ? '' : ' · $days day${days == 1 ? '' : 's'}'}',
+                                              '${DateFormat('dd MMM, hh:mm a').format(segmentStart)} → ${segmentEnd == null ? 'Current' : DateFormat('dd MMM, hh:mm a').format(segmentEnd)}\n${money.format(charge)}${days == null ? '' : ' · $days day${days == 1 ? '' : 's'}'}',
                                             ),
                                           );
                                         },

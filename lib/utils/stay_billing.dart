@@ -122,7 +122,17 @@ class StayBilling {
           if (patient.exitDate != null) {
             end = patient.exitDate!;
           } else {
-            end = start.add(const Duration(days: PricingHelper.advanceDays));
+            final estimateEnd = start.add(
+              const Duration(days: PricingHelper.advanceDays),
+            );
+            final activeSegmentEnds = segments
+                .where((segment) => segment.isActive)
+                .map((segment) => segment.expectedDischargeDate)
+                .where((date) => date.millisecondsSinceEpoch > 0);
+            end = activeSegmentEnds.fold<DateTime>(
+              estimateEnd,
+              (latest, date) => date.isAfter(latest) ? date : latest,
+            );
           }
         } else {
           end = segments
