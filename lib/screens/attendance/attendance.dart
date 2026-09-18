@@ -31,6 +31,8 @@ class _AttendanceState extends State<Attendance>
 
   final Map<String, bool> attendanceStatus = {};
   final Map<String, bool> attendantAttendanceStatus = {};
+  final Map<String, bool?> _pendingPatientStatus = {};
+  final Map<String, bool?> _pendingAttendantStatus = {};
 
   late Future<Map<String, Map<String, String>>> _weeklyData;
   late Future<Map<String, Map<String, String>>> _monthlyData;
@@ -118,6 +120,8 @@ class _AttendanceState extends State<Attendance>
   void _initRealtimeStreams() {
     _patientSub?.cancel();
     _attendantSub?.cancel();
+    _pendingPatientStatus.clear();
+    _pendingAttendantStatus.clear();
     final selectedDate = DateFormat(
       'yyyy-MM-dd',
     ).format(_selectedAttendanceDate);
@@ -134,6 +138,22 @@ class _AttendanceState extends State<Attendance>
               if (v['status'] == 'Present') newStatus[k] = true;
               if (v['status'] == 'Absent') newStatus[k] = false;
             });
+          }
+          for (final entry in _pendingPatientStatus.entries.toList()) {
+            final saved = data is Map ? data[entry.key] : null;
+            final savedStatus = saved is Map ? saved['status'] : null;
+            final expected = entry.value == null
+                ? 'Unmarked'
+                : entry.value!
+                ? 'Present'
+                : 'Absent';
+            if (savedStatus == expected) {
+              _pendingPatientStatus.remove(entry.key);
+            } else if (entry.value == null) {
+              newStatus.remove(entry.key);
+            } else {
+              newStatus[entry.key] = entry.value!;
+            }
           }
           if (mounted) {
             setState(() {
@@ -160,6 +180,16 @@ class _AttendanceState extends State<Attendance>
                 });
               }
             });
+          }
+          for (final entry in _pendingAttendantStatus.entries.toList()) {
+            if (newStatus[entry.key] == entry.value ||
+                (entry.value == null && !newStatus.containsKey(entry.key))) {
+              _pendingAttendantStatus.remove(entry.key);
+            } else if (entry.value == null) {
+              newStatus.remove(entry.key);
+            } else {
+              newStatus[entry.key] = entry.value!;
+            }
           }
           if (mounted) {
             setState(() {
@@ -347,7 +377,8 @@ class _AttendanceState extends State<Attendance>
                 !validPatientIds.contains(patientId)) return;
             final name = v['patientName'] ?? '';
             final status = v['status'] ?? '';
-            if (name.isNotEmpty) {
+            if (name.isNotEmpty &&
+                (status == 'Present' || status == 'Absent')) {
               result.putIfAbsent(name, () => {})[date] = status;
             }
           });
@@ -382,6 +413,7 @@ class _AttendanceState extends State<Attendance>
     final today = DateFormat('yyyy-MM-dd').format(dateObj);
 
     final bool? previousStatus = attendanceStatus[patientId];
+    _pendingPatientStatus[patientId] = isPresent;
     setState(() => attendanceStatus[patientId] = isPresent);
 
     try {
@@ -394,11 +426,6 @@ class _AttendanceState extends State<Attendance>
             'source': 'manual',
             'timestamp': DateTime.now().toIso8601String(),
           });
-
-      // Attendance totals and billing are derived from the registration and
-      // exit dates, then adjusted for any manually marked absences.
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(patientId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -414,6 +441,7 @@ class _AttendanceState extends State<Attendance>
         );
       }
     } catch (e) {
+      _pendingPatientStatus.remove(patientId);
       if (mounted) {
         setState(() {
           if (previousStatus != null) {
@@ -429,18 +457,81 @@ class _AttendanceState extends State<Attendance>
           ),
         );
       }
+      return;
+    }
+    await _refreshBilling(
+      patientId,
+      patientAttendanceOverrides: {today: isPresent ? 'Present' : 'Absent'},
+    );
+  }
+
+  Future<void> _refreshBilling(
+    String patientId, {
+    Map<String, String?> patientAttendanceOverrides = const {},
+    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
+  }) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await ServiceLocator().paymentService
+            .recalculatePatientAttendanceAndBilling(
+              patientId,
+              patientAttendanceOverrides: patientAttendanceOverrides,
+              attendantAttendanceOverrides: attendantAttendanceOverrides,
+            );
+        return;
+      } catch (_) {
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      }
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Attendance saved, but billing could not refresh. Reopen the patient profile to retry.',
+          ),
+        ),
+      );
     }
   }
 
-  /// Patient presence is automatic. A manual absence overrides it, and
-  /// selecting that absence again restores the automatic Present status.
+  /// A second click clears either selected status. Keep a manual unmarked
+  /// record so an automatic planned-exit sync does not select it again.
   Future<void> toggleAttendance(
     String patientId,
     String patientName,
     bool isPresent,
   ) async {
     if (attendanceStatus[patientId] == isPresent) {
-      if (!isPresent) await markAttendance(patientId, patientName, true);
+      _reportCache.clear();
+      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
+      _pendingPatientStatus[patientId] = null;
+      setState(() => attendanceStatus.remove(patientId));
+      try {
+        await ServiceLocator().rtdbService
+            .put('attendance/daily/$today/$patientId', {
+              'patientId': patientId,
+              'patientName': patientName,
+              'status': 'Unmarked',
+              'date': today,
+              'source': 'manual',
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+      } catch (_) {
+        _pendingPatientStatus.remove(patientId);
+        if (mounted) {
+          setState(() => attendanceStatus[patientId] = isPresent);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to update attendance')),
+          );
+        }
+        return;
+      }
+      await _refreshBilling(
+        patientId,
+        patientAttendanceOverrides: {today: null},
+      );
       return;
     }
     await markAttendance(patientId, patientName, isPresent);
@@ -458,6 +549,7 @@ class _AttendanceState extends State<Attendance>
     final String statusKey = '${patientId}_$attendantName';
 
     final bool? previousStatus = attendantAttendanceStatus[statusKey];
+    _pendingAttendantStatus[statusKey] = isPresent;
     setState(() => attendantAttendanceStatus[statusKey] = isPresent);
 
     try {
@@ -469,9 +561,6 @@ class _AttendanceState extends State<Attendance>
             'date': today,
             'timestamp': DateTime.now().toIso8601String(),
           });
-
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(patientId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -487,6 +576,7 @@ class _AttendanceState extends State<Attendance>
         );
       }
     } catch (e) {
+      _pendingAttendantStatus.remove(statusKey);
       if (mounted) {
         setState(() {
           if (previousStatus != null) {
@@ -502,7 +592,14 @@ class _AttendanceState extends State<Attendance>
           ),
         );
       }
+      return;
     }
+    await _refreshBilling(
+      patientId,
+      attendantAttendanceOverrides: {
+        today: {attendantName: isPresent ? 'Present' : 'Absent'},
+      },
+    );
   }
 
   Future<void> toggleAttendantAttendance(
@@ -515,18 +612,25 @@ class _AttendanceState extends State<Attendance>
     if (attendantAttendanceStatus[statusKey] == isPresent) {
       final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
       final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
+      _pendingAttendantStatus[statusKey] = null;
       setState(() => attendantAttendanceStatus.remove(statusKey));
       try {
         await ServiceLocator().rtdbService.delete(
           'attendant_attendance/daily/$today/$patientId/$safeKey',
         );
-        await ServiceLocator().paymentService
-            .recalculatePatientAttendanceAndBilling(patientId);
       } catch (_) {
+        _pendingAttendantStatus.remove(statusKey);
         if (mounted) {
           setState(() => attendantAttendanceStatus[statusKey] = isPresent);
         }
+        return;
       }
+      await _refreshBilling(
+        patientId,
+        attendantAttendanceOverrides: {
+          today: {attendantName: null},
+        },
+      );
       return;
     }
     await markAttendantAttendance(patientId, attendantName, isPresent);

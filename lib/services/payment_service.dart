@@ -35,6 +35,8 @@ class PaymentService {
     String patientId, {
     Map<String, dynamic>? patientData,
     List<StayModel>? stays,
+    Map<String, String?> patientAttendanceOverrides = const {},
+    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
     final raw = patientData ?? await _rtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
@@ -98,6 +100,13 @@ class PaymentService {
               entry.value[patientId]['status']?.toString() ?? '';
         }
       }
+    for (final entry in patientAttendanceOverrides.entries) {
+      if (entry.value == null) {
+        attendance.remove(entry.key);
+      } else {
+        attendance[entry.key] = entry.value!;
+      }
+    }
     final attendantRecords = reads[2];
     final attendantAttendance = <String, Map<String, String>>{};
     if (attendantRecords is Map) {
@@ -112,6 +121,19 @@ class PaymentService {
           }
         }
         attendantAttendance[dateEntry.key.toString()] = statuses;
+      }
+    }
+    for (final dateEntry in attendantAttendanceOverrides.entries) {
+      final statuses = attendantAttendance.putIfAbsent(
+        dateEntry.key,
+        () => <String, String>{},
+      );
+      for (final entry in dateEntry.value.entries) {
+        if (entry.value == null) {
+          statuses.remove(entry.key);
+        } else {
+          statuses[entry.key] = entry.value!;
+        }
       }
     }
     final balances = StayBilling.calculate(
@@ -194,8 +216,17 @@ class PaymentService {
   Future<void> recalculatePatientAttendanceAndBilling(
     String patientId, {
     bool updateBilling = true,
+    Map<String, String?> patientAttendanceOverrides = const {},
+    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
-    await _rtdb.patch('', await billingUpdates(patientId));
+    await _rtdb.patch(
+      '',
+      await billingUpdates(
+        patientId,
+        patientAttendanceOverrides: patientAttendanceOverrides,
+        attendantAttendanceOverrides: attendantAttendanceOverrides,
+      ),
+    );
   }
 
   Future<void> recalculateAllActivePatientsBilling({String? patientId}) async {

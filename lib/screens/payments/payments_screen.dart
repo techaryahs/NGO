@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
+import '../../models/stay_model.dart';
+import '../../utils/stay_billing.dart';
 import 'package:intl/intl.dart';
 import '../patients/widgets/payment_dialog.dart';
 import '../patients/widgets/refund_dialog.dart';
@@ -672,6 +674,56 @@ class _PatientBillingTile extends StatefulWidget {
 
 class _PatientBillingTileState extends State<_PatientBillingTile> {
   bool _isProcessing = false;
+  Future<List<StayModel>>? _staysFuture;
+
+  @override
+  void didUpdateWidget(covariant _PatientBillingTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.patient.id != widget.patient.id) _staysFuture = null;
+  }
+
+  Widget _placementLabel(PatientModel patient) {
+    const style = TextStyle(color: Colors.grey, fontSize: 12);
+    final lobby = patient.lobby?.trim();
+    if (lobby != null && lobby.isNotEmpty) {
+      return Text('Lobby: $lobby', style: style);
+    }
+    final room = patient.roomNumber?.trim();
+    if (room != null && room.isNotEmpty) {
+      return Text('Room: $room', style: style);
+    }
+
+    _staysFuture ??= ServiceLocator().paymentService.loadStays(patient.id);
+    return FutureBuilder<List<StayModel>>(
+      future: _staysFuture,
+      builder: (context, snapshot) {
+        final stays = snapshot.data
+            ?.where((stay) =>
+                StayBilling.cycleFor(stay, patient) ==
+                StayBilling.currentCycle(patient))
+            .toList();
+        stays?.sort((a, b) {
+          final aEnd = a.completedAt ?? a.updatedAt;
+          final bEnd = b.completedAt ?? b.updatedAt;
+          final byEnd = bEnd.compareTo(aEnd);
+          return byEnd != 0
+              ? byEnd
+              : b.admissionDate.compareTo(a.admissionDate);
+        });
+        final latest = stays?.firstOrNull;
+        if (latest == null || latest.roomNumber.trim().isEmpty) {
+          return const Text('Room: Unassigned', style: style);
+        }
+        final name = latest.roomNumber.trim();
+        return Text(
+          latest.roomType == 'lobby'
+              ? 'Lobby: $name'
+              : 'Room: $name',
+          style: style,
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -757,10 +809,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text(
-                      "Room: ${patient.roomNumber ?? 'Unassigned'}",
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
+                    _placementLabel(patient),
                     const SizedBox(width: 8),
                     const Text("•", style: TextStyle(color: Colors.grey)),
                     const SizedBox(width: 8),

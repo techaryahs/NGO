@@ -135,6 +135,17 @@ class StayBilling {
         }
         if (!exclusiveEnd.isAfter(start))
           exclusiveEnd = start.add(const Duration(days: 1));
+        var hasPresentAttendance = false;
+        for (
+          var date = start;
+          date.isBefore(exclusiveEnd);
+          date = DateTime(date.year, date.month, date.day + 1)
+        ) {
+          if (attendance[dateKey(date)] == 'Present') {
+            hasPresentAttendance = true;
+            break;
+          }
+        }
         var billableDays = 0;
         for (
           var date = start;
@@ -142,7 +153,8 @@ class StayBilling {
           date = DateTime(date.year, date.month, date.day + 1)
         ) {
           final status = attendance[dateKey(date)];
-          if (status == 'Absent' || (onlyPresent && status != 'Present'))
+          if (status == 'Absent' ||
+              ((onlyPresent || hasPresentAttendance) && status != 'Present'))
             continue;
           final candidates = segments.where((s) {
             if (day(s.admissionDate).isAfter(date)) return false;

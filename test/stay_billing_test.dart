@@ -4,6 +4,7 @@ import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
 import 'package:ngo/services/payment_service.dart';
+import 'package:ngo/services/patient_service.dart';
 import 'package:ngo/services/stay_history_service.dart';
 import 'package:ngo/utils/stay_billing.dart';
 
@@ -133,6 +134,32 @@ class TestDatabase extends FirebaseRTDBRestService {
 }
 
 void main() {
+  test('automatic attendance keeps a manually cleared day unmarked', () async {
+    final db = TestDatabase(jsonDecode(jsonEncode({
+      'attendance': {
+        'daily': {
+          '2026-01-01': {
+            'p': {
+              'status': 'Unmarked',
+              'source': 'manual',
+              'date': '2026-01-01',
+            },
+          },
+        },
+      },
+    })) as Map<String, dynamic>);
+    await PatientService(rtdbService: db).syncAutomaticPatientAttendance(
+      patientId: 'p',
+      patientName: 'Patient',
+      start: DateTime(2026, 1, 1),
+      end: DateTime(2026, 1, 2),
+      cycleId: cycle,
+    );
+
+    expect((await db.get('attendance/daily/2026-01-01/p'))['status'], 'Unmarked');
+    expect((await db.get('attendance/daily/2026-01-02/p'))['status'], 'Present');
+  });
+
   test('recorded exit date stops billing for an active patient', () {
     final bill = StayBilling.calculate(
       patient: patient(status: 'active', exit: 8),
@@ -165,6 +192,84 @@ void main() {
 
     expect(bill.days['active'], 7);
     expect(bill.total, 1400);
+  });
+
+  test('present marks replace the seven-day estimate for patient days', () {
+    final data = segment('lobby', 'lobby', 1, 8, status: 'active')
+      ..['attendantCount'] = 1;
+    final bill = StayBilling.calculate(
+      patient: patient(status: 'active'),
+      stays: [StayModel.fromMap('lobby', data)],
+      pricing: {'generalRoomBedPrice': 200},
+      attendance: {
+        for (var day = 1; day <= 4; day++)
+          '2026-01-${day.toString().padLeft(2, '0')}': 'Present',
+      },
+      attendantAttendance: {
+        for (var day = 1; day <= 3; day++)
+          '2026-01-${day.toString().padLeft(2, '0')}': {
+            'Attendant': 'Present',
+          },
+      },
+    ).single;
+
+    expect(bill.days['lobby'], 4);
+    expect(bill.total, 1400);
+  });
+
+  test('patient marks do not create unmarked attendant charges', () {
+    final data = segment('lobby', 'lobby', 1, 8, status: 'active')
+      ..['attendantCount'] = 1;
+    final bill = StayBilling.calculate(
+      patient: patient(status: 'active'),
+      stays: [StayModel.fromMap('lobby', data)],
+      pricing: {'generalRoomBedPrice': 200},
+      attendance: {
+        for (var day = 1; day <= 4; day++)
+          '2026-01-${day.toString().padLeft(2, '0')}': 'Present',
+      },
+    ).single;
+
+    expect(bill.days['lobby'], 4);
+    expect(bill.total, 800);
+  });
+
+  test('saved attendant mark updates billing even when the next read is stale', () async {
+    final db = TestDatabase({
+      'patients': {'p': patient(status: 'active').toMap()},
+      'stays': {
+        'lobby': segment('lobby', 'lobby', 1, 8, status: 'active'),
+      },
+      'attendance': {
+        'daily': {
+          for (var day = 1; day <= 5; day++)
+            '2026-01-${day.toString().padLeft(2, '0')}': {
+              'p': {'status': 'Present'},
+            },
+        },
+      },
+      'attendant_attendance': {
+        'daily': {
+          for (var day = 1; day <= 4; day++)
+            '2026-01-${day.toString().padLeft(2, '0')}': {
+              'p': {
+                'a': {'attendantName': 'Attendant', 'status': 'Present'},
+              },
+            },
+        },
+      },
+    });
+    final paymentService = PaymentService(db);
+    final stale = await paymentService.billingUpdates('p');
+    final corrected = await paymentService.billingUpdates(
+      'p',
+      attendantAttendanceOverrides: {
+        '2026-01-05': {'Attendant': 'Present'},
+      },
+    );
+
+    expect(stale['patients/p/advanceBilledAmount'], 1800);
+    expect(corrected['patients/p/advanceBilledAmount'], 2000);
   });
 
   test('only manually present attendant days are charged', () {

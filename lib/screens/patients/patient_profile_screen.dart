@@ -55,11 +55,13 @@ class PatientProfileScreen extends StatefulWidget {
 class _PatientProfileScreenState extends State<PatientProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final Stream<List<PatientModel>> _patientsStream;
   bool _isPreparingDischarge = false;
 
   @override
   void initState() {
     super.initState();
+    _patientsStream = ServiceLocator().patientService.getPatientsStream();
     _tabController = TabController(length: 4, vsync: this);
     // Refresh legacy admission balances when the profile opens. This also
     // repairs same-day receipts saved before the recorded registration time.
@@ -561,7 +563,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<PatientModel>>(
-      stream: ServiceLocator().patientService.getPatientsStream(),
+      stream: _patientsStream,
       builder: (context, snapshot) {
         final patientList = snapshot.data ?? [];
         final currentPatient = patientList.firstWhere(
@@ -2441,6 +2443,15 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     _attendantAttendanceFuture = _loadAttendantAttendance();
   }
 
+  @override
+  void didUpdateWidget(covariant _AttendanceTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.patient.updatedAt != oldWidget.patient.updatedAt) {
+      _attendanceDataFuture = _loadAttendanceData();
+      _attendantAttendanceFuture = _loadAttendantAttendance();
+    }
+  }
+
   ({String start, String end}) get _attendanceDateRange {
     final startDate =
         widget.patient.registrationDate ?? widget.patient.admissionDate;
@@ -2466,6 +2477,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
             records.forEach((patientId, record) {
               if (patientId == widget.patient.id && record is Map) {
                 final normalizedRecord = Map<String, dynamic>.from(record);
+                if (!{'Present', 'Absent'}.contains(
+                  normalizedRecord['status'],
+                )) {
+                  return;
+                }
                 // Prefer the stored ISO date when present; this also supports
                 // older records whose parent RTDB key used another format.
                 final recordDate = normalizedRecord['date']?.toString();

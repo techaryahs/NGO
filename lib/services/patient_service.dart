@@ -496,7 +496,7 @@ class PatientService {
       final isManual =
           existing is Map &&
           existing['source'] != 'automatic_registration_period' &&
-          {'Present', 'Absent'}.contains(existing['status']);
+          {'Present', 'Absent', 'Unmarked'}.contains(existing['status']);
       if (isManual) continue;
       updates['attendance/daily/$dateKey/$patientId'] = {
         'patientId': patientId,
