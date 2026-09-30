@@ -77,10 +77,10 @@ class StayHistoryService {
             ? 'available'
             : 'occupied',
         'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
+        'rooms/$roomId/version': (room.version ?? 0) + 1,
       });
     }
 
-    final remaining = allStays.where((stay) => !ids.contains(stay.id)).toList();
     if (cycleId == StayBilling.currentCycle(patient)) {
       patientData.addAll({
         'roomId': null,
@@ -103,14 +103,8 @@ class StayHistoryService {
         root['patients/$patientId/$key'] = patientData[key];
       }
     }
-    root.addAll(
-      await paymentService.billingUpdates(
-        patientId,
-        patientData: patientData,
-        stays: remaining,
-      ),
-    );
     await db.patch('', root);
+    await paymentService.recalculatePatientAttendanceAndBilling(patientId);
   }
 
   Future<void> updateShiftTimeline(
@@ -200,14 +194,8 @@ class StayHistoryService {
             last.end.millisecondsSinceEpoch;
       }
     }
-    root.addAll(
-      await paymentService.billingUpdates(
-        patientId,
-        patientData: patientData,
-        stays: updatedStays,
-      ),
-    );
     await db.patch('', root);
+    await paymentService.recalculatePatientAttendanceAndBilling(patientId);
   }
 
   Future<void> updateStay(
@@ -427,6 +415,7 @@ class StayHistoryService {
               : 'occupied',
           'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
           'rooms/$roomId/expectedVacancyDate': end.millisecondsSinceEpoch,
+          'rooms/$roomId/version': (room.version ?? 0) + 1,
         });
       }
     }
@@ -444,7 +433,7 @@ class StayHistoryService {
         patientData.addAll({
           'fullName': revised.patientName,
           'searchKey': revised.patientName.toLowerCase(),
-          'photoDataUrl': snapshot['photoDataUrl'],
+          'photoRef': snapshot['photoRef'],
           'attendants': snapshot['attendants'],
           'exitDate': end.millisecondsSinceEpoch,
           if (!revised.isActive) 'dischargeDate': end.millisecondsSinceEpoch,
@@ -472,7 +461,7 @@ class StayHistoryService {
         'registrationDate',
         'fullName',
         'searchKey',
-        'photoDataUrl',
+        'photoRef',
         'attendants',
         'exitDate',
         'dischargeDate',
@@ -501,13 +490,7 @@ class StayHistoryService {
       for (final field in entry.value.entries)
         root['stays/${entry.key}/${field.key}'] = field.value;
     }
-    root.addAll(
-      await paymentService.billingUpdates(
-        patient.id,
-        patientData: patientData,
-        stays: updatedStays,
-      ),
-    );
     await db.patch('', root);
+    await paymentService.recalculatePatientAttendanceAndBilling(patient.id);
   }
 }

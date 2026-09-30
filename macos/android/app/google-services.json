@@ -2,8 +2,7 @@
   "project_info": {
     "project_number": "726267938718",
     "firebase_url": "https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "project_id": "ngo-management-system-d8c06",
-    "storage_bucket": "ngo-management-system-d8c06.firebasestorage.app"
+    "project_id": "ngo-management-system-d8c06"
   },
   "client": [
     {

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
 import 'firebase_rtdb_rest_service.dart';
+import 'photo_rtdb_service.dart';
 import 'service_locator.dart';
 
 /// Service layer for all patient-related RTDB operations.
@@ -12,13 +14,16 @@ import 'service_locator.dart';
 class PatientService {
   /// REST API service instance
   final FirebaseRTDBRestService _rtdb;
+  final PhotoRtdbService? _photos;
 
   /// Base path for patient records.
   final String _patientsPath = 'patients';
   Future<int>? _orphanCleanupFuture;
 
-  PatientService({required FirebaseRTDBRestService rtdbService})
-    : _rtdb = rtdbService;
+  PatientService({required FirebaseRTDBRestService rtdbService,
+    PhotoRtdbService? photos})
+    : _rtdb = rtdbService,
+      _photos = photos;
 
   // ===========================================================================
   // STREAMS — Real-time listeners (polling-based)
@@ -209,8 +214,8 @@ class PatientService {
 
   /// Adds a new patient record under `/patients/$pushKey`.
   ///
-  /// Uses REST API POST to generate a unique key, then writes the data.
-  /// Returns the generated push-key (patient ID).
+  /// Generates a collision-resistant key before uploading photos, then writes
+  /// the complete patient in one database request.
   Future<String> addPatient({
     required String fullName,
     required DateTime dateOfBirth,
@@ -253,7 +258,40 @@ class PatientService {
     double? initialTotalAmount,
   }) async {
     try {
+      if (payments != null && payments.isNotEmpty) {
+        throw StateError('Import payments through the trusted payment backend');
+      }
       final now = DateTime.now();
+      final random = Random.secure();
+      final patientId = 'p_${now.microsecondsSinceEpoch}_${List<int>.generate(12, (_) => random.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+      String? photoRef;
+      if (photoDataUrl != null && photoDataUrl.isNotEmpty) {
+        final bytes = PhotoRtdbService.decodeLegacyBase64(photoDataUrl);
+        if (bytes == null) throw StateError('Patient photo is invalid');
+        photoRef = await (_photos ?? ServiceLocator().photoRtdbService).uploadPhoto(
+          photoPath: PhotoRtdbService.patientPath(patientId),
+          bytes: bytes,
+        );
+      }
+      final storedAttendants = <AttendantModel>[];
+      for (var index = 0; index < (attendants?.length ?? 0); index++) {
+        final attendant = attendants![index];
+        var ref = attendant.photoRef;
+        final dataUrl = attendant.photoDataUrl;
+        if (dataUrl != null && dataUrl.isNotEmpty) {
+          final bytes = PhotoRtdbService.decodeLegacyBase64(dataUrl);
+          if (bytes == null) throw StateError('Attendant photo is invalid');
+          ref = await (_photos ?? ServiceLocator().photoRtdbService).uploadPhoto(
+            photoPath: PhotoRtdbService.attendantPath(patientId, '$index'),
+            bytes: bytes,
+          );
+        }
+        storedAttendants.add(AttendantModel.fromMap({
+          ...attendant.toMap(),
+          'photoDataUrl': null,
+          'photoRef': ref,
+        }));
+      }
       final age = PatientModel.calculateAge(dateOfBirth);
       final initialPaidAmount = (payments ?? []).fold<double>(
         0,
@@ -273,11 +311,8 @@ class PatientService {
           ? 'Partial'
           : 'Paid';
 
-      // Generate temporary ID for the model
-      final tempId = 'temp_${now.millisecondsSinceEpoch}';
-
       final patient = PatientModel(
-        id: tempId,
+        id: patientId,
         fullName: fullName,
         searchKey: fullName.toLowerCase(),
         dateOfBirth: dateOfBirth,
@@ -302,7 +337,8 @@ class PatientService {
         floor: floor,
         bedIds: bedIds,
         bedLabels: bedLabels,
-        photoDataUrl: photoDataUrl,
+        photoDataUrl: null,
+        photoRef: photoRef,
         photoFileName: photoFileName,
         notes: notes,
         address: address,
@@ -325,15 +361,11 @@ class PatientService {
         attendanceCharges: attendanceCharges,
         totalPresentDays: totalPresentDays,
         totalAbsentDays: totalAbsentDays,
-        attendants: attendants,
+        attendants: storedAttendants.isEmpty ? null : storedAttendants,
         payments: payments,
       );
 
-      // Push to generate unique key
-      final patientId = await _rtdb.push(_patientsPath, patient.toMap());
-
-      // Update the ID field in the database
-      await _rtdb.patch('$_patientsPath/$patientId', {'id': patientId});
+      await _rtdb.put('$_patientsPath/$patientId', patient.toMap());
 
       if (exitDate != null) {
         await syncAutomaticPatientAttendance(
@@ -342,17 +374,10 @@ class PatientService {
           start: registrationDate ?? admissionDate,
           end: exitDate,
           cycleId: admissionDate.millisecondsSinceEpoch.toString(),
+          // A new push-key patient cannot have earlier attendance records, so
+          // the attendance history download is skipped entirely.
+          skipRead: true,
         );
-      }
-
-      // Also record any initial payments in the global history
-      if (payments != null && payments.isNotEmpty) {
-        for (final payment in payments) {
-          final globalPaymentData = payment.toMap();
-          globalPaymentData['patientId'] = patientId;
-          globalPaymentData['patientName'] = fullName;
-          await _rtdb.push('payments', globalPaymentData);
-        }
       }
 
       return patientId;
@@ -403,30 +428,52 @@ class PatientService {
         }
       }
 
+      // Capture the previous registration/exit boundaries before the write so
+      // the attendance reconciliation can scan only the affected date window
+      // instead of the complete attendance history.
+      Map<String, dynamic>? previousPatient;
+      if ({
+        'registrationDate',
+        'admissionDate',
+        'exitDate',
+      }.any(updates.containsKey)) {
+        final rawPrevious = await _rtdb.get('$_patientsPath/$patientId');
+        previousPatient = rawPrevious is Map
+            ? Map<String, dynamic>.from(rawPrevious)
+            : null;
+      }
+
       final rootUpdates = <String, dynamic>{
         for (final entry in updates.entries)
           '$_patientsPath/$patientId/${entry.key}': entry.value,
       };
       if ([
         'registrationNumber',
-        'photoDataUrl',
+        'photoRef',
         'attendants',
       ].any(updates.containsKey)) {
         final patient = await _rtdb.get('$_patientsPath/$patientId');
         if (patient is Map) {
           final merged = {...patient, ...updates};
-          final stays = await ServiceLocator().roomService
-              .getStaysByPatientStream(patientId)
-              .first;
+          final rawStays = await _rtdb.getByChildValue(
+            'stays', child: 'patientId', value: patientId,
+          );
+          final stays = ServiceLocator().roomService.parseStaysFromData(rawStays);
+          final rawAttendants = merged['attendants'];
           for (final stay in stays.where((stay) => stay.isActive)) {
             rootUpdates['stays/${stay.id}/patientSnapshot'] = {
               for (final key in [
                 'registrationNumber',
-                'photoDataUrl',
-                'attendants',
+                'photoRef',
                 'admissionDate',
               ])
                 key: merged[key],
+              if (rawAttendants is List)
+                'attendants': [
+                  for (final attendant in rawAttendants)
+                    if (attendant is Map)
+                      (Map<String, dynamic>.from(attendant)..remove('photoDataUrl')),
+                ],
             };
           }
         }
@@ -440,6 +487,22 @@ class PatientService {
         'fullName',
       }.any(updates.containsKey)) {
         final revised = await getPatient(patientId);
+        DateTime? previousStart;
+        DateTime? previousEnd;
+        if (previousPatient != null) {
+          DateTime? parseRaw(dynamic value) {
+            if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+            if (value is double) {
+              return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+            }
+            return null;
+          }
+
+          previousStart =
+              parseRaw(previousPatient['registrationDate']) ??
+              parseRaw(previousPatient['admissionDate']);
+          previousEnd = parseRaw(previousPatient['exitDate']);
+        }
         if (revised?.exitDate != null) {
           await syncAutomaticPatientAttendance(
             patientId: patientId,
@@ -447,11 +510,15 @@ class PatientService {
             start: revised.registrationDate ?? revised.admissionDate,
             end: _lastRequiredAttendanceDay(exit: revised.exitDate!),
             cycleId: revised.admissionDate.millisecondsSinceEpoch.toString(),
+            previousStart: previousStart,
+            previousEnd: previousEnd,
           );
         } else if (revised != null) {
           await clearAutomaticPatientAttendance(
             patientId: patientId,
             cycleId: revised.admissionDate.millisecondsSinceEpoch.toString(),
+            previousStart: previousStart,
+            previousEnd: previousEnd,
           );
         }
       }
@@ -463,12 +530,19 @@ class PatientService {
   /// Saves automatic patient presence for a planned registration-to-exit
   /// period. Manual Present/Absent choices always win, and attendant
   /// attendance is deliberately kept separate and remains manual.
+  ///
+  /// The read is restricted to the relevant date window instead of the
+  /// complete attendance history. For brand-new patients ([skipRead]) no read
+  /// happens at all because no earlier records can exist for that ID.
   Future<void> syncAutomaticPatientAttendance({
     required String patientId,
     required String patientName,
     required DateTime start,
     required DateTime end,
     required String cycleId,
+    DateTime? previousStart,
+    DateTime? previousEnd,
+    bool skipRead = false,
   }) async {
     final firstDay = StayBilling.day(start);
     final lastDay = StayBilling.day(end);
@@ -476,11 +550,6 @@ class PatientService {
       throw ArgumentError('Exit date cannot be before registration date.');
     }
 
-    dynamic rawAttendance;
-    try {
-      rawAttendance = await _rtdb.get('attendance/daily');
-    } catch (_) {}
-    final attendance = rawAttendance is Map ? rawAttendance : const {};
     final desiredDates = <String>{};
     final updates = <String, dynamic>{};
 
@@ -491,13 +560,6 @@ class PatientService {
     ) {
       final dateKey = StayBilling.dateKey(date);
       desiredDates.add(dateKey);
-      final daily = attendance[dateKey];
-      final existing = daily is Map ? daily[patientId] : null;
-      final isManual =
-          existing is Map &&
-          existing['source'] != 'automatic_registration_period' &&
-          {'Present', 'Absent', 'Unmarked'}.contains(existing['status']);
-      if (isManual) continue;
       updates['attendance/daily/$dateKey/$patientId'] = {
         'patientId': patientId,
         'patientName': patientName,
@@ -509,6 +571,46 @@ class PatientService {
       };
     }
 
+    if (skipRead) {
+      if (updates.isNotEmpty) await _rtdb.patch('', updates);
+      return;
+    }
+
+    // Window covering both the new and the previous registration period, so
+    // manual marks inside the new range are preserved and stale automatic
+    // records from the old range are removed — without downloading the full
+    // attendance history.
+    final windowStart = previousStart == null
+        ? firstDay
+        : (StayBilling.day(previousStart).isBefore(firstDay)
+              ? StayBilling.day(previousStart)
+              : firstDay);
+    final windowEnd = previousEnd == null
+        ? lastDay
+        : (StayBilling.day(previousEnd).isAfter(lastDay)
+              ? StayBilling.day(previousEnd)
+              : lastDay);
+    final rawAttendance = await _rtdb.getByKeyRange(
+      'attendance/daily',
+      startKey: StayBilling.dateKey(windowStart),
+      endKey: StayBilling.dateKey(windowEnd),
+    );
+    final attendance = rawAttendance is Map ? rawAttendance : const {};
+
+    final freshUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      final dateKey = entry.key.split('/')[2];
+      final daily = attendance[dateKey];
+      final existing = daily is Map ? daily[patientId] : null;
+      final isManual =
+          existing is Map &&
+          existing['source'] != 'automatic_registration_period' &&
+          {'Present', 'Absent', 'Unmarked'}.contains(existing['status']);
+      if (!isManual) {
+        freshUpdates[entry.key] = entry.value;
+      }
+    }
+
     if (attendance is Map) {
       attendance.forEach((rawDate, rawDaily) {
         if (rawDaily is! Map) return;
@@ -517,24 +619,27 @@ class PatientService {
             existing['source'] == 'automatic_registration_period' &&
             existing['cycleId']?.toString() == cycleId &&
             !desiredDates.contains(rawDate.toString())) {
-          updates['attendance/daily/$rawDate/$patientId'] = null;
+          freshUpdates['attendance/daily/$rawDate/$patientId'] = null;
         }
       });
     }
 
-    if (updates.isNotEmpty) await _rtdb.patch('', updates);
+    if (freshUpdates.isNotEmpty) await _rtdb.patch('', freshUpdates);
   }
 
   Future<void> clearAutomaticPatientAttendance({
     required String patientId,
     required String cycleId,
+    DateTime? previousStart,
+    DateTime? previousEnd,
   }) async {
-    dynamic rawAttendance;
-    try {
-      rawAttendance = await _rtdb.get('attendance/daily');
-    } catch (_) {
-      return;
-    }
+    // Automatic records only exist for a previously saved exit window.
+    if (previousStart == null || previousEnd == null) return;
+    final rawAttendance = await _rtdb.getByKeyRange(
+      'attendance/daily',
+      startKey: StayBilling.dateKey(StayBilling.day(previousStart)),
+      endKey: StayBilling.dateKey(StayBilling.day(previousEnd)),
+    );
     if (rawAttendance is! Map) return;
     final updates = <String, dynamic>{};
     rawAttendance.forEach((rawDate, rawDaily) {
@@ -648,8 +753,19 @@ class PatientService {
     var missingPatientDays = 0;
     DateTime? end;
     if (!needsPlannedExit) {
-      final patientAttendance = await _rtdb.get('attendance/daily');
       end = requiredThrough!;
+      // Only the admission's attendance window is needed to validate
+      // discharge — not the complete attendance history.
+      dynamic patientAttendance;
+      try {
+        patientAttendance = await _rtdb.getByKeyRange(
+          'attendance/daily',
+          startKey: StayBilling.dateKey(start),
+          endKey: StayBilling.dateKey(end),
+        );
+      } catch (_) {
+        patientAttendance = null;
+      }
       for (
         var date = start;
         !date.isAfter(end);
@@ -990,6 +1106,7 @@ class PatientService {
             ? 'occupied'
             : 'available',
         'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
+        'rooms/$roomId/version': (room.version ?? 0) + 1,
       });
     }
 

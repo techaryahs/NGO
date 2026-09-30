@@ -1,17 +1,24 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/foundation.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
-/// RazorpayConfig — store your keys here.
+/// RazorpayBackendConfig — trusted backend endpoint.
 ///
-/// ⚠️  IMPORTANT: Never commit your key_secret to version control.
-///     In production, fetch it from a secure backend instead.
+/// The Razorpay key secret NEVER exists in this application. Payment link
+/// creation, payment verification and webhook processing are performed by the
+/// Firebase Cloud Functions backend (`functions/`), which reads the keys from
+/// its own server environment.
+///
+/// Configure the endpoint at build time:
+///   flutter build windows --dart-define=RAZORPAY_BACKEND_URL=https://...
+///
+/// When the backend is not configured, online payments are disabled and the
+/// UI asks staff to collect cash/cheque instead.
 /// ─────────────────────────────────────────────────────────────────────────────
-class RazorpayConfig {
-  static const String keyId = 'rzp_live_RseCm2t4lFlfMC';
-  static const String keySecret = 'AFZDA4Niu4341bFSTBVYlQr4';
+class RazorpayBackendConfig {
+  static const String baseUrl = String.fromEnvironment('RAZORPAY_BACKEND_URL');
+  static bool get isConfigured => baseUrl.trim().isNotEmpty;
 }
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -58,115 +65,123 @@ class RazorpayPaymentStatus {
 }
 
 /// ─────────────────────────────────────────────────────────────────────────────
-/// RazorpayService — creates links, polls status, opens browser.
+/// RazorpayService — thin client for the trusted payment backend.
+///
+/// The client only ever talks to the Cloud Functions endpoints. It has no
+/// access to the Razorpay secret key and cannot fabricate a payment:
+///   - the backend computes the amount from the database balance
+///   - the backend verifies payments with the Razorpay API
+///   - the backend verifies webhook signatures server-side
+///   - the backend writes the payment ledger idempotently
 /// ─────────────────────────────────────────────────────────────────────────────
 class RazorpayService {
-  static const String _baseUrl = 'https://api.razorpay.com/v1';
-
-  // ── Shared auth header ────────────────────────────────────────────────────
-  static Map<String, String> get _authHeaders {
-    final credentials = base64Encode(
-      utf8.encode('${RazorpayConfig.keyId}:${RazorpayConfig.keySecret}'),
+  static Never _backendMissing() {
+    throw Exception(
+      'Online payments are not configured on this installation. '
+      'Please collect cash or cheque and contact the administrator.',
     );
-    return {
-      'Authorization': 'Basic $credentials',
-      'Content-Type': 'application/json',
-    };
   }
 
-  /// Creates a Razorpay Payment Link and returns a [RazorpayPaymentLink].
+  static Map<String, String> get _jsonHeaders => {
+    'Content-Type': 'application/json',
+  };
+
+  static Future<Map<String, dynamic>> _post(
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
+    if (!RazorpayBackendConfig.isConfigured) _backendMissing();
+    final base = RazorpayBackendConfig.baseUrl.replaceAll(
+      RegExp(r'/+$'),
+      '',
+    );
+    final response = await http
+        .post(
+          Uri.parse('$base/$endpoint'),
+          headers: _jsonHeaders,
+          body: jsonEncode(body),
+        )
+        .timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw Exception(
+            'Payment server did not respond. Please try again.',
+          ),
+        );
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      throw Exception(
+        'Payment server error (${response.statusCode}). Please try again.',
+      );
+    }
+    if (response.statusCode != 200 || decoded is! Map || decoded['ok'] != true) {
+      final message =
+          decoded is Map && decoded['error'] != null
+              ? decoded['error'].toString()
+              : 'Payment server error (${response.statusCode}).';
+      throw Exception(message);
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  /// Creates a Razorpay Payment Link through the trusted backend.
   ///
-  /// [amountInPaise] — amount in paise (₹1 = 100 paise)
+  /// [amountInPaise] is only a request — the backend recomputes the
+  /// outstanding balance and rejects amounts that exceed it.
   static Future<RazorpayPaymentLink> createPaymentLink({
+    required String idToken,
+    required String patientId,
     required int amountInPaise,
     required String patientName,
     required String contactNumber,
     required String description,
     Map<String, String>? notes,
   }) async {
-    final body = jsonEncode({
-      'amount': amountInPaise,
-      'currency': 'INR',
+    final data = await _post('createPaymentLink', {
+      'idToken': idToken,
+      'patientId': patientId,
+      'amountInPaise': amountInPaise,
       'description': description,
-      'customer': {
-        'name': patientName,
-        'contact': contactNumber.startsWith('+')
-            ? contactNumber
-            : '+91$contactNumber',
-      },
-      'notify': {'sms': true},
-      'reminder_enable': false,
-      'notes': {'patient': patientName, ...?notes},
+      'patientName': patientName,
+      'contactNumber': contactNumber,
+      if (notes != null) 'notes': notes,
     });
-
-    final response = await http.post(
-      Uri.parse('$_baseUrl/payment_links/'),
-      headers: _authHeaders,
-      body: body,
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final id = data['id'] as String?;
-      final url = data['short_url'] as String?;
-      if (id == null || url == null) {
-        throw Exception('Invalid response from Razorpay');
-      }
-      return RazorpayPaymentLink(id: id, url: url);
-    } else {
-      final error = jsonDecode(response.body);
-      debugPrint('Razorpay error: ${response.body}');
-      throw Exception(
-        error['error']?['description'] ?? 'Failed to create payment link',
-      );
+    final linkId = data['linkId']?.toString();
+    final url = data['url']?.toString();
+    if (linkId == null || url == null) {
+      throw Exception('Payment server returned an invalid link.');
     }
+    return RazorpayPaymentLink(id: linkId, url: url);
   }
 
-  /// Polls a payment link by [linkId] and returns its current [RazorpayPaymentStatus].
+  /// Polls a payment link through the trusted backend.
   ///
-  /// Call this repeatedly (e.g. every 5 seconds) to detect when payment is complete.
-  static Future<RazorpayPaymentStatus> getPaymentLinkStatus(
-    String linkId,
-  ) async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/payment_links/$linkId'),
-      headers: _authHeaders,
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final status = data['status'] as String? ?? 'created';
-
-      // Extract payment details if paid
-      String? paymentId;
-      String? method;
-      DateTime? paidAt;
-      int? amountPaid;
-
-      final payments = data['payments'];
-      if (payments != null && payments is List && payments.isNotEmpty) {
-        final lastPayment = payments.last as Map<String, dynamic>;
-        paymentId = lastPayment['payment_id'] as String?;
-        method = lastPayment['method'] as String?;
-        amountPaid = lastPayment['amount'] as int?;
-        final paidAtRaw = lastPayment['paid_at'];
-        if (paidAtRaw != null) {
-          paidAt = DateTime.fromMillisecondsSinceEpoch(
-            (paidAtRaw as int) * 1000,
-          );
-        }
-      }
-
+  /// When the backend confirms payment it records the transaction in the
+  /// ledger server-side, so the client never writes a payment for online
+  /// transactions itself.
+  static Future<RazorpayPaymentStatus> getPaymentLinkStatus({
+    required String idToken,
+    required String linkId,
+  }) async {
+    try {
+      final data = await _post('checkPaymentLink', {
+        'idToken': idToken,
+        'linkId': linkId,
+      });
+      final status = data['status']?.toString() ?? 'created';
       return RazorpayPaymentStatus(
         status: status,
-        paymentId: paymentId,
-        method: method,
-        paidAt: paidAt,
-        amountPaid: amountPaid,
+        paymentId: data['paymentId']?.toString(),
+        method: data['method']?.toString(),
+        paidAt: data['paidAt'] is int
+            ? DateTime.fromMillisecondsSinceEpoch(data['paidAt'] as int)
+            : null,
+        amountPaid: data['amountPaid'] is int ? data['amountPaid'] as int : null,
       );
-    } else {
-      debugPrint('Razorpay poll error: ${response.body}');
-      // Don't throw — just return a "created" status so polling continues.
+    } catch (_) {
+      // Don't throw — keep polling so a temporary backend failure does not
+      // lose an in-flight payment.
       return const RazorpayPaymentStatus(status: 'created');
     }
   }
@@ -185,6 +200,8 @@ class RazorpayService {
 
   /// Convenience method — creates the payment link and immediately opens it.
   static Future<RazorpayPaymentLink> createAndOpen({
+    required String idToken,
+    required String patientId,
     required int amountInPaise,
     required String patientName,
     required String contactNumber,
@@ -192,6 +209,8 @@ class RazorpayService {
     Map<String, String>? notes,
   }) async {
     final link = await createPaymentLink(
+      idToken: idToken,
+      patientId: patientId,
       amountInPaise: amountInPaise,
       patientName: patientName,
       contactNumber: contactNumber,

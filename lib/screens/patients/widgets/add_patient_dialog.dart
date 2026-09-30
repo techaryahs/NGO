@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -25,6 +26,7 @@ class AddPatientDialog extends StatefulWidget {
 
 class _AddPatientDialogState extends State<AddPatientDialog> {
   bool _isLoading = false;
+  String? _createdPatientId;
   // Retains the previous detailed attendant editor without rendering it; the
   // compact editor below is intentionally shown last in the form.
   bool _showLegacyAttendantSection = false;
@@ -119,7 +121,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       final results = await Future.wait<dynamic>([
         roomService.getRoomsStream().first,
         roomService.getPricing(),
-        roomService.getStaysStream().first,
+        roomService.getActiveStaysStream().first,
       ]);
       final rooms = results[0] as List<RoomModel>;
       if (mounted) {
@@ -477,7 +479,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (registrationNumber.isNotEmpty) {
       final existing = await ServiceLocator().patientService
           .getPatientByRegistrationNumber(registrationNumber);
-      if (existing != null) {
+      if (existing != null && existing.id != _createdPatientId) {
         _showError(
           'Registration number $registrationNumber already belongs to ${existing.fullName}. Edit that patient instead.',
         );
@@ -485,7 +487,14 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       }
     }
 
-    // Show payment dialog before saving.
+    // Create the admission first. Online payments are attached to a saved
+    // patient record and verified by the payment backend, so the patient
+    // must exist before the payment dialog opens.
+    final patientId = await _createPatientAdmission();
+    if (patientId == null || !mounted) return;
+
+    // Payment step. Cash/cheque are recorded after this; online payments are
+    // created and verified by the trusted backend and never written locally.
     final result = await showPatientPaymentDialog(
       context: context,
       patientName: _patientNameController.text.trim(),
@@ -497,10 +506,24 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       roomIdentifier: _selectedRoom?.roomIdentifier,
       totalBillOverride: _estimatedTotal,
       showPayLater: true,
+      patientId: patientId,
     );
-    if (result == null) return; // User cancelled
 
-    await _doSavePatient(result);
+    if (result != null && result.payment != null) {
+      try {
+        await ServiceLocator().paymentService.recordPayment(
+          patientId: patientId,
+          patientName: _patientNameController.text.trim(),
+          payment: result.payment!,
+        );
+      } catch (e) {
+        if (mounted) {
+          _showError('Admission saved, but the payment could not be recorded: $e');
+        }
+      }
+    }
+
+    if (mounted) _finishAdmission(patientId);
   }
 
   int? _pricingInt(String key) {
@@ -509,22 +532,34 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     return int.tryParse(value?.toString() ?? '');
   }
 
-  /// Step 2 — Actual database save (validation already done by _savePatient).
-  Future<void> _doSavePatient(PaymentDialogResult result) async {
+  /// Creates the patient record and all placement stays. Returns the new
+  /// patient ID, or null when creation failed. Bed reservation is atomic:
+  /// every selected bed is allocated in one conditional write and released
+  /// again if the follow-up write fails.
+  Future<String?> _createPatientAdmission() async {
     setState(() => _isLoading = true);
 
     try {
+      final resumingAdmission = _createdPatientId != null;
       final currentUser = ServiceLocator().authRestService.currentUser;
       if (currentUser == null) {
         throw Exception('User not authenticated');
       }
 
       final roomService = ServiceLocator().roomService;
+      if (_createdPatientId != null) {
+        final existingStays = await ServiceLocator().rtdbService.getByChildValue(
+          'stays', child: 'patientId', value: _createdPatientId!,
+        );
+        if (existingStays is Map && existingStays.values.any(
+          (value) => value is Map && value['status'] == 'active',
+        )) return _createdPatientId;
+      }
       RoomModel? room;
       if (_selectedRoom != null) {
         // Concurrency check only applies to actual room beds. Lobby placements
         // are deliberately independent from rooms and their beds.
-        room = await roomService.getRoom(_selectedRoom!.id);
+        room = await roomService.getRoomDirect(_selectedRoom!.id);
         if (room == null) throw Exception('Selected room no longer exists');
         if (room.isPrivate && !room.hasAvailableBeds) {
           throw Exception(
@@ -604,30 +639,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         );
       }
 
-      final initialPayment = result.payment == null
-          ? null
-          : PaymentModel(
-              id: result.payment!.id,
-              amount: result.payment!.amount,
-              totalAmount: result.payment!.totalAmount,
-              paidAmount: result.payment!.paidAmount,
-              pendingAmount: result.payment!.pendingAmount,
-              paymentStatus: result.payment!.paymentStatus,
-              method: result.payment!.method,
-              date: result.payment!.date,
-              receiptNumber: result.payment!.receiptNumber,
-              checkNumber: result.payment!.checkNumber,
-              bankName: result.payment!.bankName,
-              transactionId:
-                  result.payment!.transactionId ??
-                  (_utiNumberController.text.trim().isEmpty
-                      ? null
-                      : _utiNumberController.text.trim()),
-              notes: result.payment!.notes,
-            );
-
       // Create patient
-      final patientId = await ServiceLocator().patientService.addPatient(
+      final patientId = _createdPatientId ?? await ServiceLocator().patientService.addPatient(
         fullName: _patientNameController.text.trim(),
         dateOfBirth: dateOfBirth,
         gender: _selectedGender!.toLowerCase(),
@@ -685,11 +698,18 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         attendants: structuredAttendants.isNotEmpty
             ? structuredAttendants
             : null,
-        payments: initialPayment != null ? [initialPayment] : null,
         initialTotalAmount: _estimatedTotal,
       );
+      _createdPatientId = patientId;
 
       final attendantCount = structuredAttendants.length;
+      final attendantLabels = structuredAttendants
+          .map(
+            (a) => a.relation?.trim().isNotEmpty == true
+                ? '${a.name} (${a.relation})'
+                : a.name,
+          )
+          .toList();
 
       // Lobby placements create history records but never occupy room beds.
       if (_selectedLobby != null) {
@@ -700,96 +720,79 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           admissionDate: admissionDate,
           durationDays: _plannedStayDays,
           attendantCount: attendantCount,
-          attendantLabels: structuredAttendants
-              .map(
-                (a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name,
-              )
-              .toList(),
+          attendantLabels: attendantLabels,
           createdBy: currentUser.uid,
         );
       }
-      if (_selectedRoom?.isPrivate == true) {
-        // Private room: one stay for this patient's assigned bed. A second
-        // patient may use another available private-room bed.
-        await roomService.createStay(
+      if (_selectedRoom != null) {
+        // Private rooms assign one bed per patient; general wards allow
+        // several beds for one patient. All beds are reserved atomically.
+        final bedIds = _selectedRoom!.isPrivate
+            ? [_selectedBeds.first.id]
+            : _selectedBeds.map((b) => b.id).toList();
+        await roomService.createStaysForBeds(
           patientId: patientId,
           patientName: _patientNameController.text.trim(),
           roomId: _selectedRoom!.id,
-          roomNumber: _selectedRoom!.roomIdentifier,
-          roomType: _selectedRoom!.roomType,
           admissionDate: admissionDate,
           durationDays: _plannedStayDays,
           attendantCount: attendantCount,
-          attendantLabels: structuredAttendants
-              .map(
-                (a) => a.relation?.trim().isNotEmpty == true
-                    ? '${a.name} (${a.relation})'
-                    : a.name,
-              )
-              .toList(),
-          bedId: _selectedBeds.isNotEmpty ? _selectedBeds.first.id : null,
-          bedLabel: _selectedBeds.isNotEmpty
-              ? _selectedBeds.map((b) => b.bedLabel).join(", ")
-              : null,
+          attendantLabels: attendantLabels,
+          bedIds: bedIds,
           notes: [
-            'Private room admission with $attendantCount attendant(s)',
+            _selectedRoom!.isPrivate
+                ? 'Private room admission with $attendantCount attendant(s)'
+                : _selectedBeds.length > 1
+                ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                : 'General ward admission',
             if (_selectedLobby != null) 'Lobby: $_selectedLobby',
           ].join('\n'),
           createdBy: currentUser.uid,
         );
-      } else if (_selectedRoom != null) {
-        // General room: Create separate stay for each selected bed
-        for (final bed in _selectedBeds) {
-          await roomService.createStay(
-            patientId: patientId,
-            patientName: _patientNameController.text.trim(),
-            roomId: _selectedRoom!.id,
-            roomNumber: _selectedRoom!.roomIdentifier,
-            roomType: _selectedRoom!.roomType,
-            admissionDate: admissionDate,
-            durationDays: _plannedStayDays,
-            attendantCount: attendantCount,
-            attendantLabels: structuredAttendants
-                .map(
-                  (a) => a.relation?.trim().isNotEmpty == true
-                      ? '${a.name} (${a.relation})'
-                      : a.name,
-                )
-                .toList(),
-            bedId: bed.id,
-            bedLabel: bed.bedLabel,
-            notes: [
-              _selectedBeds.length > 1
-                  ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
-                  : 'General ward admission',
-              if (_selectedLobby != null) 'Lobby: $_selectedLobby',
-            ].join('\n'),
-            createdBy: currentUser.uid,
-          );
-        }
       }
 
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(patientId);
-
-      if (mounted) {
-        Navigator.of(context).pop();
-        widget.onPatientAdded?.call();
-        _showSuccess(
-          _selectedLobby != null
-              ? 'Patient admitted successfully in $_selectedLobby'
-              : 'Patient admitted successfully with ${_selectedBeds.length} bed(s)',
-        );
+      if (resumingAdmission) {
+        await ServiceLocator().rtdbService.patch('patients/$patientId', {
+          'roomId': _selectedRoom?.id,
+          'roomNumber': _selectedRoom?.roomIdentifier,
+          'lobby': _selectedLobby,
+          'bedIds': _selectedBeds.map((bed) => bed.id).toList(),
+          'bedLabels': _selectedBeds.map((bed) => bed.bedLabel).toList(),
+        });
       }
+
+      return patientId;
     } catch (e) {
-      _showError('Failed to add patient: ${e.toString()}');
+      if (e is BedConflictException) {
+        _showError('${e.message} Please reselect the beds.');
+      } else {
+        _showError('Failed to add patient: ${e.toString()}');
+      }
+      return null;
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  /// Closes the dialog after a successful admission. The billing refresh runs
+  /// in the background so it never blocks the admission flow.
+  void _finishAdmission(String patientId) {
+    unawaited(
+      ServiceLocator().paymentService.schedulePatientBilling(patientId).catchError(
+        (Object error) {
+          if (mounted) _showError('Admission saved; billing will need a refresh: $error');
+        },
+      ),
+    );
+    Navigator.of(context).pop();
+    widget.onPatientAdded?.call();
+    _showSuccess(
+      _selectedLobby != null
+          ? 'Patient admitted successfully in $_selectedLobby'
+          : 'Patient admitted successfully with ${_selectedBeds.length} bed(s)',
+    );
   }
 
   void _showError(String message) {

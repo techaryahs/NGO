@@ -9,7 +9,7 @@ extension RoomServiceRooms on RoomService {
   Stream<List<RoomModel>> streamRooms() {
     return RoomService.combineLatest2(
       rtdb.stream(roomsPath),
-      rtdb.stream(staysPath),
+      rtdb.queryStream(staysPath, orderBy: 'status', equalTo: 'active'),
       (roomsData, staysData) {
         return _processRoomsData(roomsData, staysData);
       },
@@ -76,7 +76,11 @@ extension RoomServiceRooms on RoomService {
       if (data == null || data is! Map) return null;
 
       final room = RoomModel.fromMap(roomId, Map<String, dynamic>.from(data));
-      final staysData = await rtdb.get(staysPath);
+      final staysData = await rtdb.getByChildValue(
+        staysPath,
+        child: 'roomId',
+        value: roomId,
+      );
       final roomStays = parseStaysFromData(
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
@@ -174,6 +178,9 @@ extension RoomServiceRooms on RoomService {
       roomData['beds'] = bedsToRtdbMap(updatedBeds);
       roomData['expectedVacancyDate'] = null;
       roomData['lastUpdated'] = now.millisecondsSinceEpoch;
+      // New rooms start at version 1 so the bed-change CAS rule applies to
+      // every subsequent mutation.
+      roomData['version'] = 1;
 
       await rtdb.patch('$roomsPath/$roomId', roomData);
       return roomId;

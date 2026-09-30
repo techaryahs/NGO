@@ -9,6 +9,8 @@ import '../../../models/bed_model.dart';
 import '../../../utils/bed_helper.dart';
 import '../../../services/service_locator.dart';
 import '../../../services/stay_history_service.dart';
+import '../../../services/photo_rtdb_service.dart';
+import '../../../widgets/patient_photo.dart';
 
 class InlineStayEditor extends StatefulWidget {
   final StayModel stay;
@@ -34,6 +36,8 @@ class _StayAttendant {
   final TextEditingController name, relation, age, aadhaar, mobile;
   bool isEmergency;
   String? photo;
+  String? photoRef;
+  bool photoChanged = false;
   _StayAttendant(Map data)
     : name = TextEditingController(text: data['name']?.toString() ?? ''),
       relation = TextEditingController(
@@ -47,13 +51,14 @@ class _StayAttendant {
         text: data['mobileNumber']?.toString() ?? '',
       ),
       isEmergency = data['isEmergencyContact'] == true,
-      photo = data['photoDataUrl']?.toString();
+      photo = data['photoDataUrl']?.toString(),
+      photoRef = data['photoRef']?.toString();
   Map<String, dynamic> toMap() => {
     'name': name.text.trim(),
     'relation': relation.text.trim(),
     'age': age.text.trim(),
     'aadhaarNumber': aadhaar.text.trim(),
-    'photoDataUrl': photo,
+    'photoRef': photoRef,
     'mobileNumber': mobile.text.trim(),
     'isEmergencyContact': isEmergency,
   };
@@ -87,7 +92,8 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
       total;
   late DateTime start, end;
   late String roomType, roomId;
-  String? bedId, photo;
+  String? bedId, photo, patientPhotoRef;
+  bool patientPhotoChanged = false;
   final attendants = <_StayAttendant>[];
   List<RoomModel> rooms = [];
   Set<String> occupiedLobbies = {};
@@ -135,6 +141,7 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
     roomId = stay.roomId;
     bedId = stay.bedId;
     photo = stay.patientSnapshot['photoDataUrl']?.toString();
+    patientPhotoRef = stay.patientSnapshot['photoRef']?.toString();
     final raw = stay.patientSnapshot['attendants'];
     if (raw is List) {
       attendants.addAll(raw.whereType<Map>().map(_StayAttendant.new));
@@ -165,7 +172,7 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
                 RoomModel.fromMap(entry.key.toString(), entry.value),
           ];
       }
-      final stays = await ServiceLocator().roomService.getStaysStream().first;
+      final stays = await ServiceLocator().roomService.getActiveStaysStream().first;
       occupiedLobbies = {
         for (final stay in stays)
           if (stay.roomType == 'lobby' &&
@@ -243,8 +250,11 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
     String title,
     String? data,
     void Function(String?) assign,
+    {String? photoRef}
   ) {
-    Widget image = const Icon(
+    Widget image = photoRef != null
+        ? PatientPhoto(photoRef: photoRef, size: 88)
+        : const Icon(
       Icons.person_outline,
       size: 36,
       color: Color(0xFF639922),
@@ -311,7 +321,7 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          if (data != null)
+          if (data != null || photoRef != null)
             TextButton(
               onPressed: saving ? null : () => setState(() => assign(null)),
               child: const Text('Remove photo'),
@@ -500,15 +510,43 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
         saving = true;
         error = null;
       });
+      // Legacy snapshots are converted when edited, even if the photo picker
+      // was not touched. Never put a data URL back into a stay snapshot.
+      if (photo != null && photo!.isNotEmpty) {
+        final bytes = PhotoRtdbService.decodeLegacyBase64(photo);
+        if (bytes == null) throw FormatException('Invalid patient photo');
+        patientPhotoRef = await ServiceLocator().photoRtdbService.uploadPhoto(
+          photoPath: PhotoRtdbService.patientPath(widget.stay.patientId),
+          bytes: bytes,
+        );
+      } else if (patientPhotoChanged) {
+        patientPhotoRef = null;
+      }
+      for (var i = 0; i < attendants.length; i++) {
+        final attendant = attendants[i];
+        if (attendant.photo != null && attendant.photo!.isNotEmpty) {
+          final bytes = PhotoRtdbService.decodeLegacyBase64(attendant.photo);
+          if (bytes == null) throw FormatException('Invalid attendant photo');
+          attendant.photoRef = await ServiceLocator().photoRtdbService.uploadPhoto(
+            photoPath: PhotoRtdbService.attendantPath(
+                widget.stay.patientId, 'stay_${widget.stay.id}_$i'),
+            bytes: bytes,
+          );
+        } else if (attendant.photoChanged) {
+          attendant.photoRef = null;
+        }
+      }
       final selectedRoom = widget.stay.isActive
           ? rooms.where((r) => r.id == roomId).firstOrNull
           : null;
       final changes = <String, dynamic>{
         'patientName': name.text.trim(),
         'patientSnapshot': {
-          ...widget.stay.patientSnapshot,
+          ...(Map<String, dynamic>.from(widget.stay.patientSnapshot)
+            ..remove('photoDataUrl')
+            ..remove('photoStorageRef')),
           'registrationNumber': registration.text.trim(),
-          'photoDataUrl': photo,
+          'photoRef': patientPhotoRef,
           'attendants': attendants.map((a) => a.toMap()).toList(),
         },
         'admissionDate': start.millisecondsSinceEpoch,
@@ -747,7 +785,10 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
                   spacing: 18,
                   runSpacing: 12,
                   children: [
-                    _photoEditor('Patient', photo, (value) => photo = value),
+                    _photoEditor('Patient', photo, (value) {
+                      photo = value;
+                      patientPhotoChanged = true;
+                    }, photoRef: patientPhotoRef),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -955,7 +996,11 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
                                   ? 'Attendant'
                                   : attendant.name.text.trim(),
                               attendant.photo,
-                              (value) => attendant.photo = value,
+                              (value) {
+                                attendant.photo = value;
+                                attendant.photoChanged = true;
+                              },
+                              photoRef: attendant.photoRef,
                             ),
                           ),
                           const SizedBox(height: 12),

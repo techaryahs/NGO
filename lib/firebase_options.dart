@@ -11,7 +11,6 @@ class FirebaseRestOptions {
     required this.projectId,
     required this.databaseURL,
     this.authDomain,
-    this.storageBucket,
     this.iosBundleId,
     this.measurementId,
   });
@@ -22,7 +21,6 @@ class FirebaseRestOptions {
   final String projectId;
   final String databaseURL;
   final String? authDomain;
-  final String? storageBucket;
   final String? iosBundleId;
   final String? measurementId;
 }
@@ -70,7 +68,6 @@ class DefaultFirebaseOptions {
     projectId: 'ngo-management-system-d8c06',
     databaseURL:
         'https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'ngo-management-system-d8c06.firebasestorage.app',
     iosBundleId: 'com.example.ngo',
   );
 
@@ -82,7 +79,6 @@ class DefaultFirebaseOptions {
     authDomain: 'ngo-management-system-d8c06.firebaseapp.com',
     databaseURL:
         'https://ngo-management-system-d8c06-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'ngo-management-system-d8c06.firebasestorage.app',
     measurementId: 'G-67SZ7ZHM4K',
   );
 }

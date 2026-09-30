@@ -14,13 +14,13 @@ class AuthService {
   AuthUser? get currentUser => _auth.currentUser;
   Stream<AuthUser?> get authStateChanges => _auth.authStateChanges;
 
-  // Sign up with email, password, and role
+  // New accounts are unprivileged. Staff/admin roles are assigned by a
+  // trusted operator through the Firebase Admin SDK.
   Future<Map<String, dynamic>> signUp({
     required String email,
     required String password,
     required String name,
     required String phone,
-    required String role, // 'admin', 'staff', 'volunteer'
   }) async {
     try {
       final result = await _auth.signUp(email: email, password: password);
@@ -29,13 +29,13 @@ class AuthService {
         return {'success': false, 'message': result.message};
       }
 
-      // Store user data with role in Realtime Database via REST API
+      // Store an unprivileged profile; the RTDB rules enforce this value.
       await _rtdb.put('users/${result.user!.uid}', {
         'uid': result.user!.uid,
         'email': email,
         'name': name,
         'phone': phone,
-        'role': role,
+        'role': 'volunteer',
         'createdAt': DateTime.now().millisecondsSinceEpoch,
       });
 

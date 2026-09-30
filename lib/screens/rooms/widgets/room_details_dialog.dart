@@ -31,42 +31,6 @@ class RoomDetailsDialog extends StatelessWidget {
             if (!patientSnapshot.hasData) {
               return _buildDialog(context, currentRoom);
             }
-            final patientIds = patientSnapshot.data!
-                .map((patient) => patient.id)
-                .toSet();
-            final hasOrphanedBed = currentRoom.beds.any(
-              (bed) =>
-                  bed.currentPatientId != null &&
-                  !patientIds.contains(bed.currentPatientId),
-            );
-            if (hasOrphanedBed) {
-              unawaited(
-                ServiceLocator().patientService
-                    .repairOrphanedPatientRecordsNow()
-                    .catchError((_) => 0),
-              );
-              final visibleBeds = currentRoom.beds.map((bed) {
-                return bed.currentPatientId != null &&
-                        !patientIds.contains(bed.currentPatientId)
-                    ? bed.copyWith(
-                        status: 'available',
-                        clearPatientId: true,
-                        clearStayId: true,
-                      )
-                    : bed;
-              }).toList();
-              currentRoom = currentRoom.copyWith(
-                beds: visibleBeds,
-                occupiedBeds: visibleBeds
-                    .where((bed) => bed.isOccupied)
-                    .length,
-                status: visibleBeds.every((bed) => bed.isAvailable)
-                    ? 'available'
-                    : visibleBeds.every((bed) => bed.isOccupied)
-                    ? 'occupied'
-                    : 'partially_occupied',
-              );
-            }
             return _buildDialog(context, currentRoom);
           },
         );
@@ -326,31 +290,6 @@ class RoomDetailsDialog extends StatelessWidget {
                               for (final patient in patientSnapshot.data ?? [])
                                 patient.id: patient,
                             };
-                            final orphanedStayExists = stays.any(
-                              (stay) => !patientById.containsKey(stay.patientId),
-                            );
-                            if (orphanedStayExists) {
-                              unawaited(
-                                ServiceLocator().patientService
-                                    .repairOrphanedPatientRecordsNow()
-                                    .then((repaired) {
-                                      if (repaired > 0 && context.mounted) {
-                                        final messenger =
-                                            ScaffoldMessenger.of(context);
-                                        Navigator.of(context).pop();
-                                        messenger.showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Deleted patient records removed and bed released.',
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                      return repaired;
-                                    })
-                                    .catchError((_) => 0),
-                              );
-                            }
                             final visibleStays = stays
                                 .where(
                                   (stay) =>

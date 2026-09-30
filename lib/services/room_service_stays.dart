@@ -7,15 +7,23 @@ extension RoomServiceStays on RoomService {
   Future<Map<String, dynamic>> _patientSnapshot(String patientId) async {
     final data = await rtdb.get('patients/$patientId');
     if (data is! Map) return {};
-    return {
+    final snapshot = <String, dynamic>{
       for (final key in [
         'registrationNumber',
-        'photoDataUrl',
-        'attendants',
+        'photoRef',
         'admissionDate',
       ])
         key: data[key],
     };
+    final attendants = data['attendants'];
+    if (attendants is List) {
+      snapshot['attendants'] = [
+        for (final attendant in attendants)
+          if (attendant is Map)
+            (Map<String, dynamic>.from(attendant)..remove('photoDataUrl')),
+      ];
+    }
+    return snapshot;
   }
   // --- Stays ---
 
@@ -28,23 +36,21 @@ extension RoomServiceStays on RoomService {
   }
 
   Stream<List<StayModel>> getActiveStaysStream() {
-    return getStaysStream().map(
-      (stays) => stays.where((s) => s.status == 'active').toList(),
-    );
+    return rtdb.queryStream(staysPath, orderBy: 'status', equalTo: 'active')
+        .map(parseStaysFromData);
   }
 
   Stream<List<StayModel>> getStaysByRoomStream(String roomId) {
-    return getStaysStream().map(
-      (stays) => stays
+    return rtdb.queryStream(staysPath, orderBy: 'roomId', equalTo: roomId)
+        .map((data) => parseStaysFromData(data)
           .where((s) => s.roomId == roomId && s.status == 'active')
           .toList(),
-    );
+        );
   }
 
   Stream<List<StayModel>> getStaysByPatientStream(String patientId) {
-    return getStaysStream().map(
-      (stays) => stays.where((s) => s.patientId == patientId).toList(),
-    );
+    return rtdb.queryStream(staysPath, orderBy: 'patientId', equalTo: patientId)
+        .map(parseStaysFromData);
   }
 
   /// Records a lobby admission in stay history without reserving a room bed.
@@ -61,7 +67,10 @@ extension RoomServiceStays on RoomService {
     DateTime? completedAt,
   }) async {
     if (status == 'active') {
-      final occupied = (await getStaysStream().first).any(
+      final lobbyStays = await rtdb.getByChildValue(
+        staysPath, child: 'roomNumber', value: lobbyName,
+      );
+      final occupied = parseStaysFromData(lobbyStays).any(
         (stay) =>
             stay.roomType == 'lobby' &&
             stay.status == 'active' &&
@@ -132,7 +141,8 @@ extension RoomServiceStays on RoomService {
     required String createdBy,
   }) async {
     try {
-      final room = await getRoom(roomId);
+      // Direct room read — no full stays collection download.
+      final room = await getRoomDirect(roomId);
       if (room == null) throw Exception('Room not found');
       final pricing = await getPricing();
 
@@ -214,40 +224,160 @@ extension RoomServiceStays on RoomService {
         createdBy: createdBy,
       );
 
-      final nextOccupiedCount = room.actualOccupiedBeds + 1;
+      // Server-enforced compare-and-swap: two receptionists cannot both win
+      // the same bed. On conflict the operation retries against fresh state.
+      await reserveBeds(
+        roomId: roomId,
+        bedIds: [targetBed.id],
+        patientId: patientId,
+        stayIds: [stayId],
+        attendantCount: resolvedRoomType == 'private' ? attendantCount : 0,
+        expectedDischargeDate: expectedDischargeDate,
+      );
 
-      // Perform atomic multipath update to sync stay + bed + room status
-      final updates = <String, dynamic>{
-        'stays/$stayId': stay.toMap(),
-        'rooms/$roomId/occupiedBeds': nextOccupiedCount,
-        'rooms/$roomId/currentAttendants': resolvedRoomType == 'private'
-            ? room.currentAttendants + attendantCount
-            : room.currentAttendants,
-        'rooms/$roomId/expectedVacancyDate':
-            expectedDischargeDate.millisecondsSinceEpoch,
-        'rooms/$roomId/lastUpdated': now.millisecondsSinceEpoch,
-        'rooms/$roomId/updatedAt': now.millisecondsSinceEpoch,
-      };
-
-      {
-        final fixedBeds = room.beds.map((b) {
-          if (b.id == targetBed!.id) {
-            return b.copyWith(
-              status: 'occupied',
-              currentPatientId: patientId,
-              currentStayId: stayId,
-            );
-          }
-          return b;
-        }).toList();
-        updates['rooms/$roomId/beds'] = bedsToRtdbMap(fixedBeds);
+      try {
+        await rtdb.patch('$staysPath/$stayId', stay.toMap());
+      } catch (e) {
+        // A timed-out REST response is ambiguous: the stay may have been
+        // committed. Never release its bed until a read proves it is absent.
+        final saved = await rtdb.get('$staysPath/$stayId');
+        if (saved is Map) return stayId;
+        await releaseBeds(
+          roomId: roomId,
+          patientId: patientId,
+          stayIds: [stayId],
+          attendantCount: resolvedRoomType == 'private' ? attendantCount : 0,
+        );
+        rethrow;
       }
-
-      await rtdb.patch('', updates); // Atomic root-level multipath
-      await updateRoomStatus(roomId);
       return stayId;
     } catch (e) {
+      if (e is BedConflictException) rethrow;
       throw Exception('Failed to create stay: $e');
+    }
+  }
+
+  /// Creates one stay per selected bed and reserves ALL beds atomically.
+  ///
+  /// Multi-bed admissions are all-or-nothing: every bed is validated and
+  /// reserved in a single conditional write; the stays are then persisted in
+  /// one multi-path update. A failure at any point releases every bed.
+  Future<List<String>> createStaysForBeds({
+    required String patientId,
+    required String patientName,
+    required String roomId,
+    required DateTime admissionDate,
+    required int durationDays,
+    required int attendantCount,
+    required List<String> bedIds,
+    List<String> attendantLabels = const [],
+    String? notes,
+    required String createdBy,
+  }) async {
+    try {
+      final room = await getRoomDirect(roomId);
+      if (room == null) throw Exception('Room not found');
+      final pricing = await getPricing();
+
+      if (bedIds.isEmpty) throw Exception('Select at least one bed');
+      final missing = bedIds
+          .where((id) => room.beds.every((bed) => bed.id != id))
+          .toList();
+      if (missing.isNotEmpty) {
+        throw Exception('Selected bed(s) no longer exist in this room');
+      }
+      if (room.isPrivate) {
+        final projectedAttendants = room.currentAttendants + attendantCount;
+        if (projectedAttendants > room.maxAttendants) {
+          throw Exception(
+            'Private room attendant limit exceeded (${room.maxAttendants})',
+          );
+        }
+      } else if (attendantCount > room.maxAttendants) {
+        throw Exception(
+          'General room attendant limit exceeded (${room.maxAttendants})',
+        );
+      }
+
+      final costs = _calculateStayCosts(
+        roomType: room.roomType,
+        durationDays: durationDays,
+        attendantCount: attendantCount,
+        pricing: pricing,
+      );
+      final expectedDischargeDate = admissionDate.add(
+        Duration(days: durationDays),
+      );
+      final now = DateTime.now();
+      final staySnapshot = await _patientSnapshot(patientId);
+
+      final stays = <String, StayModel>{};
+      for (final bedId in bedIds) {
+        final bed = room.beds.where((b) => b.id == bedId).first;
+        final stayId = generateStayId();
+        stays[stayId] = StayModel(
+          id: stayId,
+          patientId: patientId,
+          patientName: patientName,
+          patientSnapshot: staySnapshot,
+          cycleId: staySnapshot['admissionDate']?.toString(),
+          dailyRate: null,
+          roomId: roomId,
+          roomNumber: room.roomIdentifier,
+          roomType: room.roomType,
+          admissionDate: admissionDate,
+          durationDays: durationDays,
+          expectedDischargeDate: expectedDischargeDate,
+          expiryDate: expectedDischargeDate,
+          attendantCount: attendantCount,
+          attendantLabels: attendantLabels,
+          totalCost: costs.totalCost,
+          baseCost: costs.baseCost,
+          extraAttendantCost: costs.extraAttendantCost,
+          status: 'active',
+          bedId: bed.id,
+          bedNumber: int.tryParse(bed.bedLabel),
+          bedLabel: bed.bedLabel,
+          notes: notes,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy,
+        );
+      }
+      final stayIds = stays.keys.toList();
+
+      // All-or-nothing reservation of every selected bed.
+      await reserveBeds(
+        roomId: roomId,
+        bedIds: bedIds,
+        patientId: patientId,
+        stayIds: stayIds,
+        attendantCount: room.isPrivate ? attendantCount : 0,
+        expectedDischargeDate: expectedDischargeDate,
+      );
+
+      try {
+        final updates = <String, dynamic>{
+          for (final stay in stays.values) 'stays/${stay.id}': stay.toMap(),
+        };
+        await rtdb.patch('', updates);
+      } catch (e) {
+        // Multi-path updates are atomic, but a network timeout may occur
+        // after Firebase committed them. Verify before compensation.
+        final saved = await rtdb.get('$staysPath/${stayIds.first}');
+        if (saved is Map) return stayIds;
+        await releaseBeds(
+          roomId: roomId,
+          patientId: patientId,
+          stayIds: stayIds,
+          attendantCount: room.isPrivate ? attendantCount : 0,
+        );
+        rethrow;
+      }
+      return stayIds;
+    } catch (e) {
+      if (e is BedConflictException) rethrow;
+      throw Exception('Failed to create stays: $e');
     }
   }
 
@@ -337,7 +467,7 @@ extension RoomServiceStays on RoomService {
           'patientSnapshot': await _patientSnapshot(stay.patientId),
         });
       }
-      final room = await getRoom(stay.roomId);
+      final room = await getRoomDirect(stay.roomId);
       final now = completedAt ?? DateTime.now();
       if (room == null) {
         // Legacy/imported stays can point to a room that was renamed or
@@ -361,61 +491,50 @@ extension RoomServiceStays on RoomService {
         return;
       }
 
-      var targetBed = stay.bedId != null
-          ? room.beds.where((b) => b.id == stay.bedId).firstOrNull
-          : room.beds.where((b) => b.currentStayId == stay.id).firstOrNull;
-      targetBed ??= room.beds
-          .where((b) => b.currentStayId == stay.id)
-          .firstOrNull;
-      targetBed ??= room.beds
-          .where((b) => b.currentPatientId == stay.patientId && b.isOccupied)
-          .firstOrNull;
+      // Release the bed under compare-and-swap so a concurrent transfer or
+      // re-admission cannot be overwritten by a stale room snapshot.
+      final released = await _updateRoomBedsWithCas(
+        room.id,
+        (fresh) {
+          var targetBed = stay.bedId != null
+              ? fresh.beds.where((b) => b.id == stay.bedId && b.currentStayId == stay.id).firstOrNull
+              : fresh.beds.where((b) => b.currentStayId == stay.id).firstOrNull;
+          targetBed ??= fresh.beds
+              .where((b) => b.currentStayId == stay.id)
+              .firstOrNull;
+          if (targetBed == null) return fresh.beds;
+          return fresh.beds.map((b) {
+            if (b.id == targetBed!.id) {
+              return b.copyWith(
+                status: 'available',
+                clearPatientId: true,
+                clearStayId: true,
+              );
+            }
+            return b;
+          }).toList();
+        },
+        attendantDelta: room.isPrivate && room.currentAttendants >= stay.attendantCount
+            ? -stay.attendantCount
+            : 0,
+      );
+      if (!released) throw BedConflictException('Room changed while releasing the bed');
 
-      final fixedBeds = targetBed == null
-          ? room.beds
-          : room.beds.map((b) {
-              if (b.id == targetBed!.id) {
-                return b.copyWith(
-                  status: 'available',
-                  clearPatientId: true,
-                  clearStayId: true,
-                );
-              }
-              return b;
-            }).toList();
-      final nextOccupiedCount = fixedBeds.where((bed) => bed.isOccupied).length;
-
-      final updates = <String, dynamic>{
-        'stays/$stayId/status': 'completed',
-        'stays/$stayId/completedAt': now.millisecondsSinceEpoch,
-        'stays/$stayId/updatedAt': now.millisecondsSinceEpoch,
+      await rtdb.patch('$staysPath/$stayId', {
+        'status': 'completed',
+        'completedAt': now.millisecondsSinceEpoch,
+        'updatedAt': now.millisecondsSinceEpoch,
         if (billingAdmissionDate != null)
-          'stays/$stayId/admissionDate':
-              billingAdmissionDate.millisecondsSinceEpoch,
+          'admissionDate': billingAdmissionDate.millisecondsSinceEpoch,
         if (billingAdmissionDate != null)
-          'stays/$stayId/durationDays': PricingHelper.calculateStayDays(
+          'durationDays': PricingHelper.calculateStayDays(
             billingAdmissionDate,
             now,
           ),
-        if (totalCost != null) 'stays/$stayId/totalCost': totalCost,
-        if (paidAmount != null) 'stays/$stayId/paidAmount': paidAmount,
-        if (pendingAmount != null) 'stays/$stayId/pendingAmount': pendingAmount,
-        'rooms/${room.id}/occupiedBeds': nextOccupiedCount,
-        'rooms/${room.id}/currentAttendants': room.isPrivate
-            ? (room.currentAttendants > stay.attendantCount
-                  ? room.currentAttendants - stay.attendantCount
-                  : 0)
-            : room.currentAttendants,
-        'rooms/${room.id}/lastUpdated': now.millisecondsSinceEpoch,
-        'rooms/${room.id}/updatedAt': now.millisecondsSinceEpoch,
-      };
-
-      if (targetBed != null) {
-        updates['rooms/${room.id}/beds'] = bedsToRtdbMap(fixedBeds);
-      }
-
-      await rtdb.patch('', updates); // Atomic root-level multi-path update
-      await updateRoomStatus(room.id);
+        if (totalCost != null) 'totalCost': totalCost,
+        if (paidAmount != null) 'paidAmount': paidAmount,
+        if (pendingAmount != null) 'pendingAmount': pendingAmount,
+      });
     } catch (e) {
       throw Exception('Failed to complete stay: $e');
     }
@@ -514,7 +633,11 @@ extension RoomServiceStays on RoomService {
     final updates = <String, dynamic>{
       'attendantCount': attendantCount,
       'attendantLabels': attendantLabels,
-      if (attendants != null) 'patientSnapshot/attendants': attendants,
+      if (attendants != null)
+        'patientSnapshot/attendants': [
+          for (final attendant in attendants)
+            (Map<String, dynamic>.from(attendant)..remove('photoDataUrl')),
+        ],
       // Changing the attendant list must not turn the estimate into a fixed
       // daily charge. Attendance determines the attendant portion per day.
       'dailyRate': null,

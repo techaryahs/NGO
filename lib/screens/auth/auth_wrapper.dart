@@ -84,10 +84,8 @@ class AuthWrapper extends StatelessWidget {
                 );
               }
 
-              // Role-based routing - default to admin if role not found
-              final role = roleSnapshot.data ?? 'admin';
-              
-              print('User role: $role'); // Debug print
+              // An unknown or temporarily unavailable role has no admin UI.
+              final role = roleSnapshot.data ?? 'volunteer';
               
               switch (role) {
                 case 'admin':
@@ -97,8 +95,7 @@ class AuthWrapper extends StatelessWidget {
                 case 'volunteer':
                   return const VolunteerLayout();
                 default:
-                  // If role is not recognized, default to admin
-                  return const MainLayout();
+                  return const VolunteerLayout();
               }
             },
           );

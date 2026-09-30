@@ -18,7 +18,6 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
-  String _selectedRole = 'volunteer'; // Default role
 
   @override
   void dispose() {
@@ -57,7 +56,6 @@ class _SignupScreenState extends State<SignupScreen> {
       password: passwordController.text,
       name: nameController.text.trim(),
       phone: phoneController.text.trim(),
-      role: _selectedRole,
     );
 
     if (mounted) {
@@ -219,52 +217,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Role selection
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "ACCOUNT TYPE",
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF27500A),
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _RoleChip(
-                                  label: "Volunteer",
-                                  icon: Icons.volunteer_activism_rounded,
-                                  isSelected: _selectedRole == 'volunteer',
-                                  onTap: () => setState(() => _selectedRole = 'volunteer'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _RoleChip(
-                                  label: "Staff",
-                                  icon: Icons.badge_outlined,
-                                  isSelected: _selectedRole == 'staff',
-                                  onTap: () => setState(() => _selectedRole = 'staff'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _RoleChip(
-                                  label: "Admin",
-                                  icon: Icons.admin_panel_settings_outlined,
-                                  isSelected: _selectedRole == 'admin',
-                                  onTap: () => setState(() => _selectedRole = 'admin'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                      const Text('New accounts start as volunteers. An administrator assigns staff access.'),
                       const SizedBox(height: 16),
 
                       // Password field

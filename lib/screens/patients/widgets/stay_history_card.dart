@@ -11,6 +11,7 @@ import '../../../services/stay_history_service.dart';
 import '../../../utils/stay_billing.dart';
 import 'inline_stay_editor.dart';
 import 'shift_timeline_editor.dart';
+import '../../../widgets/patient_photo.dart';
 
 class StayHistoryCard extends StatefulWidget {
   final StayModel stay;
@@ -274,13 +275,9 @@ class _StayHistoryCardView extends StatelessWidget {
     final label = name?.isNotEmpty == true
         ? '$name${relation?.isNotEmpty == true ? ' ($relation)' : ''}'
         : fallback;
-    ImageProvider? image;
     final source = map['photoDataUrl']?.toString();
-    if (source?.isNotEmpty == true) {
-      try {
-        image = MemoryImage(base64Decode(source!.split(',').last));
-      } catch (_) {}
-    }
+    final ref = map['photoRef']?.toString() ?? currentAttendant?.photoRef;
+    final hasPhoto = source?.isNotEmpty == true || ref?.isNotEmpty == true;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -292,24 +289,24 @@ class _StayHistoryCardView extends StatelessWidget {
         children: [
           InkWell(
             borderRadius: BorderRadius.circular(22),
-            onTap: image != null
-                ? () => showPhotoPreview(
-                    context,
-                    photoBytes: base64Decode(source!.split(',').last),
-                    title: label,
-                  )
+            onTap: hasPhoto
+                ? () async {
+                    final bytes = source?.isNotEmpty == true
+                        ? decodeLegacyPhoto(source)
+                        : await ServiceLocator().photoRtdbService
+                            .downloadPhotoCached(ref!);
+                    if (!context.mounted || bytes == null) return;
+                    showPhotoPreview(context, photoBytes: bytes, title: label);
+                  }
                 : null,
             child: CircleAvatar(
               radius: 18,
               backgroundColor: const Color(0xFFEAF3E1),
-              backgroundImage: image,
-              child: image == null
-                  ? const Icon(
-                      Icons.person_outline,
-                      size: 20,
-                      color: Color(0xFF639922),
-                    )
-                  : null,
+              child: hasPhoto
+                  ? ClipOval(child: PatientPhoto(photoRef: ref,
+                      legacyDataUrl: source, size: 36, fallbackText: name))
+                  : const Icon(Icons.person_outline, size: 20,
+                      color: Color(0xFF639922)),
             ),
           ),
           const SizedBox(width: 9),
@@ -405,7 +402,9 @@ class _StayHistoryCardView extends StatelessWidget {
           ]
         : stay.attendantLabels;
     final hasPatientPhoto =
-        stay.patientSnapshot['photoDataUrl']?.toString().isNotEmpty ?? false;
+        (stay.patientSnapshot['photoDataUrl']?.toString().isNotEmpty ?? false) ||
+        (stay.patientSnapshot['photoRef']?.toString().isNotEmpty ?? false) ||
+        (patient.photoRef?.isNotEmpty ?? false);
     final isShiftSegment =
         stay.notes?.trim().toLowerCase().startsWith('shifted from ') == true;
     final effectiveBedLabel = stay.bedLabel?.isNotEmpty == true
@@ -638,10 +637,17 @@ class _StayHistoryCardView extends StatelessWidget {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       if (hasPatientPhoto) ...[
-                        _photo(
-                          context,
-                          stay.patientName,
-                          stay.patientSnapshot['photoDataUrl'],
+                        ClipOval(
+                          child: SizedBox(
+                            width: 64,
+                            height: 64,
+                            child: PatientPhoto(
+                              size: 64,
+                              legacyDataUrl: stay.patientSnapshot['photoDataUrl']?.toString(),
+                              photoRef: stay.patientSnapshot['photoRef']?.toString() ?? patient.photoRef,
+                              fallbackText: stay.patientName.isEmpty ? '?' : stay.patientName[0],
+                            ),
+                          ),
                         ),
                       ] else
                         const CircleAvatar(

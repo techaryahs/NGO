@@ -17,6 +17,7 @@ import 'widgets/photo_preview_dialog.dart';
 import '../../utils/bed_helper.dart';
 import '../../utils/stay_billing.dart';
 import 'utils/patient_info_download.dart';
+import '../../widgets/patient_photo.dart';
 
 double _patientPaymentTotal(
   PatientModel patient, {
@@ -127,26 +128,27 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
       showPayLater: false,
       totalBillOverride:
           currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
+      patientId: currentPatient.id,
     );
+
+    if (result != null && result.onlinePayment != null) {
+      // Recorded server-side by the payment backend.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment confirmed by the payment server.'),
+            backgroundColor: Color(0xFF3B6D11),
+          ),
+        );
+      }
+      return;
+    }
 
     if (result != null && result.payment != null) {
       await ServiceLocator().patientService.recordPayment(
         currentPatient.id,
         result.payment!,
       );
-      await ServiceLocator().patientService.updatePatient(currentPatient.id, {
-        'advanceBilledAmount': result.payment!.totalAmount,
-        'attendanceCharges': 0.0,
-        'billingAmountOverride': result.totalAmountEdited
-            ? result.payment!.totalAmount
-            : currentPatient.billingAmountOverride,
-        'paymentPending': result.payment!.pendingAmount > 0,
-        'paymentStatus': result.payment!.paymentStatus,
-        'totalPaidAmount': result.payment!.paidAmount,
-        'currentDueAmount': result.payment!.pendingAmount,
-      });
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(currentPatient.id);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -835,13 +837,16 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         // Avatar
                         InkWell(
                           borderRadius: BorderRadius.circular(40),
-                          onTap: photoBytes == null
+                          onTap: photoBytes == null && currentPatient.photoRef == null
                               ? null
-                              : () => showPhotoPreview(
-                                  context,
-                                  photoBytes: photoBytes,
-                                  title: currentPatient.fullName,
-                                ),
+                              : () async {
+                                  final bytes = photoBytes ?? await ServiceLocator()
+                                      .photoRtdbService.downloadPhotoCached(currentPatient.photoRef!);
+                                  if (!context.mounted || bytes == null) return;
+                                  showPhotoPreview(context,
+                                      photoBytes: bytes,
+                                      title: currentPatient.fullName);
+                                },
                           child: Container(
                             width: 64,
                             height: 64,
@@ -858,20 +863,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                               ),
                             ),
                             child: ClipOval(
-                              child: photoBytes != null
-                                  ? Image.memory(photoBytes, fit: BoxFit.cover)
-                                  : Center(
-                                      child: Text(
-                                        _getInitials(currentPatient.fullName),
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: isActive
-                                              ? const Color(0xFF3B6D11)
-                                              : const Color(0xFF757575),
-                                        ),
-                                      ),
-                                    ),
+                              child: PatientPhoto(patient: currentPatient, size: 64),
                             ),
                           ),
                         ),
@@ -3281,32 +3273,21 @@ class _AttendantCard extends StatelessWidget {
           // ── Right: photo ──
           InkWell(
             borderRadius: BorderRadius.circular(32),
-            onTap: photoBytes == null
+            onTap: photoBytes == null && attendant.photoRef == null
                 ? null
-                : () => showPhotoPreview(
-                    context,
-                    photoBytes: photoBytes,
-                    title: attendant.name,
-                  ),
+                : () async {
+                    final bytes = photoBytes ?? await ServiceLocator()
+                        .photoRtdbService.downloadPhotoCached(attendant.photoRef!);
+                    if (!context.mounted || bytes == null) return;
+                    showPhotoPreview(context,
+                        photoBytes: bytes, title: attendant.name);
+                  },
             child: ClipOval(
               child: Container(
                 width: 56,
                 height: 56,
                 color: const Color(0xFFE3F2FD),
-                child: photoBytes != null
-                    ? Image.memory(photoBytes, fit: BoxFit.cover)
-                    : Center(
-                        child: Text(
-                          attendant.name.isNotEmpty
-                              ? attendant.name[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1565C0),
-                          ),
-                        ),
-                      ),
+                child: PatientPhoto(attendant: attendant, size: 56),
               ),
             ),
           ),

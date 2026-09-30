@@ -28,11 +28,6 @@ class _RoomsPageState extends State<RoomsPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(
-      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
-        (_) => 0,
-      ),
-    );
   }
 
   void _showAddRoomDialog() {
@@ -787,7 +782,7 @@ class _LobbyManagementView extends StatelessWidget {
             .toList();
 
         return StreamBuilder<List<StayModel>>(
-          stream: ServiceLocator().roomService.getStaysStream(),
+          stream: ServiceLocator().roomService.getActiveStaysStream(),
           builder: (context, staysSnapshot) {
             final activeStays = (staysSnapshot.data ?? const <StayModel>[])
                 .where((stay) => stay.status == 'active')

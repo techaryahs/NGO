@@ -5,6 +5,9 @@ class AttendantModel {
   final String? relation;
   final String? aadhaarNumber;
   final String? photoDataUrl;
+
+  /// Targeted RTDB photo path; legacy embedded data remains readable only.
+  final String? photoRef;
   final String? mobileNumber;
   final bool isEmergencyContact;
 
@@ -14,6 +17,7 @@ class AttendantModel {
     this.relation,
     this.aadhaarNumber,
     this.photoDataUrl,
+    this.photoRef,
     this.mobileNumber,
     this.isEmergencyContact = false,
   });
@@ -24,7 +28,7 @@ class AttendantModel {
       'age': age,
       'relation': relation,
       'aadhaarNumber': aadhaarNumber,
-      'photoDataUrl': photoDataUrl,
+      'photoRef': photoRef,
       'mobileNumber': mobileNumber,
       'isEmergencyContact': isEmergencyContact,
     };
@@ -37,6 +41,7 @@ class AttendantModel {
       relation: data['relation']?.toString(),
       aadhaarNumber: data['aadhaarNumber']?.toString(),
       photoDataUrl: data['photoDataUrl']?.toString(),
+      photoRef: data['photoRef']?.toString(),
       mobileNumber: data['mobileNumber']?.toString(),
       isEmergencyContact: data['isEmergencyContact'] == true,
     );
@@ -172,6 +177,9 @@ class PatientModel {
   final List<String>? bedIds; // Added for explicit bed tracking
   final List<String>? bedLabels; // Added for UI display
   final String? photoDataUrl;
+
+  /// Targeted RTDB photo path; legacy embedded data remains readable only.
+  final String? photoRef;
   final String? photoFileName;
   final String? notes;
   final String? address;
@@ -277,6 +285,7 @@ class PatientModel {
     this.bedIds,
     this.bedLabels,
     this.photoDataUrl,
+    this.photoRef,
     this.photoFileName,
     this.notes,
     this.address,
@@ -344,7 +353,7 @@ class PatientModel {
       'floor': floor,
       'bedIds': bedIds,
       'bedLabels': bedLabels,
-      'photoDataUrl': photoDataUrl,
+      'photoRef': photoRef,
       'photoFileName': photoFileName,
       'notes': notes,
       'address': address,
@@ -422,6 +431,7 @@ class PatientModel {
           ? List<String>.from(data['bedLabels'])
           : null,
       photoDataUrl: data['photoDataUrl']?.toString(),
+      photoRef: data['photoRef']?.toString(),
       photoFileName: data['photoFileName']?.toString(),
       notes: data['notes']?.toString(),
       address: data['address']?.toString(),
@@ -574,6 +584,7 @@ class PatientModel {
     List<String>? bedIds,
     List<String>? bedLabels,
     String? photoDataUrl,
+    String? photoRef,
     String? photoFileName,
     String? notes,
     String? address,
@@ -631,6 +642,7 @@ class PatientModel {
       bedIds: bedIds ?? this.bedIds,
       bedLabels: bedLabels ?? this.bedLabels,
       photoDataUrl: photoDataUrl ?? this.photoDataUrl,
+      photoRef: photoRef ?? this.photoRef,
       photoFileName: photoFileName ?? this.photoFileName,
       notes: notes ?? this.notes,
       address: address ?? this.address,

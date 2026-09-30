@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
-import '../../models/stay_model.dart';
-import '../../utils/stay_billing.dart';
 import 'package:intl/intl.dart';
 import '../patients/widgets/payment_dialog.dart';
 import '../patients/widgets/refund_dialog.dart';
@@ -33,11 +31,6 @@ class _PaymentsScreenState extends State<PaymentsScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChanged);
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
-    unawaited(
-      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
-        (_) => 0,
-      ),
-    );
     // Billing is recalculated when a patient is admitted, edited, or their
     // attendance changes. Avoid a full historical recalculation on every
     // visit to Payments because it can make the whole application sluggish.
@@ -666,7 +659,9 @@ class _SummaryCard extends StatelessWidget {
 class _PatientBillingTile extends StatefulWidget {
   final PatientModel patient;
 
-  const _PatientBillingTile({required this.patient});
+  const _PatientBillingTile({
+    required this.patient,
+  });
 
   @override
   State<_PatientBillingTile> createState() => _PatientBillingTileState();
@@ -674,13 +669,6 @@ class _PatientBillingTile extends StatefulWidget {
 
 class _PatientBillingTileState extends State<_PatientBillingTile> {
   bool _isProcessing = false;
-  Future<List<StayModel>>? _staysFuture;
-
-  @override
-  void didUpdateWidget(covariant _PatientBillingTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.patient.id != widget.patient.id) _staysFuture = null;
-  }
 
   Widget _placementLabel(PatientModel patient) {
     const style = TextStyle(color: Colors.grey, fontSize: 12);
@@ -693,36 +681,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
       return Text('Room: $room', style: style);
     }
 
-    _staysFuture ??= ServiceLocator().paymentService.loadStays(patient.id);
-    return FutureBuilder<List<StayModel>>(
-      future: _staysFuture,
-      builder: (context, snapshot) {
-        final stays = snapshot.data
-            ?.where((stay) =>
-                StayBilling.cycleFor(stay, patient) ==
-                StayBilling.currentCycle(patient))
-            .toList();
-        stays?.sort((a, b) {
-          final aEnd = a.completedAt ?? a.updatedAt;
-          final bEnd = b.completedAt ?? b.updatedAt;
-          final byEnd = bEnd.compareTo(aEnd);
-          return byEnd != 0
-              ? byEnd
-              : b.admissionDate.compareTo(a.admissionDate);
-        });
-        final latest = stays?.firstOrNull;
-        if (latest == null || latest.roomNumber.trim().isEmpty) {
-          return const Text('Room: Unassigned', style: style);
-        }
-        final name = latest.roomNumber.trim();
-        return Text(
-          latest.roomType == 'lobby'
-              ? 'Lobby: $name'
-              : 'Room: $name',
-          style: style,
-        );
-      },
-    );
+    return const Text('Room: Unassigned', style: style);
   }
 
   @override
@@ -888,35 +847,30 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                             totalBillOverride:
                                 patient.advanceBilledAmount +
                                 patient.attendanceCharges,
+                            patientId: patient.id,
                           );
+
+                          if (result != null &&
+                              result.onlinePayment != null) {
+                            // Recorded server-side by the payment backend.
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Payment confirmed by the payment server.',
+                                  ),
+                                  backgroundColor: Color(0xFF3B6D11),
+                                ),
+                              );
+                            }
+                            return;
+                          }
 
                           if (result != null && result.payment != null) {
                             setState(() => _isProcessing = true);
                             try {
                               await ServiceLocator().patientService
                                   .recordPayment(patient.id, result.payment!);
-                              await ServiceLocator().patientService
-                                  .updatePatient(patient.id, {
-                                    'advanceBilledAmount':
-                                        result.payment!.totalAmount,
-                                    'attendanceCharges': 0.0,
-                                    'billingAmountOverride':
-                                        result.totalAmountEdited
-                                        ? result.payment!.totalAmount
-                                        : patient.billingAmountOverride,
-                                    'paymentPending':
-                                        result.payment!.pendingAmount > 0,
-                                    'paymentStatus':
-                                        result.payment!.paymentStatus,
-                                    'totalPaidAmount':
-                                        result.payment!.paidAmount,
-                                    'currentDueAmount':
-                                        result.payment!.pendingAmount,
-                                  });
-                              await ServiceLocator().paymentService
-                                  .recalculatePatientAttendanceAndBilling(
-                                    patient.id,
-                                  );
 
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(

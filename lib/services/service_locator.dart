@@ -8,6 +8,8 @@ import 'sponsorship_service.dart';
 import 'payment_service.dart';
 import 'notification_service.dart';
 import 'settings_service.dart';
+import 'photo_rtdb_service.dart';
+import 'photo_migration_service.dart';
 
 export 'room_service.dart'; // Ensure extension methods are visible everywhere ServiceLocator is used
 
@@ -30,6 +32,8 @@ class ServiceLocator {
   PaymentService? _paymentService;
   NotificationService? _notificationService;
   SettingsService? _settingsService;
+  PhotoRtdbService? _photoRtdbService;
+  PhotoMigrationService? _photoMigrationService;
 
   /// Initialize services with Firebase project configuration
   void initialize({
@@ -66,6 +70,11 @@ class ServiceLocator {
       patientService: _patientService!,
     );
     _settingsService = SettingsService(_rtdbService!);
+    _photoRtdbService = PhotoRtdbService(rtdb: _rtdbService!);
+    _photoMigrationService = PhotoMigrationService(
+      rtdb: _rtdbService!,
+      photos: _photoRtdbService!,
+    );
   }
 
   /// Get Auth REST service instance
@@ -168,8 +177,29 @@ class ServiceLocator {
     return _settingsService!;
   }
 
+  /// Get the shared RTDB photo service instance
+  PhotoRtdbService get photoRtdbService {
+    if (_photoRtdbService == null) {
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
+    }
+    return _photoRtdbService!;
+  }
+
+  /// Get Photo migration service instance
+  PhotoMigrationService get photoMigrationService {
+    if (_photoMigrationService == null) {
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
+    }
+    return _photoMigrationService!;
+  }
+
   /// Dispose all services
   void dispose() {
+    _paymentService?.disposeScheduler();
     _authRestService?.dispose();
     _rtdbService?.dispose();
     _authRestService = null;
@@ -182,5 +212,7 @@ class ServiceLocator {
     _paymentService = null;
     _notificationService = null;
     _settingsService = null;
+    _photoRtdbService = null;
+    _photoMigrationService = null;
   }
 }

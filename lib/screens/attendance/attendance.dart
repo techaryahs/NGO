@@ -6,6 +6,7 @@ import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import '../../models/stay_model.dart';
 import '../../utils/bed_helper.dart';
+import '../../widgets/patient_photo.dart';
 import 'dart:convert';
 
 class FlattenedAttendant {
@@ -65,11 +66,6 @@ class _AttendanceState extends State<Attendance>
   @override
   void initState() {
     super.initState();
-    unawaited(
-      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
-        (_) => 0,
-      ),
-    );
     _fadeCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -465,35 +461,24 @@ class _AttendanceState extends State<Attendance>
     );
   }
 
+  /// Attendance marks no longer trigger the full billing waterfall per click.
+  /// The mark is already persisted before this is called; billing is
+  /// scheduled once (debounced) and recalculated in the background.
   Future<void> _refreshBilling(
     String patientId, {
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        await ServiceLocator().paymentService
-            .recalculatePatientAttendanceAndBilling(
-              patientId,
-              patientAttendanceOverrides: patientAttendanceOverrides,
-              attendantAttendanceOverrides: attendantAttendanceOverrides,
-            );
-        return;
-      } catch (_) {
-        if (attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
+    unawaited(ServiceLocator().paymentService.schedulePatientBilling(patientId)
+        .catchError((Object _) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(
+            'Attendance saved; billing could not refresh. Reopen the patient profile to retry.',
+          )),
+        );
       }
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Attendance saved, but billing could not refresh. Reopen the patient profile to retry.',
-          ),
-        ),
-      );
-    }
+    }));
   }
 
   /// A second click clears either selected status. Keep a manual unmarked
@@ -1873,25 +1858,13 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
               CircleAvatar(
                 radius: 24,
                 backgroundColor: const Color(0xFFE8F5E9),
-                backgroundImage: widget.patient.photoDataUrl != null
-                    ? MemoryImage(
-                        base64Decode(
-                          widget.patient.photoDataUrl!.contains(',')
-                              ? widget.patient.photoDataUrl!.split(',').last
-                              : widget.patient.photoDataUrl!,
-                        ),
-                      )
-                    : null,
-                child: widget.patient.photoDataUrl == null
-                    ? Text(
-                        initials,
-                        style: const TextStyle(
-                          color: Color(0xFF3B6D11),
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      )
-                    : null,
+                child: ClipOval(
+                  child: PatientPhoto(
+                    patient: widget.patient,
+                    size: 48,
+                    fallbackText: initials,
+                  ),
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -2120,29 +2093,16 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                           CircleAvatar(
                             radius: 16,
                             backgroundColor: const Color(0xFFE3F2FD),
-                            backgroundImage: attendant.photoDataUrl != null
-                                ? MemoryImage(
-                                    base64Decode(
-                                      attendant.photoDataUrl!.contains(',')
-                                          ? attendant.photoDataUrl!
-                                                .split(',')
-                                                .last
-                                          : attendant.photoDataUrl!,
-                                    ),
-                                  )
-                                : null,
-                            child: attendant.photoDataUrl == null
-                                ? Text(
-                                    attendant.name.isNotEmpty
-                                        ? attendant.name[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                      color: Color(0xFF1565C0),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                : null,
+                            child: ClipOval(
+                              child: PatientPhoto(
+                                attendant: attendant,
+                                size: 32,
+                                fallbackText: attendant.name.isNotEmpty
+                                    ? attendant.name[0].toUpperCase()
+                                    : '?',
+                                textColor: const Color(0xFF1565C0),
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(

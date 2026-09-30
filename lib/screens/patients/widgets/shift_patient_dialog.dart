@@ -30,7 +30,7 @@ Future<bool> showShiftPatientDialog(
   final roomService = ServiceLocator().roomService;
   final results = await Future.wait<dynamic>([
     roomService.getRoomsStream().first,
-    roomService.getStaysStream().first,
+    roomService.getActiveStaysStream().first,
   ]);
   final rooms = results[0] as List<RoomModel>;
   final stays = results[1] as List<StayModel>;

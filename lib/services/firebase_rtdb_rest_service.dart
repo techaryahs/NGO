@@ -1,13 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 
 /// Firebase Realtime Database REST API Service
 ///
-/// Provides CRUD operations and polling-based "realtime" updates
-/// without requiring the native Firebase Database SDK.
+/// Provides CRUD operations and resource-level realtime streams without
+/// requiring the native Firebase Database SDK. Works on ALL platforms
+/// including Windows desktop.
 ///
-/// Works on ALL platforms including Windows desktop.
+/// Architecture (production fixes):
+/// - One shared, reference-counted polling stream per resource path. Every
+///   consumer of the same path shares a single network subscription instead
+///   of each screen/widget starting its own 10-second timer.
+/// - Writes complete as soon as Firebase acknowledges the mutation. Cache
+///   invalidation happens independently: after a successful write, the
+///   affected shared resources are refreshed (debounced), so a mutation never
+///   waits for every active screen to refetch large collections.
+/// - Conditional writes via `If-Match`/ETag provide server-enforced
+///   compare-and-swap for concurrency-sensitive paths (room bed allocation).
 class FirebaseRTDBRestService {
   final String projectId;
   final String databaseUrl;
@@ -15,13 +26,18 @@ class FirebaseRTDBRestService {
   // Callback to get auth token
   Future<String?> Function()? getAuthToken;
 
-  // Polling interval for simulating realtime listeners (in seconds)
+  // Injectable HTTP client (used by tests). When null, an owned client is
+  // created lazily.
+  final http.Client? _injectedClient;
+  http.Client? _ownedClient;
+
+  http.Client get _client => _injectedClient ?? (_ownedClient ??= http.Client());
+
+  // Polling interval for resource streams (in seconds)
   static const int _pollingInterval = 10;
 
-  // Active stream controllers for cleanup
-  final Map<String, StreamController> _activeControllers = {};
-  final Map<String, Future<void> Function()> _refreshers = {};
-  final Map<String, String> _refreshPaths = {};
+  // One shared resource stream per path+interval.
+  final Map<String, _SharedResource> _resources = {};
 
   // Keep the latest successful value per path so moving between screens does
   // not flash an empty state while the same Firebase data is downloaded again.
@@ -31,8 +47,10 @@ class FirebaseRTDBRestService {
     required this.projectId,
     String? databaseUrl,
     this.getAuthToken,
-  }) : databaseUrl =
-           databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com';
+    http.Client? httpClient,
+  })  : _injectedClient = httpClient,
+        databaseUrl =
+            databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com';
 
   /// Get the current user's ID token for authenticated requests
   Future<String?> _getIdToken() async {
@@ -62,7 +80,7 @@ class FirebaseRTDBRestService {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final response = await http
+      final response = await _client
           .get(Uri.parse(url))
           .timeout(
             const Duration(seconds: 10),
@@ -77,7 +95,7 @@ class FirebaseRTDBRestService {
         final value = response.body == 'null'
             ? null
             : json.decode(response.body);
-        _latestValues[path] = value;
+        if (!path.startsWith('patientPhotos/')) _latestValues[path] = value;
         return value;
       } else {
         throw Exception(
@@ -86,6 +104,39 @@ class FirebaseRTDBRestService {
       }
     } catch (e) {
       throw Exception('Failed to GET $path: $e');
+    }
+  }
+
+  /// Value of a snapshot together with its ETag, for conditional writes.
+  Future<RtdbValue> getWithEtag(String path) async {
+    try {
+      final token = await _getIdToken();
+      final url = Uri.parse(_buildUrl(path, auth: token));
+      final response = await _client.get(
+        url,
+        headers: {'X-Firebase-ETag': 'true'},
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception(
+          'Request timeout - check your internet connection',
+        ),
+      );
+      if (response.statusCode == 200) {
+        final value = response.body == 'null'
+            ? null
+            : json.decode(response.body);
+        _latestValues[path] = value;
+        final etag = response.headers['etag'];
+        if (etag == null || etag.isEmpty) {
+          throw StateError('Firebase did not return an ETag for $path');
+        }
+        return RtdbValue(value, etag);
+      }
+      throw Exception(
+        'GET failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      throw Exception('Failed to GET (etag) $path: $e');
     }
   }
 
@@ -107,7 +158,7 @@ class FirebaseRTDBRestService {
         'endAt': json.encode(endKey),
         if (token != null) 'auth': token,
       };
-      final response = await http
+      final response = await _client
           .get(baseUrl.replace(queryParameters: query))
           .timeout(
             const Duration(seconds: 10),
@@ -141,7 +192,7 @@ class FirebaseRTDBRestService {
         'equalTo': json.encode(value),
         if (token != null) 'auth': token,
       };
-      final response = await http
+      final response = await _client
           .get(baseUrl.replace(queryParameters: query))
           .timeout(
             const Duration(seconds: 10),
@@ -161,7 +212,7 @@ class FirebaseRTDBRestService {
   }
 
   // ===========================================================================
-  // PUT — Write/Replace data
+  // WRITE — Write/Replace data
   // ===========================================================================
 
   /// Write data to a specific path (replaces existing data)
@@ -170,7 +221,7 @@ class FirebaseRTDBRestService {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final response = await http.put(
+      final response = await _client.put(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(data),
@@ -181,6 +232,8 @@ class FirebaseRTDBRestService {
           'PUT failed: ${response.statusCode} - ${response.body}',
         );
       }
+      if (!path.startsWith('patientPhotos/')) _latestValues[path] = data;
+      _notifyWritten([path]);
     } catch (e) {
       throw Exception('Failed to PUT $path: $e');
     }
@@ -190,13 +243,16 @@ class FirebaseRTDBRestService {
   // PATCH — Update data
   // ===========================================================================
 
-  /// Update specific fields at a path (merges with existing data)
+  /// Update specific fields at a path (merges with existing data).
+  ///
+  /// Completes as soon as Firebase acknowledges the write. The affected
+  /// shared streams are refreshed independently and never block the caller.
   Future<void> patch(String path, Map<String, dynamic> updates) async {
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final response = await http.patch(
+      final response = await _client.patch(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(updates),
@@ -207,22 +263,52 @@ class FirebaseRTDBRestService {
           'PATCH failed: ${response.statusCode} - ${response.body}',
         );
       }
-      final changed = updates.keys
-          .map((key) => path.isEmpty ? key : '$path/$key')
-          .toList();
-      final callbacks = [
-        for (final entry in _refreshers.entries)
-          if (changed.any(
-            (key) =>
-                key == _refreshPaths[entry.key] ||
-                key.startsWith('${_refreshPaths[entry.key]}/') ||
-                _refreshPaths[entry.key]!.startsWith('$key/'),
-          ))
-            entry.value,
-      ];
-      await Future.wait(callbacks.map((refresh) => refresh()));
+      final changed = <String>[];
+      for (final entry in updates.entries) {
+        final changedPath = path.isEmpty ? entry.key : '$path/${entry.key}';
+        changed.add(changedPath);
+        _mergeIntoCache(changedPath, entry.value);
+      }
+      _notifyWritten(changed);
     } catch (e) {
       throw Exception('Failed to PATCH $path: $e');
+    }
+  }
+
+  /// Conditional replacement: applies only while the node matches [etag].
+  ///
+  /// Returns `false` when the server rejects the write because the node was
+  /// changed by another terminal (HTTP 412 Precondition Failed). Used for
+  /// concurrency-safe bed allocation.
+  Future<bool> putIfMatch(
+    String path,
+    Map<String, dynamic> data,
+    String etag,
+  ) async {
+    try {
+      final token = await _getIdToken();
+      final url = _buildUrl(path, auth: token);
+
+      final response = await _client.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'if-match': etag,
+        },
+        body: json.encode(data),
+      );
+
+      if (response.statusCode == 200) {
+        _latestValues[path] = data;
+        _notifyWritten([path]);
+        return true;
+      }
+      if (response.statusCode == 412) return false;
+      throw Exception(
+        'Conditional PUT failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      throw Exception('Failed conditional PUT $path: $e');
     }
   }
 
@@ -237,7 +323,7 @@ class FirebaseRTDBRestService {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final response = await http.post(
+      final response = await _client.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(data),
@@ -245,7 +331,9 @@ class FirebaseRTDBRestService {
 
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
-        return result['name'] as String; // Firebase returns {"name": "pushKey"}
+        final key = result['name'] as String;
+        _notifyWritten(['$path/$key']);
+        return key; // Firebase returns {"name": "pushKey"}
       } else {
         throw Exception(
           'POST failed: ${response.statusCode} - ${response.body}',
@@ -266,84 +354,132 @@ class FirebaseRTDBRestService {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final response = await http.delete(Uri.parse(url));
+      final response = await _client.delete(Uri.parse(url));
 
       if (response.statusCode != 200) {
         throw Exception(
           'DELETE failed: ${response.statusCode} - ${response.body}',
         );
       }
+      _latestValues.remove(path);
+      _notifyWritten([path]);
     } catch (e) {
       throw Exception('Failed to DELETE $path: $e');
     }
   }
 
   // ===========================================================================
-  // STREAM — Polling-based realtime updates
+  // WRITE INVALIDATION — independent of mutation completion
   // ===========================================================================
 
-  /// Create a stream that polls the database for changes
-  ///
-  /// This simulates Firebase's onValue listener by polling every N seconds.
-  /// For production, consider using Server-Sent Events (SSE) for true realtime.
-  Stream<dynamic> stream(String path, {Duration? pollInterval}) {
-    final interval = pollInterval ?? Duration(seconds: _pollingInterval);
-    final controllerId = '${path}_${DateTime.now().millisecondsSinceEpoch}';
+  /// Updates the cached value for an exact path after a local write, so the
+  /// UI never flashes stale data while the shared resource refreshes.
+  void _mergeIntoCache(String changedPath, dynamic value) {
+    if (!_latestValues.containsKey(changedPath)) return;
+    final current = _latestValues[changedPath];
+    if (current is Map && value is Map) {
+      _latestValues[changedPath] = {...current, ...value};
+    } else {
+      _latestValues[changedPath] = value;
+    }
+  }
 
-    late StreamController<dynamic> controller;
-    Timer? timer;
-    dynamic lastValue;
-    var isFetching = false;
-
-    Future<void> fetchLatest() async {
-      // Slow connections must not create a queue of overlapping full-database
-      // downloads. The next timer tick will retry after this request finishes.
-      if (isFetching || controller.isClosed) return;
-      isFetching = true;
-      try {
-        final value = await get(path).timeout(const Duration(seconds: 10));
-        if (!controller.isClosed &&
-            json.encode(value) != json.encode(lastValue)) {
-          lastValue = value;
-          controller.add(value);
-        }
-      } catch (_) {
-        // Keep showing the last successful value. A temporary Wi-Fi or
-        // Firebase failure must never replace real data with an empty screen.
-      } finally {
-        isFetching = false;
+  /// Schedules an independent refresh of every shared resource that overlaps
+  /// the written paths. Runs after the mutation has already completed, so a
+  /// write never blocks on other screens' refetches.
+  void _notifyWritten(List<String> changedPaths) {
+    for (final resource in _resources.values) {
+      if (changedPaths.any((changed) => resource.overlaps(changed))) {
+        resource.invalidate();
       }
     }
+  }
 
-    controller = StreamController<dynamic>(
-      onListen: () {
-        _refreshers[controllerId] = fetchLatest;
-        _refreshPaths[controllerId] = path;
-        // Repaint immediately with the most recently fetched value. The
-        // network request below still runs so the UI remains up to date.
-        if (_latestValues.containsKey(path)) {
-          lastValue = _latestValues[path];
-          controller.add(lastValue);
-        }
+  // ===========================================================================
+  // STREAM — shared resource-level realtime updates
+  // ===========================================================================
 
-        // Refresh in the background without clearing the cached value.
-        fetchLatest();
-
-        // Start polling
-        timer = Timer.periodic(interval, (t) {
-          fetchLatest();
-        });
-      },
-      onCancel: () {
-        timer?.cancel();
-        _activeControllers.remove(controllerId);
-        _refreshers.remove(controllerId);
-        _refreshPaths.remove(controllerId);
-      },
+  /// Returns a shared stream for [path]. Every consumer of the same path
+  /// shares ONE polling subscription; the latest known value is replayed to
+  /// new subscribers immediately so `.first`-style callers never hang.
+  Stream<dynamic> stream(String path, {Duration? pollInterval}) {
+    final interval = pollInterval ?? Duration(seconds: _pollingInterval);
+    final key = '$path|${interval.inMilliseconds}';
+    return _resource(
+      key,
+      path,
+      path,
+      interval,
+      () => get(path),
+      ssePath: path,
     );
+  }
 
-    _activeControllers[controllerId] = controller;
-    return controller.stream;
+  /// Poll a child-indexed query for several exact values and merge the maps.
+  /// This avoids downloading an entire large collection when the UI needs only
+  /// a few statuses (for example, active patients on the Payments page).
+  Stream<dynamic> queryAnyStream(
+    String path, {
+    required String orderBy,
+    required List<dynamic> equalToAny,
+    Duration? pollInterval,
+  }) {
+    final interval = pollInterval ?? Duration(seconds: _pollingInterval);
+    final cacheKey = '$path|$orderBy|${json.encode(equalToAny)}';
+    final key = '$cacheKey|${interval.inMilliseconds}';
+
+    Future<dynamic> fetchMerged() async {
+      final merged = <String, dynamic>{};
+      final results = await Future.wait(
+        equalToAny.map(
+          (value) => query(path, orderBy: orderBy, equalTo: value),
+        ),
+      );
+      for (final result in results) {
+        if (result is Map) {
+          result.forEach((key, value) => merged[key.toString()] = value);
+        }
+      }
+      _latestValues[cacheKey] = merged;
+      return merged;
+    }
+
+    return _resource(
+      key,
+      path,
+      cacheKey,
+      interval,
+      fetchMerged,
+      errorOnInitialFailure: true,
+    );
+  }
+
+  Stream<dynamic> _resource(
+    String key,
+    String invalidationPath,
+    String cacheKey,
+    Duration interval,
+    Future<dynamic> Function() fetch, {
+    bool errorOnInitialFailure = false,
+    String? ssePath,
+  }) {
+    return _resources.putIfAbsent(
+      key,
+      () => _SharedResource(
+        service: this,
+        key: key,
+        invalidationPath: invalidationPath,
+        cacheKey: cacheKey,
+        ssePath: ssePath,
+        pollInterval: interval,
+        fetch: fetch,
+        errorOnInitialFailure: errorOnInitialFailure,
+        initialHasValue: _latestValues.containsKey(cacheKey),
+        initialValue: _latestValues.containsKey(cacheKey)
+            ? _latestValues[cacheKey]
+            : null,
+      ),
+    ).stream;
   }
 
   // ===========================================================================
@@ -351,9 +487,6 @@ class FirebaseRTDBRestService {
   // ===========================================================================
 
   /// Query with orderBy and equalTo filters
-  ///
-  /// Note: REST API queries are limited compared to SDK.
-  /// For complex queries, fetch all data and filter client-side.
   Future<dynamic> query(
     String path, {
     String? orderBy,
@@ -365,29 +498,24 @@ class FirebaseRTDBRestService {
   }) async {
     try {
       final token = await _getIdToken();
-      final cleanPath = path.startsWith('/') ? path.substring(1) : path;
-      var url = '$databaseUrl/$cleanPath.json';
+      final baseUrl = Uri.parse(_buildUrl(path));
 
       final params = <String, String>{};
       if (token != null) params['auth'] = token;
-      if (orderBy != null) params['orderBy'] = '"$orderBy"';
+      if (orderBy != null) params['orderBy'] = json.encode(orderBy);
       if (equalTo != null) {
-        params['equalTo'] = equalTo is String ? '"$equalTo"' : '$equalTo';
+        params['equalTo'] = json.encode(equalTo);
       }
       if (startAt != null) {
-        params['startAt'] = startAt is String ? '"$startAt"' : '$startAt';
+        params['startAt'] = json.encode(startAt);
       }
       if (endAt != null) {
-        params['endAt'] = endAt is String ? '"$endAt"' : '$endAt';
+        params['endAt'] = json.encode(endAt);
       }
       if (limitToFirst != null) params['limitToFirst'] = '$limitToFirst';
       if (limitToLast != null) params['limitToLast'] = '$limitToLast';
 
-      if (params.isNotEmpty) {
-        url += '?' + params.entries.map((e) => '${e.key}=${e.value}').join('&');
-      }
-
-      final response = await http.get(Uri.parse(url)).timeout(
+      final response = await _client.get(baseUrl.replace(queryParameters: params)).timeout(
         const Duration(seconds: 10),
         onTimeout: () => throw Exception(
           'Request timeout - check your internet connection',
@@ -407,7 +535,7 @@ class FirebaseRTDBRestService {
     }
   }
 
-  /// Query stream with polling
+  /// Query stream with polling (shared per exact query).
   Stream<dynamic> queryStream(
     String path, {
     String? orderBy,
@@ -415,152 +543,261 @@ class FirebaseRTDBRestService {
     Duration? pollInterval,
   }) {
     final interval = pollInterval ?? Duration(seconds: _pollingInterval);
-    final controllerId =
-        '${path}_query_${DateTime.now().millisecondsSinceEpoch}';
-
-    late StreamController<dynamic> controller;
-    Timer? timer;
-    dynamic lastValue;
-
-    controller = StreamController<dynamic>(
-      onListen: () {
-        // Initial fetch
-        query(path, orderBy: orderBy, equalTo: equalTo)
-            .then((value) {
-              if (!controller.isClosed) {
-                lastValue = value;
-                controller.add(value);
-              }
-            })
-            .catchError((error) {
-              if (!controller.isClosed) {
-                controller.addError(error);
-              }
-            });
-
-        // Start polling
-        timer = Timer.periodic(interval, (t) {
-          query(path, orderBy: orderBy, equalTo: equalTo)
-              .then((value) {
-                if (!controller.isClosed) {
-                  if (json.encode(value) != json.encode(lastValue)) {
-                    lastValue = value;
-                    controller.add(value);
-                  }
-                }
-              })
-              .catchError((error) {
-                if (!controller.isClosed) {
-                  controller.addError(error);
-                }
-              });
-        });
-      },
-      onCancel: () {
-        timer?.cancel();
-        _activeControllers.remove(controllerId);
-      },
+    final cacheKey = '$path|$orderBy|$equalTo';
+    final key = '$cacheKey|${interval.inMilliseconds}';
+    return _resource(
+      key,
+      path,
+      cacheKey,
+      interval,
+      () => query(path, orderBy: orderBy, equalTo: equalTo),
+      errorOnInitialFailure: true,
     );
-
-    _activeControllers[controllerId] = controller;
-    return controller.stream;
-  }
-
-  /// Poll a child-indexed query for several exact values and merge the maps.
-  /// This avoids downloading an entire large collection when the UI needs only
-  /// a few statuses (for example, active patients on the Payments page).
-  Stream<dynamic> queryAnyStream(
-    String path, {
-    required String orderBy,
-    required List<dynamic> equalToAny,
-    Duration? pollInterval,
-  }) {
-    final interval = pollInterval ?? Duration(seconds: _pollingInterval);
-    final cacheKey = '$path|$orderBy|${json.encode(equalToAny)}';
-    final controllerId = '${cacheKey}_${DateTime.now().millisecondsSinceEpoch}';
-
-    late StreamController<dynamic> controller;
-    Timer? timer;
-    dynamic lastValue;
-    var isFetching = false;
-
-    Future<void> fetchLatest() async {
-      if (isFetching || controller.isClosed) return;
-      isFetching = true;
-      try {
-        final merged = <String, dynamic>{};
-        try {
-          final results = await Future.wait(
-            equalToAny.map(
-              (value) => query(path, orderBy: orderBy, equalTo: value),
-            ),
-          );
-          for (final result in results) {
-            if (result is Map) {
-              result.forEach((key, value) => merged[key.toString()] = value);
-            }
-          }
-        } catch (_) {
-          // A deployed RTDB may not yet contain the requested `.indexOn`.
-          // Fall back to one unfiltered read and apply the exact same filter
-          // locally so screens remain usable until the rules are deployed.
-          final allValues = await get(path);
-          if (allValues is Map) {
-            allValues.forEach((key, value) {
-              if (value is Map && equalToAny.contains(value[orderBy])) {
-                merged[key.toString()] = value;
-              }
-            });
-          }
-        }
-        _latestValues[cacheKey] = merged;
-        if (!controller.isClosed &&
-            json.encode(merged) != json.encode(lastValue)) {
-          lastValue = merged;
-          controller.add(merged);
-        }
-      } catch (error, stackTrace) {
-        // Retain cached data during a temporary failure, but surface an
-        // initial failure so screens do not remain on a spinner forever.
-        if (!_latestValues.containsKey(cacheKey) && !controller.isClosed) {
-          controller.addError(error, stackTrace);
-        }
-      } finally {
-        isFetching = false;
-      }
-    }
-
-    controller = StreamController<dynamic>(
-      onListen: () {
-        _refreshers[controllerId] = fetchLatest;
-        _refreshPaths[controllerId] = path;
-        if (_latestValues.containsKey(cacheKey)) {
-          lastValue = _latestValues[cacheKey];
-          controller.add(lastValue);
-        }
-        fetchLatest();
-        timer = Timer.periodic(interval, (_) => fetchLatest());
-      },
-      onCancel: () {
-        timer?.cancel();
-        _activeControllers.remove(controllerId);
-        _refreshers.remove(controllerId);
-        _refreshPaths.remove(controllerId);
-      },
-    );
-    _activeControllers[controllerId] = controller;
-    return controller.stream;
   }
 
   // ===========================================================================
   // CLEANUP
   // ===========================================================================
 
-  /// Dispose all active stream controllers
+  /// Dispose all shared resource streams
   void dispose() {
-    for (var controller in _activeControllers.values) {
-      controller.close();
+    for (final resource in _resources.values) {
+      resource.dispose();
     }
-    _activeControllers.clear();
+    _resources.clear();
+    _ownedClient?.close();
+    _ownedClient = null;
+  }
+}
+
+/// Value + ETag pair returned by [FirebaseRTDBRestService.getWithEtag].
+class RtdbValue {
+  final dynamic value;
+  final String? etag;
+  RtdbValue(this.value, this.etag);
+}
+
+/// One reference-counted polling subscription shared by all consumers of the
+/// same resource path.
+class _SharedResource {
+  final FirebaseRTDBRestService service;
+  final String key;
+  final String invalidationPath;
+  final String cacheKey;
+  final String? ssePath;
+  final Duration pollInterval;
+  final Future<dynamic> Function() fetch;
+  final bool errorOnInitialFailure;
+
+  late StreamController<dynamic> _controller;
+  Timer? _timer;
+  Timer? _refreshDebounce;
+  bool _isFetching = false;
+  bool _hasValue = false;
+  int _revision = 0;
+  dynamic _latest;
+
+  _SharedResource({
+    required this.service,
+    required this.key,
+    required this.invalidationPath,
+    required this.cacheKey,
+    required this.ssePath,
+    required this.pollInterval,
+    required this.fetch,
+    required this.errorOnInitialFailure,
+    required bool initialHasValue,
+    required dynamic initialValue,
+  }) {
+    _hasValue = initialHasValue;
+    _latest = initialValue;
+    _controller = StreamController<dynamic>.broadcast(
+      onListen: () {
+        // First subscriber starts the shared subscription (polling plus the
+        // SSE realtime channel).
+        refreshSoon();
+        _timer = Timer.periodic(pollInterval, (_) => refreshSoon());
+        if (ssePath != null) _startSse();
+      },
+      onCancel: () {
+        _timer?.cancel();
+        _timer = null;
+        _refreshDebounce?.cancel();
+        _refreshDebounce = null;
+        _closeSse();
+      },
+    );
+  }
+
+  /// Attach to the shared controller before replaying its latest value.
+  /// This gives every subscriber, including `.first`, a current snapshot.
+  Stream<dynamic> get stream {
+    return Stream<dynamic>.multi((controller) {
+      final subscription = _controller.stream.listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: controller.close,
+      );
+      if (_hasValue) controller.add(_latest);
+      controller.onCancel = subscription.cancel;
+    });
+  }
+
+  /// True when [changedPath] touches this resource's data.
+  bool overlaps(String changedPath) {
+    if (changedPath == invalidationPath) return true;
+    if (changedPath.startsWith('$invalidationPath/')) return true;
+    if (invalidationPath.startsWith('$changedPath/')) return true;
+    return false;
+  }
+
+  /// Debounced refresh: multiple writes in one batch trigger one fetch.
+  void refreshSoon() {
+    if (_controller.isClosed) return;
+    if (_refreshDebounce?.isActive ?? false) return;
+    _refreshDebounce = Timer(const Duration(milliseconds: 150), () {
+      _refreshDebounce = null;
+      _refreshNow();
+    });
+  }
+
+  void invalidate() {
+    _revision++;
+    refreshSoon();
+  }
+
+  Future<void> _refreshNow() async {
+    if (_controller.isClosed || !_controller.hasListener) return;
+    if (_isFetching) {
+      _revision++;
+      return;
+    }
+    _isFetching = true;
+    final revision = _revision;
+    try {
+      final value = await fetch();
+      if (_controller.isClosed) return;
+      if (revision != _revision) return;
+      service._latestValues[cacheKey] = value;
+      if (!_hasValue || json.encode(value) != json.encode(_latest)) {
+        _hasValue = true;
+        _latest = value;
+        _controller.add(value);
+      }
+    } catch (error, stackTrace) {
+      if (!_controller.isClosed && !_hasValue && errorOnInitialFailure) {
+        _controller.addError(error, stackTrace);
+      }
+      // Otherwise keep showing the last successful value. A temporary Wi-Fi
+      // or Firebase failure must never replace real data with an empty screen.
+    } finally {
+      _isFetching = false;
+      if (revision != _revision && _controller.hasListener) refreshSoon();
+    }
+  }
+
+  void dispose() {
+    _timer?.cancel();
+    _refreshDebounce?.cancel();
+    _closeSse();
+    if (!_controller.isClosed) _controller.close();
+  }
+
+  // ── SSE realtime channel ────────────────────────────────────────────────────
+  // Firebase RTDB's REST endpoint streams Server-Sent Events for the path.
+  // Any data event triggers a debounced refresh, giving sub-second
+  // cross-terminal propagation. Polling remains active as the reconciliation
+  // fallback while the SSE connection is down or reconnecting.
+
+  http.Client? _sseClient;
+  StreamSubscription<String>? _sseSub;
+  Timer? _sseRetryTimer;
+  bool _sseEnabled = true;
+  int _sseFailures = 0;
+
+  void _closeSse() {
+    _sseRetryTimer?.cancel();
+    _sseRetryTimer = null;
+    _sseSub?.cancel();
+    _sseSub = null;
+    _sseClient?.close();
+    _sseClient = null;
+  }
+
+  Future<void> _startSse() async {
+    if (!_sseEnabled || _controller.isClosed || !_controller.hasListener) return;
+    try {
+      final token = await service._getIdToken();
+      if (token == null) {
+        _scheduleSseRetry();
+        return;
+      }
+      final cleanPath = ssePath!.startsWith('/')
+          ? ssePath!.substring(1)
+          : ssePath!;
+      final client = http.Client();
+      _sseClient = client;
+      final request = http.Request(
+        'GET',
+        Uri.parse('${service.databaseUrl}/$cleanPath.json?auth=$token'),
+      );
+      request.headers['Accept'] = 'text/event-stream';
+      final response = await client.send(request);
+      if (_controller.isClosed || !_controller.hasListener ||
+          !identical(_sseClient, client)) {
+        client.close();
+        return;
+      }
+      if (response.statusCode != 200) {
+        _closeSse();
+        _scheduleSseRetry();
+        return;
+      }
+      _sseFailures = 0;
+      String? lastEvent;
+      final lines = response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter());
+      _sseSub = lines.listen(
+        (line) {
+          if (line.isEmpty) return;
+          if (line.startsWith('event: ')) {
+            lastEvent = line.substring(7).trim();
+            if (lastEvent == 'auth_revoked' || lastEvent == 'cancel') {
+              _closeSse();
+              _scheduleSseRetry();
+            }
+            return;
+          }
+          if (line.startsWith('data: ')) {
+            if (lastEvent == 'keep-alive') return;
+            // Any change to this path (put, patch or delete) triggers a
+            // debounced refresh.
+            refreshSoon();
+          }
+        },
+        onError: (Object _) {
+          _closeSse();
+          _scheduleSseRetry();
+        },
+        onDone: () {
+          _closeSse();
+          _scheduleSseRetry();
+        },
+        cancelOnError: true,
+      );
+    } catch (_) {
+      _closeSse();
+      _scheduleSseRetry();
+    }
+  }
+
+  void _scheduleSseRetry() {
+    if (_controller.isClosed || !_controller.hasListener || !_sseEnabled) return;
+    if (_sseRetryTimer?.isActive ?? false) return;
+    _sseFailures++;
+    final shift = math.min(_sseFailures, 5);
+    final delay = Duration(seconds: 2 << shift);
+    _sseRetryTimer = Timer(delay, _startSse);
   }
 }

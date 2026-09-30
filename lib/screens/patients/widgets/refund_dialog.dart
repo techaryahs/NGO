@@ -23,6 +23,7 @@ class RefundDialog extends StatefulWidget {
 }
 
 class _RefundDialogState extends State<RefundDialog> {
+  final String _requestId = 'refund_${DateTime.now().microsecondsSinceEpoch}';
   final amount = TextEditingController(),
       receipt = TextEditingController(),
       transaction = TextEditingController();
@@ -84,6 +85,7 @@ class _RefundDialogState extends State<RefundDialog> {
         method: method,
         receiptNumber: receipt.text,
         transactionId: transaction.text,
+        requestId: _requestId,
       );
       if (mounted) Navigator.pop(context, true);
     } catch (e) {

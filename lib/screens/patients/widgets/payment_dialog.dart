@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../models/patient_model.dart';
 import '../../../services/razorpay_service.dart';
+import '../../../services/service_locator.dart';
 import '../../../utils/pricing_helper.dart';
 
 // ── Pricing constants ─────────────────────────────────────────────────────────
@@ -20,10 +21,15 @@ class PaymentDialogResult {
   final bool payLater;
   final bool totalAmountEdited;
 
+  /// Populated when an online payment was verified and recorded by the
+  /// trusted backend. No local ledger write may happen for these payments.
+  final Map<String, dynamic>? onlinePayment;
+
   PaymentDialogResult({
     this.payment,
     this.payLater = false,
     this.totalAmountEdited = false,
+    this.onlinePayment,
   });
 }
 
@@ -40,6 +46,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
   double alreadyPaid = 0.0,
   bool showPayLater = false,
   double? totalBillOverride,
+  String? patientId,
 }) {
   return showDialog<PaymentDialogResult?>(
     context: context,
@@ -53,6 +60,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
       alreadyPaid: alreadyPaid,
       showPayLater: showPayLater,
       totalBillOverride: totalBillOverride,
+      patientId: patientId,
     ),
   );
 }
@@ -70,6 +78,7 @@ class _PatientPaymentDialog extends StatefulWidget {
   final double alreadyPaid;
   final bool showPayLater;
   final double? totalBillOverride;
+  final String? patientId;
 
   const _PatientPaymentDialog({
     required this.patientName,
@@ -80,6 +89,7 @@ class _PatientPaymentDialog extends StatefulWidget {
     this.alreadyPaid = 0.0,
     required this.showPayLater,
     this.totalBillOverride,
+    this.patientId,
   });
 
   @override
@@ -107,6 +117,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   String? _error;
   Timer? _pollTimer;
   int _pollCount = 0;
+  bool _polling = false;
   static const int _maxPolls = 72;
 
   // ── Amounts ────────────────────────────────────────────────────────────────
@@ -186,6 +197,12 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       setState(() => _error = 'Payment amount exceeds outstanding balance.');
       return;
     }
+    if (widget.patientId == null) {
+      setState(
+        () => _error = 'Online payment requires the patient record to be saved first.',
+      );
+      return;
+    }
 
     setState(() {
       _isCreatingLink = true;
@@ -194,7 +211,13 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     });
 
     try {
+      final idToken = await ServiceLocator().authRestService.getIdToken();
+      if (idToken == null) {
+        throw Exception('You are not authenticated.');
+      }
       final link = await RazorpayService.createPaymentLink(
+        idToken: idToken,
+        patientId: widget.patientId!,
         amountInPaise: _amountInPaise,
         patientName: widget.patientName,
         contactNumber: widget.contactNumber,
@@ -229,24 +252,52 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   }
 
   Future<void> _poll(String linkId) async {
+    if (_polling) return;
+    _polling = true;
     _pollCount++;
     if (_pollCount > _maxPolls) {
       _pollTimer?.cancel();
+      _polling = false;
       return;
     }
 
     try {
-      final status = await RazorpayService.getPaymentLinkStatus(linkId);
+      final idToken = await ServiceLocator().authRestService.getIdToken();
+      if (idToken == null) return;
+      final status = await RazorpayService.getPaymentLinkStatus(
+        idToken: idToken,
+        linkId: linkId,
+      );
       if (!mounted) return;
 
       if (status.isPaid) {
         _pollTimer?.cancel();
-        _onPaymentSuccess(
-          transactionId: status.paymentId,
-          methodName: 'Online (Razorpay - ${status.method ?? 'UPI'})',
-        );
+        _onOnlinePaymentConfirmed(status);
       }
-    } catch (_) {}
+    } catch (_) {} finally {
+      _polling = false;
+    }
+  }
+
+  /// The backend verified the payment and recorded it in the ledger. The
+  /// client must not write a second payment record for this transaction.
+  void _onOnlinePaymentConfirmed(RazorpayPaymentStatus status) {
+    setState(() => _step = _PaymentStep.done);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted)
+        Navigator.of(context).pop(
+          PaymentDialogResult(
+            onlinePayment: {
+              'paymentId': status.paymentId,
+              'method': status.method,
+              'paidAt': status.paidAt?.millisecondsSinceEpoch,
+              'amountPaid': status.amountPaid,
+              'amount': _currentPayingAmount,
+            },
+            totalAmountEdited: _totalAmountManuallyEdited,
+          ),
+        );
+    });
   }
 
   void _onPaymentSuccess({String? transactionId, String? methodName}) {
@@ -305,12 +356,8 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       setState(() => _error = 'Payment amount exceeds outstanding balance.');
       return;
     }
-    if (_selectedMethod == PaymentMethod.online) {
-      _onPaymentSuccess(
-        transactionId: 'MANUAL_ONLINE',
-        methodName: 'Online (QR Code)',
-      );
-    } else if (_selectedMethod == PaymentMethod.cash) {
+    if (_selectedMethod == PaymentMethod.online) return;
+    if (_selectedMethod == PaymentMethod.cash) {
       if (_receiptController.text.trim().isEmpty) {
         setState(() => _error = 'Please enter receipt number');
         return;
@@ -407,7 +454,10 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         bankNameController: _bankNameController,
         notesController: _notesController,
         onConfirm: _confirmManual,
-        onBack: () => setState(() => _step = _PaymentStep.selectMethod),
+        onBack: () {
+          _pollTimer?.cancel();
+          setState(() => _step = _PaymentStep.selectMethod);
+        },
       );
     } else {
       return _SuccessBody(
@@ -713,39 +763,15 @@ class _ProcessBody extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
               const SizedBox(height: 16),
-              Container(
+              if (paymentLink != null) Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFFEAF3DE)),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Image.asset(
-                  'assets/images/payment_qr.png',
-                  width: 200,
-                  height: 200,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 200,
-                      height: 200,
-                      color: Colors.grey[100],
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.image_not_supported_outlined,
-                            color: Colors.grey,
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'payment_qr.png not found\nin assets/images/',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 10, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                child: QrImageView(
+                  data: paymentLink!.url,
+                  size: 200,
                 ),
               ),
               const SizedBox(height: 12),
@@ -785,7 +811,7 @@ class _ProcessBody extends StatelessWidget {
             children: [
               TextButton(onPressed: onBack, child: const Text('← Back')),
               const Spacer(),
-              ElevatedButton(
+              if (method != PaymentMethod.online) ElevatedButton(
                 onPressed: onConfirm,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF3B6D11),
@@ -798,11 +824,7 @@ class _ProcessBody extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Text(
-                  method == PaymentMethod.online
-                      ? 'Confirm Manually'
-                      : 'Save Payment',
-                ),
+                child: const Text('Save Payment'),
               ),
             ],
           ),

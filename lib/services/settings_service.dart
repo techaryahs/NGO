@@ -43,6 +43,33 @@ class SettingsService {
     }
   }
 
+  /// Whether client-side payment writes are locked. When locked, only the
+  /// trusted payment backend (Cloud Functions) can write payment records.
+  Future<bool?> getPaymentWritesLocked() async {
+    try {
+      final data = await _rtdb.get('admin_settings/security');
+      if (data is Map) {
+        return data['paymentWritesLocked'] == true;
+      }
+      return false;
+    } catch (e) {
+      print("Error reading payment lock: $e");
+      return null;
+    }
+  }
+
+  Future<bool> updatePaymentWritesLocked(bool value) async {
+    try {
+      await _rtdb.patch('admin_settings/security', {
+        'paymentWritesLocked': value,
+      });
+      return true;
+    } catch (e) {
+      print("Error updating payment lock: $e");
+      return false;
+    }
+  }
+
   // Update auto backup setting
   Future<bool> updateAutoBackupSetting(bool value) async {
     try {

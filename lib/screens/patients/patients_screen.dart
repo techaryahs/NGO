@@ -56,11 +56,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
     // render an empty list while a new REST stream starts.
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
     _roomsStream = ServiceLocator().roomService.getRoomsStream();
-    unawaited(
-      ServiceLocator().patientService.purgeOrphanedPatientRecords().catchError(
-        (_) => 0,
-      ),
-    );
   }
 
   @override
@@ -166,28 +161,27 @@ class _PatientsScreenState extends State<PatientsScreen> {
       showPayLater: false,
       totalBillOverride:
           patient.advanceBilledAmount + patient.attendanceCharges,
+      patientId: patient.id,
     );
+
+    if (result != null && result.onlinePayment != null) {
+      // The trusted backend already verified and recorded the payment.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment confirmed by the payment server.'),
+            backgroundColor: Color(0xFF3B6D11),
+          ),
+        );
+      }
+      return;
+    }
 
     if (result != null && result.payment != null) {
       await ServiceLocator().patientService.recordPayment(
         patient.id,
         result.payment!,
       );
-      await ServiceLocator().patientService.updatePatient(patient.id, {
-        'advanceBilledAmount': result.payment!.totalAmount,
-        'attendanceCharges': 0.0,
-        'billingAmountOverride': result.totalAmountEdited
-            ? result.payment!.totalAmount
-            : patient.billingAmountOverride,
-        'paymentPending': result.payment!.pendingAmount > 0,
-        'paymentStatus': result.payment!.paymentStatus,
-        // Payment state must never reactivate or otherwise change the
-        // patient's admission lifecycle status.
-        'totalPaidAmount': result.payment!.paidAmount,
-        'currentDueAmount': result.payment!.pendingAmount,
-      });
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(patient.id);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -205,7 +199,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
     final results = await Future.wait<dynamic>([
       roomService.getRoomsStream().first,
       roomService.getStaysByPatientStream(patient.id).first,
-      roomService.getStaysStream().first,
+      roomService.getActiveStaysStream().first,
     ]);
     final rooms = results[0] as List<RoomModel>;
     final stays = List<StayModel>.from(results[1] as List<StayModel>)
@@ -458,7 +452,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
         await ServiceLocator().rtdbService.patch('stays/${stay.id}', {
           'patientSnapshot': {
             'registrationNumber': patient.registrationNumber,
-            'photoDataUrl': patient.photoDataUrl,
+            'photoRef': patient.photoRef,
             'attendants': patient.attendants?.map((a) => a.toMap()).toList(),
             'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
           },
@@ -498,10 +492,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
         'lobby': null,
         'notes': _notesWithoutPlacement(patient.notes),
         'exitDate': null,
-        'totalPaidAmount': 0.0,
-        'currentDueAmount': estimatedTotal,
-        'paymentPending': estimatedTotal > 0,
-        'paymentStatus': estimatedTotal > 0 ? 'Unpaid' : 'Paid',
       };
       // Reactivate first as unassigned. If the chosen bed is taken between
       // opening and confirming the dialog, the patient safely remains active
@@ -1142,10 +1132,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
           final totalAmount = importedPatient['totalAmount'] as double;
           final hasExplicitTotalAmount =
               importedPatient['hasExplicitTotalAmount'] as bool;
-          final paidAmount = patientPayments.fold<double>(
-            0,
-            (sum, payment) => sum + payment.amount,
-          );
           final registrationNumber =
               importedPatient['registrationNumber'] as String;
           final existingPatient =
@@ -1188,12 +1174,6 @@ class _PatientsScreenState extends State<PatientsScreen> {
                 existingPatient.attendanceCharges;
             final recordedExistingBill =
                 existingPaidAmount + (existingPatient.currentDueAmount ?? 0);
-            final combinedPaidAmount =
-                existingPaidAmount +
-                newPayments.fold<double>(
-                  0,
-                  (sum, payment) => sum + payment.amount,
-                );
             final addedBillAmount = newPayments.fold<double>(
               0,
               (sum, payment) => sum + payment.totalAmount,
@@ -1204,25 +1184,19 @@ class _PatientsScreenState extends State<PatientsScreen> {
             final combinedBillAmount = hasExplicitTotalAmount
                 ? totalAmount
                 : currentBillAmount + addedBillAmount;
-            final combinedDueAmount = (combinedBillAmount - combinedPaidAmount)
-                .clamp(0, double.infinity)
-                .toDouble();
-
             await ServiceLocator().patientService
                 .updatePatient(existingPatient.id, {
-                  'totalPaidAmount': combinedPaidAmount,
-                  'currentDueAmount': combinedDueAmount,
-                  'paymentPending': combinedDueAmount > 0,
-                  'paymentStatus': combinedDueAmount > 0 ? 'Partial' : 'Paid',
-                  'status': combinedDueAmount > 0 ? 'active' : 'Paid',
+                  'status': 'active',
                   'advanceBilledAmount':
                       combinedBillAmount - existingPatient.attendanceCharges,
                 });
+            await ServiceLocator().paymentService
+                .recalculatePatientAttendanceAndBilling(existingPatient.id);
             addedCount++;
             continue;
           }
 
-          await ServiceLocator().patientService.addPatient(
+          final importedId = await ServiceLocator().patientService.addPatient(
             fullName: importedPatient['fullName'] as String,
             dateOfBirth: DateTime.now(), // Default since not provided
             gender: 'unknown',
@@ -1252,13 +1226,13 @@ class _PatientsScreenState extends State<PatientsScreen> {
                 (importedPatient['transactionNumber'] as String).isNotEmpty
                 ? importedPatient['transactionNumber'] as String
                 : null,
-            status: paidAmount > 0 && totalAmount <= paidAmount
-                ? 'Paid'
-                : 'active',
+            status: 'active',
             notes: importedPatient['notes'] as String,
-            payments: patientPayments,
             initialTotalAmount: totalAmount,
           );
+          for (final payment in patientPayments) {
+            await ServiceLocator().patientService.recordPayment(importedId, payment);
+          }
           addedCount++;
         }
 

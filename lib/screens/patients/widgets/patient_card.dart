@@ -1,8 +1,6 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import '../../../models/patient_model.dart';
+import '../../../widgets/patient_photo.dart';
 
 class PatientCard extends StatelessWidget {
   final PatientModel patient;
@@ -28,7 +26,6 @@ class PatientCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isActive =
         patient.status == 'active' || patient.status.toLowerCase() == 'paid';
-    final photoBytes = _decodePhoto(patient.photoDataUrl);
     final attendeeNames =
         patient.attendants
             ?.map((attendant) => attendant.name.trim())
@@ -79,20 +76,13 @@ class PatientCard extends StatelessWidget {
                     ),
                   ),
                   child: ClipOval(
-                    child: photoBytes != null
-                        ? Image.memory(photoBytes, fit: BoxFit.cover)
-                        : Center(
-                            child: Text(
-                              _getInitials(patient.fullName),
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: isActive
-                                    ? const Color(0xFF3B6D11)
-                                    : const Color(0xFF757575),
-                              ),
-                            ),
-                          ),
+                    child: PatientPhoto(
+                      patient: patient,
+                      size: 56,
+                      textColor: isActive
+                          ? const Color(0xFF3B6D11)
+                          : const Color(0xFF757575),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -220,18 +210,6 @@ class PatientCard extends StatelessWidget {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts[0][0].toUpperCase();
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
-  }
-
-  Uint8List? _decodePhoto(String? dataUrl) {
-    if (dataUrl == null || dataUrl.isEmpty) return null;
-    try {
-      final base64Part = dataUrl.contains(',')
-          ? dataUrl.split(',').last
-          : dataUrl;
-      return base64Decode(base64Part);
-    } catch (_) {
-      return null;
-    }
   }
 }
 

@@ -133,8 +133,11 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
           }
         }
 
-        updates['beds'] = currentBeds.map((b) => b.toMap()).toList();
+        updates['beds'] = ServiceLocator()
+            .roomService
+            .bedsToRtdbMap(currentBeds);
         updates['totalBeds'] = currentBeds.length;
+        updates['version'] = (widget.room.version ?? 0) + 1;
       }
 
       await roomService.updateRoom(widget.room.id, updates);
