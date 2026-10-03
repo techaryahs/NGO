@@ -8,6 +8,19 @@ import 'cache_database.dart';
 
 enum CacheConnectionState { idle, syncing, fresh, offline, degraded }
 
+class CanonicalPatientCacheSnapshot {
+  const CanonicalPatientCacheSnapshot(
+    this.value,
+    this.complete,
+    this.accountGeneration,
+  );
+  final Map<String, dynamic> value;
+  final bool complete;
+  final int accountGeneration;
+}
+
+class _ObsoleteCacheSnapshot implements Exception {}
+
 class CacheStatus {
   const CacheStatus({required this.state, this.lastSynced, this.error});
 
@@ -35,10 +48,16 @@ class PersistentCache {
   final StreamController<CacheStatus> _statusController =
       StreamController<CacheStatus>.broadcast();
   String? _accountId;
+  int _accountGeneration = 0;
+  Future<void>? _activationFuture;
+  final StreamController<int> _accountChanges =
+      StreamController<int>.broadcast();
   CacheStatus _status = const CacheStatus(state: CacheConnectionState.idle);
   DateTime? _lastPrune;
 
   String? get accountId => _accountId;
+  int get accountGeneration => _accountGeneration;
+  Stream<int> get accountChanges => _accountChanges.stream;
   CacheStatus get status => _status;
   Stream<CacheStatus> get statusStream =>
       Stream.value(_status).asyncExpand((initial) async* {
@@ -82,41 +101,55 @@ class PersistentCache {
   /// different account. Cached PII is never readable before this method.
   Future<void> activateAccount(String accountId) async {
     if (!_available || accountId.isEmpty) return;
-    if (_accountId == accountId) return;
+    if (_accountId == accountId) return _activationFuture;
+    final previous = _activationFuture;
     _accountId = accountId;
-    await database.transaction(() async {
-      await (database.delete(
-        database.cachedPatients,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedStays,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedRooms,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedAttendance,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedPayments,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedProfiles,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedSettings,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.cachedPhotoMetadata,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-      await (database.delete(
-        database.syncStates,
-      )..where((row) => row.accountId.isNotValue(accountId))).go();
-    });
+    final generation = ++_accountGeneration;
+    _accountChanges.add(generation);
+    final activation = () async {
+      await previous;
+      if (generation != _accountGeneration) return;
+      await database.transaction(() async {
+        await (database.delete(
+          database.cachedPatients,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedStays,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedRooms,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedAttendance,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedPayments,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedProfiles,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedSettings,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.cachedPhotoMetadata,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await (database.delete(
+          database.syncStates,
+        )..where((row) => row.accountId.isNotValue(accountId))).go();
+      });
+    }();
+    _activationFuture = activation;
+    try {
+      await activation;
+    } finally {
+      if (identical(_activationFuture, activation)) _activationFuture = null;
+    }
   }
 
   void deactivateAccount() {
     _accountId = null;
+    _accountChanges.add(++_accountGeneration);
     _setStatus(CacheConnectionState.idle);
   }
 
@@ -301,19 +334,78 @@ class PersistentCache {
     return Stream.fromFuture(read(clean, orderBy: orderBy, equalTo: equalTo));
   }
 
-  Future<void> replaceSnapshot(String path, dynamic value) async {
+  /// The marker is committed atomically with the full partition. A successful
+  /// filtered/targeted read cannot mark a partial partition as complete.
+  Future<CanonicalPatientCacheSnapshot?> readCanonicalPatients() async {
+    final generation = _accountGeneration;
+    await _activationFuture;
+    final account = _accountId;
+    if (!_available || account == null || generation != _accountGeneration) {
+      return null;
+    }
+    return database.transaction(() async {
+      final marker =
+          await (database.select(database.syncStates)..where(
+                (row) =>
+                    row.accountId.equals(account) &
+                    row.entity.equals('patients:canonical'),
+              ))
+              .getSingleOrNull();
+      final data = await _readPatients(account, ['patients'], null, null, null);
+      if (generation != _accountGeneration) return null;
+      return CanonicalPatientCacheSnapshot(
+        Map<String, dynamic>.from(data as Map),
+        marker?.status == 'complete',
+        generation,
+      );
+    });
+  }
+
+  Future<void> replaceSnapshot(
+    String path,
+    dynamic value, {
+    bool Function()? isCurrent,
+  }) async {
     if (!_available) return;
     final account = _accountId;
     if (account == null) return;
     final clean = _cleanPath(path);
     final parts = clean.split('/');
-    await database.transaction(() async {
-      if (parts.length == 1 && value is Map) {
-        await _replaceCollection(account, parts.first, value);
-      } else {
-        await _applyPath(account, clean, value, isPatch: false);
-      }
-    });
+    final generation = _accountGeneration;
+    bool current() =>
+        generation == _accountGeneration && (isCurrent?.call() ?? true);
+    if (!current()) return;
+    try {
+      await database.transaction(() async {
+        if (!current()) throw _ObsoleteCacheSnapshot();
+        if (parts.length == 1 &&
+            (value is Map || clean == 'patients' && value == null)) {
+          await _replaceCollection(
+            account,
+            parts.first,
+            value ?? <String, dynamic>{},
+          );
+          if (clean == 'patients') {
+            await database
+                .into(database.syncStates)
+                .insertOnConflictUpdate(
+                  SyncStatesCompanion.insert(
+                    accountId: account,
+                    entity: 'patients:canonical',
+                    status: const Value('complete'),
+                  ),
+                );
+          }
+        } else {
+          await _applyPath(account, clean, value, isPatch: false);
+        }
+        // Roll back reconciliation if a newer acknowledged write arrived
+        // during any of the transaction's asynchronous row operations.
+        if (!current()) throw _ObsoleteCacheSnapshot();
+      });
+    } on _ObsoleteCacheSnapshot {
+      // The newer operation owns synchronization; this is not a cache failure.
+    }
   }
 
   Future<void> mergeQuerySnapshot(String path, dynamic value) async {
@@ -357,37 +449,7 @@ class PersistentCache {
     String collection,
     Map<dynamic, dynamic> values,
   ) async {
-    switch (collection) {
-      case 'patients':
-        await (database.delete(
-          database.cachedPatients,
-        )..where((row) => row.accountId.equals(account))).go();
-        break;
-      case 'stays':
-        await (database.delete(
-          database.cachedStays,
-        )..where((row) => row.accountId.equals(account))).go();
-        break;
-      case 'rooms':
-        await (database.delete(
-          database.cachedRooms,
-        )..where((row) => row.accountId.equals(account))).go();
-        break;
-      case 'payments':
-      case 'paymentHistory':
-        await (database.delete(database.cachedPayments)..where(
-              (row) =>
-                  row.accountId.equals(account) &
-                  row.collection.equals(collection),
-            ))
-            .go();
-        break;
-      case 'users':
-        await (database.delete(
-          database.cachedProfiles,
-        )..where((row) => row.accountId.equals(account))).go();
-        break;
-    }
+    final validIds = values.keys.map((k) => k.toString()).toSet();
     for (final entry in values.entries) {
       await _applyPath(
         account,
@@ -395,6 +457,44 @@ class PersistentCache {
         entry.value,
         isPatch: false,
       );
+    }
+    // Reconcile orphans atomically: remove only local rows missing from
+    // the authoritative collection snapshot without ever truncating the table.
+    switch (collection) {
+      case 'patients':
+        await (database.delete(database.cachedPatients)..where(
+              (row) => row.accountId.equals(account) & row.id.isNotIn(validIds),
+            ))
+            .go();
+        break;
+      case 'stays':
+        await (database.delete(database.cachedStays)..where(
+              (row) => row.accountId.equals(account) & row.id.isNotIn(validIds),
+            ))
+            .go();
+        break;
+      case 'rooms':
+        await (database.delete(database.cachedRooms)..where(
+              (row) => row.accountId.equals(account) & row.id.isNotIn(validIds),
+            ))
+            .go();
+        break;
+      case 'payments':
+      case 'paymentHistory':
+        await (database.delete(database.cachedPayments)..where(
+              (row) =>
+                  row.accountId.equals(account) &
+                  row.collection.equals(collection) &
+                  row.id.isNotIn(validIds),
+            ))
+            .go();
+        break;
+      case 'users':
+        await (database.delete(database.cachedProfiles)..where(
+              (row) => row.accountId.equals(account) & row.id.isNotIn(validIds),
+            ))
+            .go();
+        break;
     }
   }
 
@@ -441,12 +541,25 @@ class PersistentCache {
       await _deleteEntity(account, collection, id);
       return;
     }
+    final existing = await _existingEntity(account, collection, id);
+    if (existing != null && value is Map) {
+      final existingUpdatedAt = _asInt(existing['updatedAt']);
+      final incomingUpdatedAt = _asInt(value['updatedAt']);
+      if (existingUpdatedAt != null &&
+          incomingUpdatedAt != null &&
+          incomingUpdatedAt < existingUpdatedAt) {
+        // BUG #9 FIX: Stale snapshot / race protection.
+        // A stale REST/SSE snapshot must not overwrite a newer state.
+        return;
+      }
+    }
     Map<String, dynamic> payload;
     if (parts.length == 2 && value is Map && !isPatch) {
       payload = _sanitize(Map<String, dynamic>.from(value), collection);
     } else {
-      payload =
-          await _existingEntity(account, collection, id) ?? <String, dynamic>{};
+      payload = existing != null
+          ? Map<String, dynamic>.from(existing)
+          : <String, dynamic>{};
       if (parts.length == 2 && value is Map) {
         payload.addAll(_sanitize(Map<String, dynamic>.from(value), collection));
       } else if (parts.length > 2) {
@@ -768,13 +881,7 @@ class PersistentCache {
     final kind = parts.first;
     final date = parts[2];
     if (parts.length == 3 && value is Map) {
-      await (database.delete(database.cachedAttendance)..where(
-            (row) =>
-                row.accountId.equals(account) &
-                row.kind.equals(kind) &
-                row.date.equals(date),
-          ))
-          .go();
+      final validKeys = value.keys.map((k) => k.toString()).toSet();
       for (final entry in value.entries) {
         await _applyAttendance(
           account,
@@ -783,6 +890,14 @@ class PersistentCache {
           isPatch: false,
         );
       }
+      await (database.delete(database.cachedAttendance)..where(
+            (row) =>
+                row.accountId.equals(account) &
+                row.kind.equals(kind) &
+                row.date.equals(date) &
+                row.patientId.isNotIn(validKeys),
+          ))
+          .go();
       return;
     }
     if (parts.length < 4) return;
@@ -987,6 +1102,7 @@ class PersistentCache {
   }
 
   Future<void> close() async {
+    await _accountChanges.close();
     await _statusController.close();
     await database.close();
   }

@@ -272,9 +272,9 @@ class PaymentService {
             'stays/${stay.id}/patientSnapshot': {
               'registrationNumber': patient.registrationNumber,
               'photoRef': patient.photoRef,
-              'attendants': patient.attendants?.map(
-                (a) => a.toMap()..remove('photoDataUrl'),
-              ).toList(),
+              'attendants': patient.attendants
+                  ?.map((a) => a.toMap()..remove('photoDataUrl'))
+                  .toList(),
               'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
             },
           'stays/${stay.id}/cycleId': balance.id,
@@ -290,6 +290,43 @@ class PaymentService {
   }
 
   Future<void> recalculatePatientAttendanceAndBilling(
+    String patientId, {
+    bool updateBilling = true,
+    Map<String, String?> patientAttendanceOverrides = const {},
+    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
+  }) {
+    final running = _runningBilling[patientId];
+    if (running != null &&
+        patientAttendanceOverrides.isEmpty &&
+        attendantAttendanceOverrides.isEmpty) {
+      return running;
+    }
+    late final Future<void> task;
+    task =
+        () async {
+          if (running != null) {
+            try {
+              await running;
+            } catch (_) {
+              /* Allow a fresh pass after failure. */
+            }
+          }
+          await _recalculatePatientAttendanceAndBilling(
+            patientId,
+            updateBilling: updateBilling,
+            patientAttendanceOverrides: patientAttendanceOverrides,
+            attendantAttendanceOverrides: attendantAttendanceOverrides,
+          );
+        }().whenComplete(() {
+          if (identical(_runningBilling[patientId], task)) {
+            _runningBilling.remove(patientId);
+          }
+        });
+    _runningBilling[patientId] = task;
+    return task;
+  }
+
+  Future<void> _recalculatePatientAttendanceAndBilling(
     String patientId, {
     bool updateBilling = true,
     Map<String, String?> patientAttendanceOverrides = const {},
@@ -357,7 +394,8 @@ class PaymentService {
     final data = Map<String, dynamic>.from(raw);
     final currentPatient = PatientModel.fromMap(patientId, data);
     final stays = await loadStays(patientId);
-    final id = 'payment_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
+    final id =
+        'payment_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     final pMap = payment.toMap()
       ..addAll({
         'id': id,
@@ -366,8 +404,9 @@ class PaymentService {
         'type': 'payment',
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
-    final payments = (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
-      ..add(pMap);
+    final payments =
+        (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+          ..add(pMap);
     data['payments'] = payments;
     final updates = await billingUpdates(
       patientId,
@@ -396,7 +435,9 @@ class PaymentService {
     if (!amount.isFinite || amount <= 0)
       throw ArgumentError('Enter a positive refund amount');
     final payment = {
-      'id': requestId ?? 'refund_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32)}',
+      'id':
+          requestId ??
+          'refund_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32)}',
       'amount': -amount,
       'date': date.millisecondsSinceEpoch,
       'method': method,
@@ -427,11 +468,15 @@ class PaymentService {
       patientData: Map<String, dynamic>.from(raw),
       stays: stays,
     );
-    final balance = (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
-    if (balance is! Map || amount > ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005) {
+    final balance =
+        (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
+    if (balance is! Map ||
+        amount > ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005) {
       throw StateError('Refund exceeds the remaining excess payment');
     }
-    final id = requestId ?? 'refund_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
+    final id =
+        requestId ??
+        'refund_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     payment.addAll({
       'id': id,
       'patientId': patientId,
@@ -439,8 +484,9 @@ class PaymentService {
       'type': 'refund',
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
-    final payments = (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
-      ..add(payment);
+    final payments =
+        (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+          ..add(payment);
     data['payments'] = payments;
     final updates = await billingUpdates(
       patientId,
@@ -645,6 +691,6 @@ class PaymentService {
       // Sort by date descending (newest first)
       payments.sort((a, b) => (b['date'] ?? 0).compareTo(a['date'] ?? 0));
       return payments;
-    }).asBroadcastStream();
+    });
   }
 }

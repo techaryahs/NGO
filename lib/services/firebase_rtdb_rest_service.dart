@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import '../cache/persistent_cache.dart';
+import 'patient_collection_state.dart';
 
 /// Firebase Realtime Database REST API Service
 ///
@@ -45,6 +47,127 @@ class FirebaseRTDBRestService {
   // Keep the latest successful value per path so moving between screens does
   // not flash an empty state while the same Firebase data is downloaded again.
   final Map<String, dynamic> _latestValues = {};
+  final PatientCollectionState _patients = PatientCollectionState();
+  int _memoryAccountGeneration = -1;
+  StreamSubscription<int>? _accountSubscription;
+
+  int _bindAccount() {
+    final generation = persistentCache?.accountGeneration ?? 0;
+    if (_memoryAccountGeneration != generation) {
+      _memoryAccountGeneration = generation;
+      _patients.bindAccount(generation);
+      _latestValues.clear();
+      for (final resource in _resources.values.toList()) {
+        resource.resetAccount();
+      }
+    }
+    return generation;
+  }
+
+  @visibleForTesting
+  PatientCollectionCompleteness get patientsCompleteness =>
+      _patients.completeness;
+
+  @visibleForTesting
+  void seedCanonicalPatientsForTesting(Map<String, dynamic> value) {
+    _bindAccount();
+    _patients.publish(value, _patients.capture(), complete: true);
+    _publishPatients();
+  }
+
+  @visibleForTesting
+  Future<void> rehydratePatientsForTesting() async {
+    for (final resource in _resources.values.toList()) {
+      if (resource._isCanonicalPatients) await resource.rehydratePersistent();
+    }
+  }
+
+  void _publishPatients() {
+    final value = _patients.value;
+    if (value == null) {
+      _latestValues.remove('patients');
+      return;
+    }
+    _latestValues['patients'] = value;
+    for (final resource in _resources.values) {
+      if (resource._isCanonicalPatients) resource.emitCachedValue(value);
+    }
+  }
+
+  void _beginMutation(
+    Map<String, dynamic> changes, {
+    required bool isPatch,
+    bool acknowledged = true,
+    PatientSnapshotTicket? ticket,
+  }) {
+    _bindAccount();
+    for (final entry in changes.entries) {
+      _patients.mutate(
+        entry.key,
+        entry.value,
+        isPatch: isPatch,
+        acknowledged: acknowledged,
+        revision: ticket?.revision,
+      );
+    }
+    final value = _patients.value;
+    if (value != null) _latestValues['patients'] = value;
+    for (final resource in _resources.values) {
+      if (changes.keys.any(resource.overlaps)) resource._revision++;
+    }
+  }
+
+  Future<void> _acceptPatientsSnapshot(
+    dynamic data,
+    PatientSnapshotTicket ticket, {
+    bool Function()? connectionCurrent,
+  }) async {
+    if (_bindAccount() == ticket.accountGeneration &&
+        _patients.value == null &&
+        !_patients.isCurrent(ticket) &&
+        (connectionCurrent?.call() ?? true)) {
+      // Establish the first complete base by rebasing deferred acknowledgements;
+      // the obsolete raw publication is never emitted.
+      ticket = _patients.capture();
+    }
+    bool current() =>
+        _bindAccount() == ticket.accountGeneration &&
+        _patients.isCurrent(ticket) &&
+        (connectionCurrent?.call() ?? true);
+    if (!current() || !PatientCollectionState.isCollection(data)) return;
+    final reconciled = _patients.reconcile(data);
+    await _cacheAction(
+      () => persistentCache?.replaceSnapshot(
+        'patients',
+        reconciled,
+        isCurrent: current,
+      ),
+    );
+    if (!current()) return;
+    if (_patients.publish(data, ticket, complete: true)) _publishPatients();
+    await _cacheAction(() => persistentCache?.markSynced('patients'));
+  }
+
+  @visibleForTesting
+  Map<String, dynamic> get latestValuesForTesting => _latestValues;
+
+  @visibleForTesting
+  Map<String, dynamic> prepareWriteForTesting(
+    String path,
+    Map<String, dynamic> input, {
+    required bool isPatch,
+  }) => _prepareWrite(path, input, isPatch: isPatch);
+
+  @visibleForTesting
+  void notifyWrittenForTesting(
+    List<String> changedPaths, {
+    Map<String, dynamic>? explicitValues,
+    bool isPatch = false,
+  }) => _notifyWritten(
+    changedPaths,
+    explicitValues: explicitValues,
+    isPatch: isPatch,
+  );
 
   FirebaseRTDBRestService({
     required this.projectId,
@@ -56,7 +179,12 @@ class FirebaseRTDBRestService {
   }) : _injectedClient = httpClient,
        _sseClientFactory = sseClientFactory,
        databaseUrl =
-           databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com';
+           databaseUrl ?? 'https://$projectId-default-rtdb.firebaseio.com' {
+    _bindAccount();
+    _accountSubscription = persistentCache?.accountChanges.listen(
+      (_) => _bindAccount(),
+    );
+  }
 
   http.Client _createSseClient() => _sseClientFactory?.call() ?? http.Client();
 
@@ -84,6 +212,8 @@ class FirebaseRTDBRestService {
 
   /// Fetch data from a specific path
   Future<dynamic> get(String path) async {
+    final account = _bindAccount();
+    final patientTicket = path == 'patients' ? _patients.capture() : null;
     persistentCache?.markSyncing();
     try {
       final token = await _getIdToken();
@@ -104,6 +234,12 @@ class FirebaseRTDBRestService {
         final value = response.body == 'null'
             ? null
             : json.decode(response.body);
+        if (_bindAccount() != account) return value;
+        if (patientTicket != null) {
+          await _acceptPatientsSnapshot(value, patientTicket);
+          return _patients.value ??
+              (throw StateError('Canonical patients unavailable'));
+        }
         if (!path.startsWith('patientPhotos/')) _latestValues[path] = value;
         await _cacheAction(() async {
           await persistentCache?.replaceSnapshot(path, value);
@@ -119,7 +255,15 @@ class FirebaseRTDBRestService {
       await _cacheAction(
         () => persistentCache?.markOffline(path.split('/').first, e),
       );
-      final cached = await _cacheValue(() => persistentCache?.read(path));
+      if (_bindAccount() != account) rethrow;
+      final canonical = path == 'patients'
+          ? await _cacheValue(() => persistentCache?.readCanonicalPatients())
+          : null;
+      final cached = path == 'patients'
+          ? (canonical is CanonicalPatientCacheSnapshot && canonical.complete
+                ? canonical.value
+                : null)
+          : await _cacheValue(() => persistentCache?.read(path));
       if (cached != null) return cached;
       throw Exception('Failed to GET $path: $e');
     }
@@ -127,6 +271,8 @@ class FirebaseRTDBRestService {
 
   /// Value of a snapshot together with its ETag, for conditional writes.
   Future<RtdbValue> getWithEtag(String path) async {
+    final account = _bindAccount();
+    final patientTicket = path == 'patients' ? _patients.capture() : null;
     try {
       final token = await _getIdToken();
       final url = Uri.parse(_buildUrl(path, auth: token));
@@ -142,11 +288,15 @@ class FirebaseRTDBRestService {
         final value = response.body == 'null'
             ? null
             : json.decode(response.body);
-        _latestValues[path] = value;
-        await _cacheAction(() async {
-          await persistentCache?.replaceSnapshot(path, value);
-          await persistentCache?.markSynced(path.split('/').first);
-        });
+        if (_bindAccount() == account && patientTicket != null) {
+          await _acceptPatientsSnapshot(value, patientTicket);
+        } else if (_bindAccount() == account) {
+          _latestValues[path] = value;
+          await _cacheAction(() async {
+            await persistentCache?.replaceSnapshot(path, value);
+            await persistentCache?.markSynced(path.split('/').first);
+          });
+        }
         final etag = response.headers['etag'];
         if (etag == null || etag.isEmpty) {
           throw StateError('Firebase did not return an ETag for $path');
@@ -271,6 +421,7 @@ class FirebaseRTDBRestService {
 
   /// Write data to a specific path (replaces existing data)
   Future<void> put(String path, Map<String, dynamic> data) async {
+    final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
@@ -288,13 +439,23 @@ class FirebaseRTDBRestService {
         );
       }
       final resolved = _decodeWriteResponse(response.body, prepared);
-      if (!path.startsWith('patientPhotos/')) _latestValues[path] = resolved;
+      if (_bindAccount() != account) return;
+      if (path != 'patients' && !path.startsWith('patientPhotos/')) {
+        _latestValues[path] = resolved;
+      }
+      _beginMutation({path: resolved}, isPatch: false);
       await _cacheAction(
         () => persistentCache?.applyServerMutation({
           path: resolved,
         }, isPatch: false),
       );
-      _notifyWritten([path], explicitValues: {path: resolved}, isPatch: false);
+      if (_bindAccount() != account) return;
+      _notifyWritten(
+        [path],
+        explicitValues: {path: resolved},
+        isPatch: false,
+        recorded: true,
+      );
     } catch (e) {
       throw Exception('Failed to PUT $path: $e');
     }
@@ -309,6 +470,7 @@ class FirebaseRTDBRestService {
   /// Completes as soon as Firebase acknowledges the write. The affected
   /// shared streams are refreshed independently and never block the caller.
   Future<void> patch(String path, Map<String, dynamic> updates) async {
+    final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
@@ -328,17 +490,25 @@ class FirebaseRTDBRestService {
       final changed = <String>[];
       final changedValues = <String, dynamic>{};
       final resolved = _decodeWriteResponse(response.body, prepared);
+      if (_bindAccount() != account) return;
       for (final entry in resolved.entries) {
         final changedPath = path.isEmpty ? entry.key : '$path/${entry.key}';
         changed.add(changedPath);
         changedValues[changedPath] = entry.value;
         _mergeIntoCache(changedPath, entry.value);
       }
+      _beginMutation(changedValues, isPatch: true);
       await _cacheAction(
         () =>
             persistentCache?.applyServerMutation(changedValues, isPatch: true),
       );
-      _notifyWritten(changed, explicitValues: changedValues, isPatch: true);
+      if (_bindAccount() != account) return;
+      _notifyWritten(
+        changed,
+        explicitValues: changedValues,
+        isPatch: true,
+        recorded: true,
+      );
     } catch (e) {
       throw Exception('Failed to PATCH $path: $e');
     }
@@ -354,6 +524,7 @@ class FirebaseRTDBRestService {
     Map<String, dynamic> data,
     String etag,
   ) async {
+    final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
@@ -367,16 +538,20 @@ class FirebaseRTDBRestService {
 
       if (response.statusCode == 200) {
         final resolved = _decodeWriteResponse(response.body, prepared);
-        _latestValues[path] = resolved;
+        if (_bindAccount() != account) return true;
+        if (path != 'patients') _latestValues[path] = resolved;
+        _beginMutation({path: resolved}, isPatch: false);
         await _cacheAction(
           () => persistentCache?.applyServerMutation({
             path: resolved,
           }, isPatch: false),
         );
+        if (_bindAccount() != account) return true;
         _notifyWritten(
           [path],
           explicitValues: {path: resolved},
           isPatch: false,
+          recorded: true,
         );
         return true;
       }
@@ -396,6 +571,7 @@ class FirebaseRTDBRestService {
   /// Push new data to a path (generates a unique push key)
   /// Returns the generated key
   Future<String> push(String path, Map<String, dynamic> data) async {
+    final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
@@ -417,16 +593,20 @@ class FirebaseRTDBRestService {
         final resolved = stored is Map
             ? Map<String, dynamic>.from(stored)
             : prepared;
+        if (_bindAccount() != account) return key;
         _latestValues[newPath] = resolved;
+        _beginMutation({newPath: resolved}, isPatch: false);
         await _cacheAction(
           () => persistentCache?.applyServerMutation({
             newPath: resolved,
           }, isPatch: false),
         );
+        if (_bindAccount() != account) return key;
         _notifyWritten(
           [newPath],
           explicitValues: {newPath: resolved},
           isPatch: false,
+          recorded: true,
         );
         return key; // Firebase returns {"name": "pushKey"}
       } else {
@@ -445,6 +625,7 @@ class FirebaseRTDBRestService {
 
   /// Delete data at a specific path
   Future<void> delete(String path) async {
+    final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
@@ -456,12 +637,20 @@ class FirebaseRTDBRestService {
           'DELETE failed: ${response.statusCode} - ${response.body}',
         );
       }
-      _latestValues.remove(path);
+      if (_bindAccount() != account) return;
+      if (path != 'patients') _latestValues.remove(path);
+      _beginMutation({path: null}, isPatch: false);
       await _cacheAction(
         () =>
             persistentCache?.applyServerMutation({path: null}, isPatch: false),
       );
-      _notifyWritten([path], explicitValues: {path: null}, isPatch: false);
+      if (_bindAccount() != account) return;
+      _notifyWritten(
+        [path],
+        explicitValues: {path: null},
+        isPatch: false,
+        recorded: true,
+      );
     } catch (e) {
       throw Exception('Failed to DELETE $path: $e');
     }
@@ -474,6 +663,7 @@ class FirebaseRTDBRestService {
   /// Updates the cached value for an exact path after a local write, so the
   /// UI never flashes stale data while the shared resource refreshes.
   void _mergeIntoCache(String changedPath, dynamic value) {
+    if (changedPath == 'patients') return;
     if (!_latestValues.containsKey(changedPath)) return;
     final current = _latestValues[changedPath];
     if (current is Map && value is Map) {
@@ -518,8 +708,25 @@ class FirebaseRTDBRestService {
     List<String> changedPaths, {
     Map<String, dynamic>? explicitValues,
     bool isPatch = false,
+    bool recorded = false,
   }) {
+    _bindAccount();
+    if (!recorded) {
+      _beginMutation({
+        for (final path in changedPaths)
+          path: explicitValues != null && explicitValues.containsKey(path)
+              ? explicitValues[path]
+              : _latestValues[path],
+      }, isPatch: isPatch);
+    }
+    _publishPatients();
     for (final resource in _resources.values) {
+      if (resource._isCanonicalPatients) {
+        if (_patients.value == null && changedPaths.any(resource.overlaps)) {
+          unawaited(resource.rehydratePersistent());
+        }
+        continue;
+      }
       if (changedPaths.any((changed) => resource.overlaps(changed))) {
         final relevantPaths = changedPaths
             .where((changed) => resource.overlaps(changed))
@@ -562,16 +769,29 @@ class FirebaseRTDBRestService {
     final data = Map<String, dynamic>.from(input);
     final clean = path.replaceFirst(RegExp(r'^/+'), '');
     if (clean.isEmpty && isPatch) {
-      final timestampPaths = <String>{};
+      final timestampPaths = <String, String>{};
+      final parentKeys = data.keys.toSet();
       for (final entry in data.entries) {
         if (entry.value == null) continue;
         final record = _synchronizedRecordPath(entry.key);
         if (record != null && !entry.key.endsWith('/updatedAt')) {
-          timestampPaths.add('$record/updatedAt');
+          timestampPaths[record] = '$record/updatedAt';
         }
       }
-      for (final timestampPath in timestampPaths) {
-        data[timestampPath] = _serverTimestamp;
+      for (final entry in timestampPaths.entries) {
+        final record = entry.key;
+        final tsPath = entry.value;
+        // BUG #4 FIX: If the parent record path is already in the payload
+        // as a full object, embed updatedAt inside it instead of creating a
+        // separate child path that would cause Firebase to reject the
+        // overlapping multi-path PATCH with HTTP 400.
+        if (parentKeys.contains(record) && data[record] is Map) {
+          final parentMap = Map<String, dynamic>.from(data[record] as Map);
+          parentMap['updatedAt'] = _serverTimestamp;
+          data[record] = parentMap;
+        } else {
+          data[tsPath] = _serverTimestamp;
+        }
       }
       return data;
     }
@@ -737,6 +957,7 @@ class FirebaseRTDBRestService {
     Map<String, String>? sseQueryParameters,
     Future<dynamic> Function()? hydrate,
   }) {
+    _bindAccount();
     return _resources
         .putIfAbsent(
           key,
@@ -753,7 +974,9 @@ class FirebaseRTDBRestService {
             fetch: fetch,
             hydrate: hydrate,
             errorOnInitialFailure: errorOnInitialFailure,
-            initialHasValue: _latestValues.containsKey(cacheKey),
+            initialHasValue:
+                _latestValues.containsKey(cacheKey) &&
+                (cacheKey != 'patients' || _patients.value != null),
             initialValue: _latestValues.containsKey(cacheKey)
                 ? _latestValues[cacheKey]
                 : null,
@@ -1013,6 +1236,7 @@ class FirebaseRTDBRestService {
 
   /// Dispose all shared resource streams
   void dispose() {
+    _accountSubscription?.cancel();
     for (final resource in _resources.values) {
       resource.dispose();
     }
@@ -1045,6 +1269,23 @@ class _QueryBounds {
 
 /// One reference-counted polling subscription shared by all consumers of the
 /// same resource path.
+class _QueuedSseEvent {
+  const _QueuedSseEvent(
+    this.type,
+    this.path,
+    this.data,
+    this.connectionGeneration,
+    this.accountGeneration,
+    this.patientTicket,
+  );
+  final String type;
+  final String path;
+  final dynamic data;
+  final int connectionGeneration;
+  final int accountGeneration;
+  final PatientSnapshotTicket? patientTicket;
+}
+
 class _SharedResource {
   final FirebaseRTDBRestService service;
   final String key;
@@ -1076,6 +1317,24 @@ class _SharedResource {
   bool _fallbackReconciled = false;
 
   bool get _isFilteredQuery => queryOrderBy != null;
+  bool get _isCanonicalPatients =>
+      invalidationPath == 'patients' &&
+      !_isFilteredQuery &&
+      sseQueryParameters.isEmpty;
+  int _resourceGeneration = 0;
+
+  void resetAccount() {
+    _resourceGeneration++;
+    _revision++;
+    _hasValue = false;
+    _latest = null;
+    _rehydrateFuture = null;
+    _closeSse();
+    if (_controller.hasListener) {
+      unawaited(rehydratePersistent());
+      unawaited(_startSse());
+    }
+  }
 
   bool get isSuspended => _isSuspended;
   dynamic get lastError => _lastError;
@@ -1122,27 +1381,61 @@ class _SharedResource {
     _hydratePersistent();
   }
 
-  Future<void> _hydratePersistent() async {
-    final loader = hydrate;
-    if (loader == null) return;
-    try {
-      final value = await loader();
-      if (value == null || _controller.isClosed || _hasValue) return;
-      emitCachedValue(value);
-    } catch (_) {
-      // SQLite is disposable. A remote refresh remains the recovery path.
-    }
-  }
+  Future<void> _hydratePersistent() => rehydratePersistent();
+
+  Future<void>? _rehydrateFuture;
 
   Future<void> rehydratePersistent() async {
     final loader = hydrate;
     if (loader == null || _controller.isClosed) return;
-    try {
-      final value = await loader();
-      if (value != null && !_controller.isClosed) emitCachedValue(value);
-    } catch (_) {
-      // The next authoritative SSE event remains the recovery path.
-    }
+    if (_rehydrateFuture != null) return _rehydrateFuture!;
+    final account = service._bindAccount();
+    final generation = _resourceGeneration;
+    final revision = _revision;
+    final ticket = _isCanonicalPatients
+        ? service._patients.capture(hydrating: true)
+        : null;
+    var retry = false;
+    final future = () async {
+      try {
+        final value = _isCanonicalPatients
+            ? await service.persistentCache?.readCanonicalPatients()
+            : await loader();
+        if (_controller.isClosed ||
+            service._bindAccount() != account ||
+            generation != _resourceGeneration) {
+          return;
+        }
+        if (ticket != null) {
+          if (value is! CanonicalPatientCacheSnapshot ||
+              value.accountGeneration != account) {
+            return;
+          }
+          if (!service._patients.isCurrent(ticket)) {
+            retry = value.complete && service._patients.value == null;
+            return;
+          }
+          if (service._patients.publish(
+            value.value,
+            ticket,
+            complete: value.complete,
+          )) {
+            service._publishPatients();
+          }
+        } else if (value != null && revision == _revision) {
+          emitCachedValue(value);
+        }
+      } catch (_) {
+        // The next authoritative SSE event remains the recovery path.
+      } finally {
+        if (generation == _resourceGeneration) {
+          _rehydrateFuture = null;
+          if (retry) unawaited(rehydratePersistent());
+        }
+      }
+    }();
+    _rehydrateFuture = future;
+    return future;
   }
 
   void _startPollingTimer([Duration? customInterval]) {
@@ -1243,7 +1536,33 @@ class _SharedResource {
     dynamic value, {
     bool isPatch = false,
   }) {
+    if (_controller.isClosed) return true;
+    if (_isCanonicalPatients) {
+      service._patients.mutate(
+        childPath,
+        value,
+        isPatch: isPatch,
+        acknowledged: false,
+      );
+      service._publishPatients();
+      if (service._patients.value == null) unawaited(rehydratePersistent());
+      return true;
+    }
     if (childPath == invalidationPath) {
+      if ((isPatch || _isFilteredQuery) && value is Map) {
+        for (final entry in value.entries) {
+          applyChildMutation(
+            '$childPath/${entry.key}',
+            entry.value,
+            isPatch: isPatch,
+          );
+        }
+        return true;
+      }
+      if (_isFilteredQuery) {
+        unawaited(rehydratePersistent());
+        return true;
+      }
       emitCachedValue(value);
       return true;
     }
@@ -1253,9 +1572,17 @@ class _SharedResource {
     final cached = service._latestValues[cacheKey];
     final parts = suffix.split('/');
     final recordKey = parts[0];
-    final updatedMap = cached is Map
-        ? Map<String, dynamic>.from(cached)
-        : <String, dynamic>{};
+
+    // BUG #1 FIX: When the in-memory cache has been evicted (cached is null),
+    // we must NOT fabricate an empty map — that would collapse the entire
+    // collection to just the one mutated record. Instead, schedule a full
+    // rehydration from SQLite (which still has the complete dataset) and
+    // skip the optimistic local merge for this event.
+    if (cached is! Map) {
+      unawaited(rehydratePersistent());
+      return true;
+    }
+    final updatedMap = Map<String, dynamic>.from(cached);
 
     if (_isFilteredQuery) {
       dynamic existing = updatedMap[recordKey];
@@ -1329,6 +1656,10 @@ class _SharedResource {
   /// The cache and latest snapshot are updated immediately.
   void emitCachedValue(dynamic value) {
     if (_controller.isClosed) return;
+    if (_isCanonicalPatients) {
+      value = service._patients.value;
+      if (value == null) return;
+    }
     service._latestValues[cacheKey] = value;
     if (!_hasValue || json.encode(value) != json.encode(_latest)) {
       _hasValue = true;
@@ -1372,12 +1703,7 @@ class _SharedResource {
       if (!_isFilteredQuery && !_sseConnected && _timer != null) {
         _startPollingTimer(pollInterval);
       }
-      service._latestValues[cacheKey] = value;
-      if (!_hasValue || json.encode(value) != json.encode(_latest)) {
-        _hasValue = true;
-        _latest = value;
-        _controller.add(value);
-      }
+      emitCachedValue(value);
     } catch (error, stackTrace) {
       _lastError = error;
       _lastStackTrace = stackTrace;
@@ -1406,13 +1732,17 @@ class _SharedResource {
       }
     } finally {
       _isFetching = false;
-      if (revision != _revision && _controller.hasListener && !_isSuspended) {
+      if (ssePath == null &&
+          revision != _revision &&
+          _controller.hasListener &&
+          !_isSuspended) {
         refreshSoon();
       }
     }
   }
 
   void dispose() {
+    _resourceGeneration++;
     _cancelEviction();
     _stopPollingTimer();
     _refreshDebounce?.cancel();
@@ -1428,8 +1758,12 @@ class _SharedResource {
   Future<void> _sseEventQueue = Future<void>.value();
   final bool _sseEnabled = true;
   int _sseFailures = 0;
+  int _connectionGeneration = 0;
+  bool _sseStarting = false;
 
   void _closeSse() {
+    _connectionGeneration++;
+    _sseStarting = false;
     _sseConnected = false;
     _sseRetryTimer?.cancel();
     _sseRetryTimer = null;
@@ -1443,11 +1777,20 @@ class _SharedResource {
     if (!_sseEnabled ||
         _controller.isClosed ||
         !_controller.hasListener ||
-        _isSuspended) {
+        _isSuspended ||
+        _sseStarting ||
+        _sseClient != null) {
       return;
     }
+    final account = service._bindAccount();
+    final connection = ++_connectionGeneration;
+    _sseStarting = true;
     try {
       final token = await service._getIdToken();
+      if (connection != _connectionGeneration ||
+          service._bindAccount() != account) {
+        return;
+      }
       if (token == null) {
         _scheduleSseRetry();
         return;
@@ -1505,27 +1848,43 @@ class _SharedResource {
             final jsonPayload = line.substring(6).trim();
             try {
               final decoded = json.decode(jsonPayload);
-              if (decoded is Map && decoded.containsKey('data')) {
+              final type = lastEvent;
+              if (decoded is Map &&
+                  decoded.containsKey('data') &&
+                  (type == 'put' || type == 'patch')) {
+                final queued = _QueuedSseEvent(
+                  type!,
+                  decoded['path']?.toString() ?? '/',
+                  decoded['data'],
+                  connection,
+                  account,
+                  _isCanonicalPatients ? service._patients.capture() : null,
+                );
                 _sseEventQueue = _sseEventQueue
-                    .then((_) => _applySseEvent(lastEvent, decoded))
+                    .then((_) => _applySseEvent(queued))
                     .catchError((_) {});
               }
             } catch (_) {}
           }
         },
         onError: (Object _) {
+          if (connection != _connectionGeneration) return;
           _closeSse();
           _scheduleSseRetry();
         },
         onDone: () {
+          if (connection != _connectionGeneration) return;
           _closeSse();
           _scheduleSseRetry();
         },
         cancelOnError: true,
       );
     } catch (_) {
+      if (connection != _connectionGeneration) return;
       _closeSse();
       _scheduleSseRetry();
+    } finally {
+      if (connection == _connectionGeneration) _sseStarting = false;
     }
   }
 
@@ -1553,26 +1912,39 @@ class _SharedResource {
     _sseRetryTimer = Timer(delay, _startSse);
   }
 
-  Future<void> _applySseEvent(
-    String? event,
-    Map<dynamic, dynamic> payload,
-  ) async {
-    if (_controller.isClosed) return;
-    final relativePath = payload['path']?.toString() ?? '/';
-    final data = payload['data'];
-    final isPatch = event == 'patch';
+  Future<void> _applySseEvent(_QueuedSseEvent queued) async {
+    bool current() =>
+        !_controller.isClosed &&
+        queued.connectionGeneration == _connectionGeneration &&
+        queued.accountGeneration == service._bindAccount();
+    if (!current()) return;
+    final relativePath = queued.path;
+    final data = queued.data;
+    final isPatch = queued.type == 'patch';
 
     if (relativePath == '/' && !isPatch) {
-      service._latestValues[cacheKey] = data;
+      if (_isCanonicalPatients) {
+        await service._acceptPatientsSnapshot(
+          data,
+          queued.patientTicket!,
+          connectionCurrent: current,
+        );
+        return;
+      }
+      final revision = ++_revision;
       await service._cacheAction(() async {
         if (_isFilteredQuery) {
           await service.persistentCache?.mergeQuerySnapshot(ssePath!, data);
         } else {
-          await service.persistentCache?.replaceSnapshot(ssePath!, data);
+          await service.persistentCache?.replaceSnapshot(
+            ssePath!,
+            data,
+            isCurrent: () => current() && revision == _revision,
+          );
         }
         await service.persistentCache?.markSynced(ssePath!.split('/').first);
       });
-      emitCachedValue(data);
+      if (current() && revision == _revision) emitCachedValue(data);
       return;
     }
 
@@ -1582,6 +1954,8 @@ class _SharedResource {
           '$ssePath/${entry.key}',
           entry.value,
           isPatch: true,
+          isCurrent: current,
+          ticket: queued.patientTicket,
         );
       }
       return;
@@ -1589,14 +1963,23 @@ class _SharedResource {
 
     final suffix = relativePath.replaceFirst(RegExp(r'^/+'), '');
     final changedPath = suffix.isEmpty ? ssePath! : '$ssePath/$suffix';
-    await _applySseMutation(changedPath, data, isPatch: isPatch);
+    await _applySseMutation(
+      changedPath,
+      data,
+      isPatch: isPatch,
+      isCurrent: current,
+      ticket: queued.patientTicket,
+    );
   }
 
   Future<void> _applySseMutation(
     String changedPath,
     dynamic value, {
     required bool isPatch,
+    required bool Function() isCurrent,
+    PatientSnapshotTicket? ticket,
   }) async {
+    if (!isCurrent()) return;
     // A null child in a filtered RTDB stream can mean "left the query", not
     // deletion from the canonical collection. Remove it only from this view.
     if (_isFilteredQuery && value == null) {
@@ -1604,15 +1987,34 @@ class _SharedResource {
       return;
     }
 
-    await service._cacheAction(
-      () => service.persistentCache?.applyServerMutation({
-        changedPath: value,
-      }, isPatch: isPatch),
+    service._beginMutation(
+      {changedPath: value},
+      isPatch: isPatch,
+      acknowledged: false,
+      ticket: ticket,
     );
+    var cacheChanges = <String, dynamic>{changedPath: value};
+    var cachePatch = isPatch;
+    final canonical = service._patients.value;
+    if (canonical != null && changedPath.startsWith('patients/')) {
+      // Persist the same one-record reconciliation as memory, including any
+      // still-unconfirmed ACK fields, rather than an obsolete server echo.
+      final id = changedPath.split('/')[1];
+      cacheChanges = {'patients/$id': canonical[id]};
+      cachePatch = false;
+    }
+    await service._cacheAction(
+      () => service.persistentCache?.applyServerMutation(
+        cacheChanges,
+        isPatch: cachePatch,
+      ),
+    );
+    if (!isCurrent()) return;
     service._notifyWritten(
       [changedPath],
       explicitValues: {changedPath: value},
       isPatch: isPatch,
+      recorded: true,
     );
   }
 }

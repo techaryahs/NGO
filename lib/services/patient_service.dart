@@ -69,7 +69,7 @@ class PatientService {
       }
 
       return patients;
-    }).asBroadcastStream(); // 🔥 THIS LINE FIXES YOUR ERROR
+    });
   }
 
   /// Stream of patients filtered by [status] ('active', 'discharged', etc).
@@ -106,8 +106,7 @@ class PatientService {
           }
           patients.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
           return patients;
-        })
-        .asBroadcastStream();
+        });
   }
 
   /// Client-side search by patient name against `searchKey`.

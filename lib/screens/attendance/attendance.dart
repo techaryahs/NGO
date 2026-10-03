@@ -373,16 +373,11 @@ class _AttendanceState extends State<Attendance>
       endKey: dates.last,
     );
     final dailyMap = rangeData is Map ? rangeData : const {};
-    final validPatientIds = _patientSource
-        .map((patient) => patient.id)
-        .toSet();
     for (final date in dates) {
       final data = dailyMap[date];
       if (data != null && data is Map) {
         if (type == 'patient') {
           Map<String, dynamic>.from(data).forEach((patientId, v) {
-            if (validPatientIds.isNotEmpty &&
-                !validPatientIds.contains(patientId)) return;
             final name = v['patientName'] ?? '';
             final status = v['status'] ?? '';
             if (name.isNotEmpty &&
@@ -392,8 +387,6 @@ class _AttendanceState extends State<Attendance>
           });
         } else {
           Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
-            if (validPatientIds.isNotEmpty &&
-                !validPatientIds.contains(patientId)) return;
             if (attendantsMap is Map) {
               Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
                 final name = v['attendantName'] ?? '';

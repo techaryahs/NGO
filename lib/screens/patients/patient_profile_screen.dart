@@ -1041,6 +1041,10 @@ class _StatusBadge extends StatelessWidget {
 }
 
 // ── 1. Overview Tab ──
+@visibleForTesting
+Widget buildPatientOverviewForTesting(PatientModel patient) =>
+    _OverviewTab(patient: patient);
+
 class _OverviewTab extends StatelessWidget {
   final PatientModel patient;
 
@@ -1255,6 +1259,7 @@ class _OverviewTab extends StatelessWidget {
   }
 
   Widget _buildPersonalInfo() {
+    final gender = patient.gender.trim();
     final dobStr =
         '${patient.dateOfBirth.day}/${patient.dateOfBirth.month}/${patient.dateOfBirth.year}';
     return _Section(
@@ -1269,8 +1274,9 @@ class _OverviewTab extends StatelessWidget {
             ),
             _InfoField(
               label: "Gender",
-              value:
-                  patient.gender[0].toUpperCase() + patient.gender.substring(1),
+              value: gender.isEmpty
+                  ? 'Not provided'
+                  : gender[0].toUpperCase() + gender.substring(1),
               icon: Icons.person_outline_rounded,
             ),
           ),
