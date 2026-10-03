@@ -27,6 +27,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return status == 'active' || status == 'paid';
   }
 
+  Widget _buildErrorCard({
+    required String title,
+    required String message,
+    required VoidCallback onRetry,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDECEA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF5C6CB)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFD32F2F), size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFD32F2F),
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  message,
+                  style: const TextStyle(color: Color(0xFF721C24), fontSize: 12),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 16, color: Color(0xFFD32F2F)),
+            label: const Text(
+              'Retry',
+              style: TextStyle(
+                color: Color(0xFFD32F2F),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Color(0xFFF5C6CB)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -121,6 +185,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildErrorCard(
+            title: "Failed to load census data",
+            message: snapshot.error.toString(),
+            onRetry: () {
+              ServiceLocator().rtdbService.retryAll();
+              setState(() {});
+            },
+          );
+        }
         if (!snapshot.hasData) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
@@ -327,7 +401,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           StreamBuilder<List<StayModel>>(
             stream: ServiceLocator().roomService.getActiveStaysStream(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: _buildErrorCard(
+                    title: "Failed to load recent admissions",
+                    message: snapshot.error.toString(),
+                    onRetry: () {
+                      ServiceLocator().rtdbService.retryAll();
+                      setState(() {});
+                    },
+                  ),
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                 return const Padding(
                   padding: EdgeInsets.all(24.0),
                   child: Center(
@@ -514,6 +602,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           StreamBuilder<Map<String, int>>(
             stream: ServiceLocator().roomService.getRoomStatsStream(),
             builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: _buildErrorCard(
+                    title: "Failed to load room logistics",
+                    message: snapshot.error.toString(),
+                    onRetry: () {
+                      ServiceLocator().rtdbService.retryAll();
+                      setState(() {});
+                    },
+                  ),
+                );
+              }
+
               if (!snapshot.hasData) {
                 return const Padding(
                   padding: EdgeInsets.all(24.0),

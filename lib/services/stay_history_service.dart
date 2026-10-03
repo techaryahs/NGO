@@ -103,8 +103,15 @@ class StayHistoryService {
         root['patients/$patientId/$key'] = patientData[key];
       }
     }
+    final remaining = allStays.where((stay) => !ids.contains(stay.id)).toList();
+    root.addAll(
+      await paymentService.billingUpdates(
+        patientId,
+        patientData: patientData,
+        stays: remaining,
+      ),
+    );
     await db.patch('', root);
-    await paymentService.recalculatePatientAttendanceAndBilling(patientId);
   }
 
   Future<void> updateShiftTimeline(
@@ -194,8 +201,14 @@ class StayHistoryService {
             last.end.millisecondsSinceEpoch;
       }
     }
+    root.addAll(
+      await paymentService.billingUpdates(
+        patientId,
+        patientData: patientData,
+        stays: updatedStays,
+      ),
+    );
     await db.patch('', root);
-    await paymentService.recalculatePatientAttendanceAndBilling(patientId);
   }
 
   Future<void> updateStay(
@@ -490,7 +503,13 @@ class StayHistoryService {
       for (final field in entry.value.entries)
         root['stays/${entry.key}/${field.key}'] = field.value;
     }
+    root.addAll(
+      await paymentService.billingUpdates(
+        patient.id,
+        patientData: patientData,
+        stays: updatedStays,
+      ),
+    );
     await db.patch('', root);
-    await paymentService.recalculatePatientAttendanceAndBilling(patient.id);
   }
 }

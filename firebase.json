@@ -1,21 +1,5 @@
 {
   "database": {
     "rules": "database.rules.json"
-  },
-  "functions": {
-    "source": "functions"
-  },
-  "flutter": {
-    "platforms": {
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "ngo-management-system-d8c06",
-          "configurations": {
-            "macos": "1:920135500112:ios:c23f1c8915caa07c2f2c55",
-            "windows": "1:920135500112:web:7e1312a89809b48a2f2c55"
-          }
-        }
-      }
-    }
   }
 }

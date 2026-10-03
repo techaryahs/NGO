@@ -1,23 +1,34 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
+import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 
 /// Targeted RTDB photo records. Patient and stay metadata never contain bytes.
 class PhotoRtdbService {
-  PhotoRtdbService({required FirebaseRTDBRestService rtdb}) : _rtdb = rtdb;
+  PhotoRtdbService({
+    required FirebaseRTDBRestService rtdb,
+    PersistentCache? persistentCache,
+  }) : _rtdb = rtdb,
+       _persistentCache = persistentCache;
 
   final FirebaseRTDBRestService _rtdb;
+  final PersistentCache? _persistentCache;
   static const maxDimension = 720;
   static const jpegQuality = 78;
   static const maxSourceBytes = 8 * 1024 * 1024;
   static const maxEncodedBytes = 300 * 1024;
   static const maxCachedBytes = 8 * 1024 * 1024;
+  static const maxDiskCachedBytes = 128 * 1024 * 1024;
 
   final LinkedHashMap<String, Uint8List> _cache = LinkedHashMap();
   final Map<String, DateTime> _cachedAt = {};
@@ -110,6 +121,13 @@ class PhotoRtdbService {
       throw StateError('Photo write verification failed');
     }
     invalidate(photoPath);
+    _remember(photoPath, prepared.bytes);
+    await _bestEffortWriteDisk(
+      photoPath,
+      prepared.bytes,
+      version: version,
+      contentType: prepared.contentType,
+    );
     return photoPath;
   }
 
@@ -128,6 +146,12 @@ class PhotoRtdbService {
   }
 
   Future<Uint8List?> downloadPhoto(String photoPath) async {
+    final record = await _downloadPhotoRecord(photoPath);
+    return record?.bytes;
+  }
+
+  Future<({Uint8List bytes, int version, String contentType})?>
+  _downloadPhotoRecord(String photoPath) async {
     if (!validPath(photoPath)) return null;
     final value = await _rtdb.get(photoPath);
     if (value is! Map || value['data'] is! String) return null;
@@ -139,7 +163,14 @@ class PhotoRtdbService {
     if (bytes == null || bytes.length > maxEncodedBytes) {
       throw FormatException('Invalid photo record');
     }
-    return bytes;
+    if (img.decodeImage(bytes) == null) {
+      throw FormatException('Corrupt photo record');
+    }
+    return (
+      bytes: bytes,
+      version: value['version'] is num ? (value['version'] as num).toInt() : 0,
+      contentType: value['contentType'].toString(),
+    );
   }
 
   Future<Uint8List?> downloadPhotoCached(String photoPath) {
@@ -155,12 +186,37 @@ class PhotoRtdbService {
     }
     return _pending.putIfAbsent(photoPath, () async {
       final generation = _generations[photoPath] ?? 0;
+      Uint8List? diskFallback;
       try {
-        final bytes = await downloadPhoto(photoPath);
-        if (bytes != null && (_generations[photoPath] ?? 0) == generation) {
-          _remember(photoPath, bytes);
+        ({Uint8List bytes, bool isFresh})? disk;
+        try {
+          disk = await _readDisk(photoPath);
+        } catch (_) {
+          disk = null;
+        }
+        diskFallback = disk?.bytes;
+        if (disk != null && disk.isFresh) {
+          _remember(photoPath, disk.bytes);
+          return disk.bytes;
+        }
+        final record = await _downloadPhotoRecord(photoPath);
+        final bytes = record?.bytes;
+        if (record != null && (_generations[photoPath] ?? 0) == generation) {
+          _remember(photoPath, record.bytes);
+          await _bestEffortWriteDisk(
+            photoPath,
+            record.bytes,
+            version: record.version,
+            contentType: record.contentType,
+          );
         }
         return bytes;
+      } catch (_) {
+        if (diskFallback != null) {
+          _remember(photoPath, diskFallback);
+          return diskFallback;
+        }
+        rethrow;
       } finally {
         if ((_generations[photoPath] ?? 0) == generation) {
           _pending.remove(photoPath);
@@ -196,6 +252,152 @@ class PhotoRtdbService {
       throw ArgumentError.value(photoPath, 'photoPath');
     await _rtdb.delete(photoPath);
     invalidate(photoPath);
+    try {
+      await _deleteDisk(photoPath);
+    } catch (_) {
+      // Remote deletion succeeded; stale local files are disposable.
+    }
+  }
+
+  Future<Directory?> _accountPhotoDirectory() async {
+    final account = _persistentCache?.accountId;
+    if (account == null) return null;
+    final support = await getApplicationSupportDirectory();
+    final safeAccount = sha256.convert(utf8.encode(account)).toString();
+    final directory = Directory(
+      p.join(support.path, 'ngo_management', 'photo_cache', safeAccount),
+    );
+    await directory.create(recursive: true);
+    return directory;
+  }
+
+  String _diskKey(String account, String photoPath, int version) =>
+      sha256.convert(utf8.encode('$account|$photoPath|$version')).toString();
+
+  Future<({Uint8List bytes, bool isFresh})?> _readDisk(String photoPath) async {
+    final cache = _persistentCache;
+    final account = cache?.accountId;
+    if (cache == null || account == null) return null;
+    final metadata = await cache.photoMetadata(photoPath);
+    if (metadata == null || metadata.version == 0) return null;
+    final directory = await _accountPhotoDirectory();
+    if (directory == null) return null;
+    final file = File(
+      p.join(
+        directory.path,
+        '${_diskKey(account, photoPath, metadata.version)}.bin',
+      ),
+    );
+    if (!await file.exists()) return null;
+    try {
+      final bytes = await file.readAsBytes();
+      final hash = sha256.convert(bytes).toString();
+      if (bytes.isEmpty ||
+          bytes.length > maxEncodedBytes ||
+          metadata.contentHash != hash ||
+          img.decodeImage(bytes) == null) {
+        await file.delete();
+        return null;
+      }
+      final modified = await file.lastModified();
+      return (
+        bytes: bytes,
+        isFresh:
+            DateTime.now().difference(modified) < const Duration(minutes: 5),
+      );
+    } catch (_) {
+      if (await file.exists()) await file.delete();
+      return null;
+    }
+  }
+
+  Future<void> _writeDisk(
+    String photoPath,
+    Uint8List bytes, {
+    required int version,
+    required String contentType,
+  }) async {
+    final cache = _persistentCache;
+    final account = cache?.accountId;
+    if (cache == null || account == null || bytes.length > maxEncodedBytes) {
+      return;
+    }
+    final directory = await _accountPhotoDirectory();
+    if (directory == null) return;
+    final hash = sha256.convert(bytes).toString();
+    final file = File(
+      p.join(directory.path, '${_diskKey(account, photoPath, version)}.bin'),
+    );
+    final temporary = File('${file.path}.tmp');
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      if (await file.exists()) await file.delete();
+      await temporary.rename(file.path);
+      await cache.updatePhotoMetadata(
+        photoRef: photoPath,
+        version: version,
+        contentType: contentType,
+        contentHash: hash,
+      );
+      await _evictDisk(directory);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
+    }
+  }
+
+  Future<void> _bestEffortWriteDisk(
+    String photoPath,
+    Uint8List bytes, {
+    required int version,
+    required String contentType,
+  }) async {
+    try {
+      await _writeDisk(
+        photoPath,
+        bytes,
+        version: version,
+        contentType: contentType,
+      );
+    } catch (_) {
+      // A disk-cache failure must not fail a verified RTDB photo operation.
+    }
+  }
+
+  Future<void> _deleteDisk(String photoPath) async {
+    final directory = await _accountPhotoDirectory();
+    if (directory == null || !await directory.exists()) return;
+    final metadata = await _persistentCache?.photoMetadata(photoPath);
+    final account = _persistentCache?.accountId;
+    if (metadata == null || account == null) return;
+    final file = File(
+      p.join(
+        directory.path,
+        '${_diskKey(account, photoPath, metadata.version)}.bin',
+      ),
+    );
+    if (await file.exists()) await file.delete();
+  }
+
+  Future<void> _evictDisk(Directory directory) async {
+    final files = await directory
+        .list()
+        .where((entity) => entity is File && entity.path.endsWith('.bin'))
+        .cast<File>()
+        .toList();
+    final entries = <({File file, int size, DateTime modified})>[];
+    var total = 0;
+    for (final file in files) {
+      final stat = await file.stat();
+      total += stat.size;
+      entries.add((file: file, size: stat.size, modified: stat.modified));
+    }
+    if (total <= maxDiskCachedBytes) return;
+    entries.sort((a, b) => a.modified.compareTo(b.modified));
+    for (final entry in entries) {
+      if (total <= maxDiskCachedBytes) break;
+      await entry.file.delete();
+      total -= entry.size;
+    }
   }
 
   static Uint8List? decodeLegacyBase64(String? dataUrl) {

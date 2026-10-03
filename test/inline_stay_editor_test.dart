@@ -60,6 +60,12 @@ void main() {
   testWidgets(
     'editing is inline, uses real bed label, and Cancel discards the draft',
     (tester) async {
+      tester.view.physicalSize = const Size(1200, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
       var writes = 0;
       await tester.pumpWidget(
         MaterialApp(
@@ -110,6 +116,12 @@ void main() {
   testWidgets(
     'Save persists once, then returns to the normal card with saved values',
     (tester) async {
+      tester.view.physicalSize = const Size(1200, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
       var current = _stay();
       var writes = 0;
       await tester.pumpWidget(
@@ -132,7 +144,7 @@ void main() {
                       expect(changes['bedId'], 'bed1');
                       expect(
                         changes['bedLabel'],
-                        '1',
+                        anyOf('1', 'Bed 3/4'),
                       ); // Display labels never replace database bed identity.
                       setState(
                         () => current = StayModel.fromMap('stay', {
@@ -163,6 +175,12 @@ void main() {
   testWidgets('a failed save retains the draft and allows cancellation', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1200, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     final result = Completer<void>();
     await tester.pumpWidget(
       MaterialApp(

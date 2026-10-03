@@ -12,29 +12,28 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthUser?>(
-      stream: ServiceLocator().authRestService.authStateChanges,
+      stream: ServiceLocator().authService.authStateChanges,
       initialData: null, // Add initial data to prevent waiting
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            snapshot.data == null) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFF3B6D11),
-              ),
+              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
             ),
           );
         }
 
         if (snapshot.hasData && snapshot.data != null) {
           return FutureBuilder<String?>(
-            future: ServiceLocator().authService.getUserRole(snapshot.data!.uid),
+            future: ServiceLocator().authService.getUserRole(
+              snapshot.data!.uid,
+            ),
             builder: (context, roleSnapshot) {
               if (roleSnapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(
                   body: Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF3B6D11),
-                    ),
+                    child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
                   ),
                 );
               }
@@ -86,7 +85,7 @@ class AuthWrapper extends StatelessWidget {
 
               // An unknown or temporarily unavailable role has no admin UI.
               final role = roleSnapshot.data ?? 'volunteer';
-              
+
               switch (role) {
                 case 'admin':
                   return const MainLayout();

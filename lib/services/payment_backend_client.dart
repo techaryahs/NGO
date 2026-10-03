@@ -2,10 +2,16 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'razorpay_service.dart' show RazorpayBackendConfig;
 
-/// Thin client for the trusted payment backend's manual-payment endpoint.
+/// Thin client for a trusted payment backend's manual-payment endpoint.
 ///
-/// Cash/cheque payments, refunds, and billing updates are recorded by the
-/// trusted backend. Database rules reject direct client payment writes.
+/// When a trusted backend is deployed and configured via
+/// `RAZORPAY_BACKEND_URL=...` in `.env`, cash/cheque payments, refunds,
+/// and billing updates are recorded server-side.
+///
+/// When no backend is configured (the default after Functions removal), the
+/// application falls back to direct authenticated RTDB writes in
+/// [PaymentService].  This fallback requires permissive RTDB security rules
+/// on the `payments` and `paymentHistory` nodes.
 class PaymentBackendClient {
   static Future<Map<String, dynamic>> _post(
     String endpoint,

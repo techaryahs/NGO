@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -87,9 +88,12 @@ class FirebaseAuthRestService {
   Future<AuthResult> signUp({
     required String email,
     required String password,
+    bool broadcastState = true,
   }) async {
     try {
       final url = '$_signUpUrl?key=$apiKey';
+
+      debugPrint('[FirebaseAuthRestService] Sending signUp request to Identity Toolkit for $email');
 
       final response = await http.post(
         Uri.parse(url),
@@ -112,22 +116,50 @@ class FirebaseAuthRestService {
         );
 
         _currentAuthState = currentUser;
-        _authStateController.add(currentUser);
+        if (broadcastState) {
+          _authStateController.add(currentUser);
+        }
 
-        return AuthResult(success: true, user: currentUser);
+        debugPrint('[FirebaseAuthRestService] signUp success for userId: ${data['localId']}');
+        return AuthResult(
+          success: true,
+          user: currentUser,
+          statusCode: 200,
+        );
       } else {
-        final error = json.decode(response.body);
+        int? statusCode = response.statusCode;
+        String? errorCode;
+        String? rawMessage;
+        try {
+          final error = json.decode(response.body);
+          errorCode = error['error']?['message']?.toString();
+          rawMessage = error['error']?['errors']?[0]?['message']?.toString();
+        } catch (_) {}
+
+        debugPrint(
+          '[FirebaseAuthRestService] signUp failed: HTTP $statusCode, errorCode: $errorCode, raw: $rawMessage',
+        );
+
         return AuthResult(
           success: false,
-          message: _parseErrorMessage(error['error']['message']),
+          statusCode: statusCode,
+          errorCode: errorCode,
+          message: _parseErrorMessage(errorCode ?? 'UNKNOWN'),
         );
       }
     } catch (e) {
+      debugPrint('[FirebaseAuthRestService] signUp connection exception: $e');
       return AuthResult(
         success: false,
-        message: 'An error occurred. Please try again.',
+        message: 'Network error or connection failed: $e',
       );
     }
+  }
+
+  /// Manually trigger auth state broadcast (used after profile creation)
+  void notifyAuthStateChanged() {
+    _currentAuthState = currentUser;
+    _authStateController.add(currentUser);
   }
 
   // ===========================================================================
@@ -141,6 +173,8 @@ class FirebaseAuthRestService {
     try {
       final url = '$_signInUrl?key=$apiKey';
 
+      debugPrint('[FirebaseAuthRestService] Sending signIn request to Identity Toolkit for $email');
+
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
@@ -164,18 +198,38 @@ class FirebaseAuthRestService {
         _currentAuthState = currentUser;
         _authStateController.add(currentUser);
 
-        return AuthResult(success: true, user: currentUser);
+        debugPrint('[FirebaseAuthRestService] signIn success for userId: ${data['localId']}');
+        return AuthResult(
+          success: true,
+          user: currentUser,
+          statusCode: 200,
+        );
       } else {
-        final error = json.decode(response.body);
+        int? statusCode = response.statusCode;
+        String? errorCode;
+        String? rawMessage;
+        try {
+          final error = json.decode(response.body);
+          errorCode = error['error']?['message']?.toString();
+          rawMessage = error['error']?['errors']?[0]?['message']?.toString();
+        } catch (_) {}
+
+        debugPrint(
+          '[FirebaseAuthRestService] signIn failed: HTTP $statusCode, errorCode: $errorCode, raw: $rawMessage',
+        );
+
         return AuthResult(
           success: false,
-          message: _parseErrorMessage(error['error']['message']),
+          statusCode: statusCode,
+          errorCode: errorCode,
+          message: _parseErrorMessage(errorCode ?? 'UNKNOWN'),
         );
       }
     } catch (e) {
+      debugPrint('[FirebaseAuthRestService] signIn connection exception: $e');
       return AuthResult(
         success: false,
-        message: 'An error occurred. Please try again.',
+        message: 'Network error or connection failed: $e',
       );
     }
   }
@@ -392,8 +446,16 @@ class FirebaseAuthRestService {
         return 'This account has been disabled.';
       case 'TOO_MANY_ATTEMPTS_TRY_LATER':
         return 'Too many attempts. Please try again later.';
+      case 'CONFIGURATION_NOT_FOUND':
+        return 'Firebase Authentication is not enabled for this project. Please enable Email/Password provider in the Firebase Console.';
+      case 'OPERATION_NOT_ALLOWED':
+        return 'Email/Password sign-in is disabled in the Firebase Console.';
+      case 'API_KEY_INVALID':
+        return 'The configured Firebase API key is invalid.';
+      case 'PROJECT_NOT_FOUND':
+        return 'The Firebase project was not found.';
       default:
-        return 'Authentication failed. Please try again.';
+        return 'Authentication failed ($errorCode). Please try again.';
     }
   }
 
@@ -417,6 +479,14 @@ class AuthResult {
   final bool success;
   final AuthUser? user;
   final String? message;
+  final int? statusCode;
+  final String? errorCode;
 
-  AuthResult({required this.success, this.user, this.message});
+  AuthResult({
+    required this.success,
+    this.user,
+    this.message,
+    this.statusCode,
+    this.errorCode,
+  });
 }

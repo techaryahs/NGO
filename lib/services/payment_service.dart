@@ -295,14 +295,23 @@ class PaymentService {
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
-    if (!RazorpayBackendConfig.isConfigured) {
-      throw StateError('Payment backend is required for billing updates');
+    if (RazorpayBackendConfig.isConfigured) {
+      final idToken = await _rtdb.getAuthToken?.call();
+      if (idToken != null) {
+        await PaymentBackendClient.recalculateBilling(
+          idToken: idToken,
+          patientId: patientId,
+        );
+        return;
+      }
     }
-    final idToken = await _rtdb.getAuthToken?.call();
-    if (idToken == null) throw StateError('Not authenticated');
-    await PaymentBackendClient.recalculateBilling(
-      idToken: idToken,
-      patientId: patientId,
+    await _rtdb.patch(
+      '',
+      await billingUpdates(
+        patientId,
+        patientAttendanceOverrides: patientAttendanceOverrides,
+        attendantAttendanceOverrides: attendantAttendanceOverrides,
+      ),
     );
   }
 
@@ -334,15 +343,44 @@ class PaymentService {
       throw ArgumentError('Enter a positive payment amount');
     if (RazorpayBackendConfig.isConfigured) {
       final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken == null) throw StateError('Not authenticated');
-      return PaymentBackendClient.recordManualPayment(
-        idToken: idToken,
-        patientId: patientId,
-        payment: payment.toMap(),
-        refund: false,
-      );
+      if (idToken != null) {
+        return PaymentBackendClient.recordManualPayment(
+          idToken: idToken,
+          patientId: patientId,
+          payment: payment.toMap(),
+          refund: false,
+        );
+      }
     }
-    throw StateError('Payment backend is required for payment recording');
+    final raw = await _rtdb.get('patients/$patientId');
+    if (raw is! Map) throw StateError('Patient not found');
+    final data = Map<String, dynamic>.from(raw);
+    final currentPatient = PatientModel.fromMap(patientId, data);
+    final stays = await loadStays(patientId);
+    final id = 'payment_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
+    final pMap = payment.toMap()
+      ..addAll({
+        'id': id,
+        'patientId': patientId,
+        'patientName': patientName,
+        'type': 'payment',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    final payments = (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+      ..add(pMap);
+    data['payments'] = payments;
+    final updates = await billingUpdates(
+      patientId,
+      patientData: data,
+      stays: stays,
+    );
+    updates.addAll({
+      'payments/$id': pMap,
+      'paymentHistory/$id': pMap,
+      'patients/$patientId/payments': payments,
+    });
+    await _rtdb.patch('', updates);
+    return id;
   }
 
   Future<String> recordRefund({
@@ -370,15 +408,52 @@ class PaymentService {
     };
     if (RazorpayBackendConfig.isConfigured) {
       final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken == null) throw StateError('Not authenticated');
-      return PaymentBackendClient.recordManualPayment(
-        idToken: idToken,
-        patientId: patientId,
-        payment: payment,
-        refund: true,
-      );
+      if (idToken != null) {
+        return PaymentBackendClient.recordManualPayment(
+          idToken: idToken,
+          patientId: patientId,
+          payment: payment,
+          refund: true,
+        );
+      }
     }
-    throw StateError('Payment backend is required for refund recording');
+    final raw = await _rtdb.get('patients/$patientId');
+    if (raw is! Map) throw StateError('Patient not found');
+    final data = Map<String, dynamic>.from(raw);
+    final currentPatient = PatientModel.fromMap(patientId, data);
+    final stays = await loadStays(patientId);
+    final before = await billingUpdates(
+      patientId,
+      patientData: Map<String, dynamic>.from(raw),
+      stays: stays,
+    );
+    final balance = (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
+    if (balance is! Map || amount > ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005) {
+      throw StateError('Refund exceeds the remaining excess payment');
+    }
+    final id = requestId ?? 'refund_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
+    payment.addAll({
+      'id': id,
+      'patientId': patientId,
+      'patientName': currentPatient.fullName,
+      'type': 'refund',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+    final payments = (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+      ..add(payment);
+    data['payments'] = payments;
+    final updates = await billingUpdates(
+      patientId,
+      patientData: data,
+      stays: stays,
+    );
+    updates.addAll({
+      'payments/$id': payment,
+      'paymentHistory/$id': payment,
+      'patients/$patientId/payments': payments,
+    });
+    await _rtdb.patch('', updates);
+    return id;
   }
 
   Future<void> updatePaymentDetails(
@@ -413,19 +488,89 @@ class PaymentService {
     String? embeddedPaymentId,
     Map<String, dynamic>? changes,
   ) async {
-    if (!RazorpayBackendConfig.isConfigured) {
-      throw StateError('Payment backend is required for payment corrections');
+    if (RazorpayBackendConfig.isConfigured) {
+      final idToken = await _rtdb.getAuthToken?.call();
+      if (idToken != null) {
+        await PaymentBackendClient.amendManualPayment(
+          idToken: idToken,
+          patientId: patientId,
+          paymentId: paymentId,
+          embeddedPaymentId: embeddedPaymentId,
+          changes: changes,
+          voidPayment: changes == null,
+        );
+        return;
+      }
     }
-    final idToken = await _rtdb.getAuthToken?.call();
-    if (idToken == null) throw StateError('Not authenticated');
-    await PaymentBackendClient.amendManualPayment(
-      idToken: idToken,
-      patientId: patientId,
-      paymentId: paymentId,
-      embeddedPaymentId: embeddedPaymentId,
-      changes: changes,
-      voidPayment: changes == null,
+    final raw = await _rtdb.get('patients/$patientId');
+    if (raw is! Map) throw StateError('Patient not found');
+    final data = Map<String, dynamic>.from(raw);
+    final patient = PatientModel.fromMap(patientId, data);
+    final global = await _rtdb.get('payments/$paymentId');
+    if (global is Map && global['patientId'] != patientId) {
+      throw StateError('Payment belongs to another patient');
+    }
+    final payments = (patient.payments ?? []).map((p) => p.toMap()).toList();
+    final index = payments.indexWhere(
+      (p) =>
+          p['id'] == paymentId ||
+          (embeddedPaymentId != null && p['id'] == embeddedPaymentId),
     );
+    if (index < 0 && global is! Map) throw StateError('Payment not found');
+    final original = global is Map
+        ? Map<String, dynamic>.from(global)
+        : payments[index];
+    final stays = await loadStays(patientId);
+    final cycleId =
+        changes?['cycleId']?.toString() ??
+        StayBilling.paymentCycle(
+          PaymentModel.fromMap(paymentId, original),
+          patient,
+          stays,
+        );
+    final refund = (original['amount'] as num) < 0;
+    final updated = changes == null
+        ? null
+        : <String, dynamic>{
+            ...original,
+            ...changes,
+            'id': paymentId,
+            'patientId': patientId,
+            'patientName': patient.fullName,
+            'cycleId': cycleId,
+            if (refund && changes.containsKey('amount'))
+              'amount': -(changes['amount'] as num).abs(),
+          };
+    if (index >= 0) payments.removeAt(index);
+    if (updated != null) payments.add(updated);
+    data['payments'] = payments;
+    final updates = await billingUpdates(
+      patientId,
+      patientData: data,
+      stays: stays,
+    );
+    if (refund && updated != null) {
+      final before = await billingUpdates(
+        patientId,
+        patientData: Map<String, dynamic>.from(raw),
+        stays: stays,
+      );
+      final previous =
+          (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
+      if (previous is! Map ||
+          (updated['amount'] as num).abs() >
+              (original['amount'] as num).abs() +
+                  ((previous['refundDue'] as num?)?.toDouble() ?? 0) +
+                  0.005) {
+        throw StateError('Refund exceeds the available excess');
+      }
+    }
+    updates.addAll({
+      'payments/$paymentId': updated,
+      'paymentHistory/$paymentId': updated,
+      'patients/$patientId/payments': payments,
+    });
+    await _rtdb.patch('', updates);
   }
 
   Future<void> updateTransactionNumber(

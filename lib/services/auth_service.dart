@@ -1,18 +1,31 @@
+import 'package:flutter/foundation.dart';
+import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'firebase_auth_rest_service.dart';
 
 class AuthService {
   final FirebaseAuthRestService _auth;
   final FirebaseRTDBRestService _rtdb;
+  final PersistentCache? _persistentCache;
 
   AuthService({
     required FirebaseAuthRestService authService,
     required FirebaseRTDBRestService rtdbService,
+    PersistentCache? persistentCache,
   }) : _auth = authService,
-       _rtdb = rtdbService;
+       _rtdb = rtdbService,
+       _persistentCache = persistentCache;
 
   AuthUser? get currentUser => _auth.currentUser;
-  Stream<AuthUser?> get authStateChanges => _auth.authStateChanges;
+  Stream<AuthUser?> get authStateChanges =>
+      _auth.authStateChanges.asyncMap((user) async {
+        if (user == null) {
+          _persistentCache?.deactivateAccount();
+        } else {
+          await _persistentCache?.activateAccount(user.uid);
+        }
+        return user;
+      });
 
   // New accounts are unprivileged. Staff/admin roles are assigned by a
   // trusted operator through the Firebase Admin SDK.
@@ -22,28 +35,76 @@ class AuthService {
     required String name,
     required String phone,
   }) async {
+    debugPrint(
+      '[AUTH FLOW] STEP 1 AUTH REQUEST START: target=Identity Toolkit signUp, email=$email',
+    );
     try {
-      final result = await _auth.signUp(email: email, password: password);
+      final result = await _auth.signUp(
+        email: email,
+        password: password,
+        broadcastState: false,
+      );
 
       if (!result.success) {
-        return {'success': false, 'message': result.message};
+        debugPrint(
+          '[AUTH FLOW] STEP 1 AUTH REQUEST FAILED: HTTP ${result.statusCode}, code=${result.errorCode}, msg=${result.message}',
+        );
+        return {
+          'success': false,
+          'message':
+              result.message ?? 'Authentication failed. Please try again.',
+          'statusCode': result.statusCode,
+          'errorCode': result.errorCode,
+        };
       }
 
-      // Store an unprivileged profile; the RTDB rules enforce this value.
-      await _rtdb.put('users/${result.user!.uid}', {
-        'uid': result.user!.uid,
-        'email': email,
-        'name': name,
-        'phone': phone,
-        'role': 'volunteer',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      });
+      debugPrint(
+        '[AUTH FLOW] STEP 2 AUTH RESPONSE RECEIVED: HTTP ${result.statusCode}',
+      );
+      debugPrint(
+        '[AUTH FLOW] STEP 3 USER UID RECEIVED: uid=${result.user!.uid}',
+      );
 
+      // Store an unprivileged profile; the RTDB rules enforce this value.
+      debugPrint(
+        '[AUTH FLOW] STEP 4 PROFILE WRITE START: path=users/${result.user!.uid}',
+      );
+      try {
+        await _rtdb.put('users/${result.user!.uid}', {
+          'uid': result.user!.uid,
+          'email': email,
+          'name': name,
+          'phone': phone,
+          'role': 'volunteer',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+        debugPrint(
+          '[AUTH FLOW] STEP 5 PROFILE WRITE COMPLETE: path=users/${result.user!.uid}',
+        );
+      } catch (dbError) {
+        debugPrint('[AUTH FLOW] STEP 4 PROFILE WRITE FAILED: $dbError');
+        // Sign out if profile initialization fails so user is not stuck in broken state
+        await _auth.signOut();
+        return {
+          'success': false,
+          'message':
+              'Account created in Auth, but profile write failed: $dbError',
+          'profileError': true,
+        };
+      }
+
+      // Safely notify listeners now that users/$uid profile exists in RTDB
+      await _persistentCache?.activateAccount(result.user!.uid);
+      debugPrint('[AUTH FLOW] STEP 6 AUTH STATE UPDATE');
+      _auth.notifyAuthStateChanged();
+
+      debugPrint('[AUTH FLOW] STEP 7 ROUTING');
       return {'success': true, 'user': result.user};
     } catch (e) {
+      debugPrint('[AUTH FLOW] UNEXPECTED EXCEPTION: $e');
       return {
         'success': false,
-        'message': 'An error occurred. Please try again.',
+        'message': 'An unexpected error occurred during signup: $e',
       };
     }
   }
@@ -60,6 +121,7 @@ class AuthService {
         return {'success': false, 'message': result.message};
       }
 
+      await _persistentCache?.activateAccount(result.user!.uid);
       return {'success': true, 'user': result.user};
     } catch (e) {
       return {
@@ -185,5 +247,6 @@ class AuthService {
   // Sign out
   Future<void> signOut() async {
     await _auth.signOut();
+    _persistentCache?.deactivateAccount();
   }
 }

@@ -65,6 +65,7 @@ extension RoomServiceStays on RoomService {
     required String createdBy,
     String status = 'active',
     DateTime? completedAt,
+    String? deterministicStayId,
   }) async {
     if (status == 'active') {
       final lobbyStays = await rtdb.getByChildValue(
@@ -83,7 +84,7 @@ extension RoomServiceStays on RoomService {
       }
     }
     final now = completedAt ?? DateTime.now();
-    final stayId = generateStayId();
+    final stayId = deterministicStayId ?? generateStayId();
     final end = completedAt ?? admissionDate.add(Duration(days: durationDays));
     final costs = _calculateStayCosts(
       roomType: 'general',
@@ -273,9 +274,12 @@ extension RoomServiceStays on RoomService {
     List<String> attendantLabels = const [],
     String? notes,
     required String createdBy,
+    Map<String, dynamic>? patientSnapshot,
+    RoomModel? initialRoom,
+    List<String>? deterministicStayIds,
   }) async {
     try {
-      final room = await getRoomDirect(roomId);
+      final room = initialRoom ?? await getRoomDirect(roomId);
       if (room == null) throw Exception('Room not found');
       final pricing = await getPricing();
 
@@ -309,12 +313,15 @@ extension RoomServiceStays on RoomService {
         Duration(days: durationDays),
       );
       final now = DateTime.now();
-      final staySnapshot = await _patientSnapshot(patientId);
+      final staySnapshot = patientSnapshot ?? await _patientSnapshot(patientId);
 
       final stays = <String, StayModel>{};
-      for (final bedId in bedIds) {
+      for (var i = 0; i < bedIds.length; i++) {
+        final bedId = bedIds[i];
         final bed = room.beds.where((b) => b.id == bedId).first;
-        final stayId = generateStayId();
+        final stayId = (deterministicStayIds != null && i < deterministicStayIds.length)
+            ? deterministicStayIds[i]
+            : generateStayId();
         stays[stayId] = StayModel(
           id: stayId,
           patientId: patientId,

@@ -48,6 +48,8 @@ class _AttendanceState extends State<Attendance>
   StreamSubscription? _patientSub;
   StreamSubscription? _attendantSub;
   StreamSubscription<List<PatientModel>>? _patientsDataSub;
+  StreamSubscription<List<StayModel>>? _activeStaysSub;
+  Map<String, StayModel> _activeStaysByPatient = {};
 
   // Pagination
   static const int _pageSize = 15;
@@ -94,7 +96,7 @@ class _AttendanceState extends State<Attendance>
       });
     });
 
-    _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    _patientsStream = ServiceLocator().patientService.getPatientsByStatuses(const ['active', 'Paid']);
     _patientsDataSub = _patientsStream.listen((patients) {
       if (!mounted) return;
       setState(() {
@@ -105,6 +107,15 @@ class _AttendanceState extends State<Attendance>
                   _isPatientEligibleOnDate(patient, _selectedAttendanceDate),
             )
             .toList();
+      });
+    });
+
+    _activeStaysSub = ServiceLocator().roomService.getActiveStaysStream().listen((stays) {
+      if (!mounted) return;
+      setState(() {
+        _activeStaysByPatient = {
+          for (final s in stays) s.patientId: s,
+        };
       });
     });
     // Daily is the opening view. Reports load only when their tabs open.
@@ -262,6 +273,7 @@ class _AttendanceState extends State<Attendance>
     _patientSub?.cancel();
     _attendantSub?.cancel();
     _patientsDataSub?.cancel();
+    _activeStaysSub?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     _fadeCtrl.dispose();
@@ -965,6 +977,7 @@ class _AttendanceState extends State<Attendance>
         // );
         return _PatientAttendanceCard(
           patient: displayList[index],
+          activeStay: _activeStaysByPatient[displayList[index].id],
           status: attendanceStatus[displayList[index].id],
           onMarkPresent: () => toggleAttendance(
             displayList[index].id,
@@ -1780,6 +1793,7 @@ class _SummaryCard extends StatelessWidget {
 // }
 class _PatientAttendanceCard extends StatefulWidget {
   final PatientModel patient;
+  final StayModel? activeStay;
   final bool? status;
   final VoidCallback onMarkPresent;
   final VoidCallback onMarkAbsent;
@@ -1789,6 +1803,7 @@ class _PatientAttendanceCard extends StatefulWidget {
 
   const _PatientAttendanceCard({
     required this.patient,
+    this.activeStay,
     required this.status,
     required this.onMarkPresent,
     required this.onMarkAbsent,
@@ -1890,23 +1905,35 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                           Icons.phone,
                           widget.patient.contactNumber ?? 'No contact',
                         ),
-                        if (widget.patient.roomNumber != null)
+                        if (widget.patient.roomNumber != null ||
+                            widget.activeStay?.roomNumber != null)
                           _InfoChip(
                             Icons.meeting_room,
-                            'Room ${widget.patient.roomNumber}',
+                            'Room ${widget.patient.roomNumber ?? widget.activeStay?.roomNumber}',
                           ),
-                        if (widget.patient.bedLabels != null &&
-                            widget.patient.bedLabels!.isNotEmpty)
+                        if ((widget.patient.bedLabels != null &&
+                                widget.patient.bedLabels!.isNotEmpty) ||
+                            (widget.activeStay?.bedLabel != null &&
+                                widget.activeStay!.bedLabel!.isNotEmpty))
                           _InfoChip(
                             Icons.bed,
-                            widget.patient.bedLabels!
-                                .map(
-                                  (b) => BedHelper.getBedDisplayName(
-                                    b,
-                                    roomIdentifier: widget.patient.roomNumber,
+                            (widget.patient.bedLabels != null &&
+                                    widget.patient.bedLabels!.isNotEmpty)
+                                ? widget.patient.bedLabels!
+                                    .map(
+                                      (b) => BedHelper.getBedDisplayName(
+                                        b,
+                                        roomIdentifier:
+                                            widget.patient.roomNumber ??
+                                                widget.activeStay?.roomNumber,
+                                      ),
+                                    )
+                                    .join(', ')
+                                : BedHelper.getBedDisplayName(
+                                    widget.activeStay!.bedLabel!,
+                                    roomIdentifier:
+                                        widget.activeStay?.roomNumber,
                                   ),
-                                )
-                                .join(', '),
                           ),
                         _InfoChip(
                           Icons.check_circle_outline,
@@ -1921,40 +1948,6 @@ class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
                             Icons.exit_to_app,
                             'Exit ${DateFormat('dd MMM, h:mm a').format(exit)}',
                           ),
-                        StreamBuilder<List<StayModel>>(
-                          stream: ServiceLocator().roomService
-                              .getStaysByPatientStream(widget.patient.id),
-                          builder: (context, snapshot) {
-                            final completed =
-                                (snapshot.data ?? const <StayModel>[])
-                                    .where((stay) => stay.status != 'active')
-                                    .toList()
-                                  ..sort(
-                                    (a, b) =>
-                                        b.updatedAt.compareTo(a.updatedAt),
-                                  );
-                            if (completed.isEmpty) {
-                              return const SizedBox.shrink();
-                            }
-                            final previous = completed.first;
-                            return Wrap(
-                              spacing: 8,
-                              runSpacing: 4,
-                              children: [
-                                _InfoChip(
-                                  Icons.exit_to_app,
-                                  'Exited ${DateFormat('dd MMM, h:mm a').format(previous.completedAt ?? previous.updatedAt)}',
-                                ),
-                                if (widget.patient.status.toLowerCase() ==
-                                    'active')
-                                  _InfoChip(
-                                    Icons.login_rounded,
-                                    'Rejoined ${DateFormat('dd MMM, h:mm a').format(widget.patient.registrationDate ?? widget.patient.admissionDate)}',
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
                       ],
                     ),
                   ],

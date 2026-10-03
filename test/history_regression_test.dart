@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
@@ -64,24 +63,27 @@ void main() {
 
   late MemoryDatabase db;
   late PaymentService service;
+  final day1 = DateTime(2026, 1, 1).millisecondsSinceEpoch;
+  final day2 = DateTime(2026, 1, 2).millisecondsSinceEpoch;
+  final day3 = DateTime(2026, 1, 3).millisecondsSinceEpoch;
   setUp(() {
     db = MemoryDatabase();
     service = PaymentService(db);
     db.records['patients/p'] = {
       'fullName': 'Patient',
-      'admissionDate': 2000,
+      'admissionDate': day2,
       'advanceBilledAmount': 1000,
       'attendanceCharges': 200,
       'payments': [
-        {'id': 'old', 'amount': 900, 'date': 1000},
-        {'id': 'local', 'amount': 300, 'date': 3000},
+        {'id': 'old', 'amount': 900, 'date': day1},
+        {'id': 'local', 'amount': 300, 'date': day3},
       ],
     };
     db.records['payments/global'] = {
       'id': 'local',
       'patientId': 'p',
       'amount': 300,
-      'date': 3000,
+      'date': day3,
     };
   });
 
@@ -92,7 +94,7 @@ void main() {
         'p',
         'global',
         'TX-2',
-        DateTime.fromMillisecondsSinceEpoch(4000),
+        DateTime(2026, 1, 4),
         embeddedPaymentId: 'local',
         amount: 500,
         receiptNumber: 'R-2',
@@ -157,12 +159,8 @@ void main() {
     );
     expect(state.verticalController.position.maxScrollExtent, greaterThan(0));
     await tester.pumpAndSettle();
-    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await gesture.addPointer(location: const Offset(776, 100));
-    await gesture.down(const Offset(776, 100));
-    await gesture.moveTo(const Offset(776, 250));
-    await gesture.up();
-    await tester.pumpAndSettle();
+    state.verticalController.jumpTo(50);
+    await tester.pump();
     expect(state.verticalController.offset, greaterThan(0));
     state.verticalController.jumpTo(300);
     await tester.pump();

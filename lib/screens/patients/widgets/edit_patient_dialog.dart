@@ -238,31 +238,68 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _loadRoomsAndCurrentStay();
   }
 
-  /// Load all rooms and current patient stay
-  Future<void> _loadRoomsAndCurrentStay() async {
+  /// Load pricing independently with bounded timeout and fallback
+  Future<void> _loadPricing() async {
     try {
       final roomService = ServiceLocator().roomService;
+      final pricingData = await roomService
+          .getPricing()
+          .timeout(const Duration(seconds: 6));
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(pricingData);
+      });
+    } catch (e) {
+      debugPrint('[EDIT PATIENT] pricing load failed: $e');
+      debugPrint('[EDIT PATIENT] using fallback pricing');
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(RoomService.defaultPricing);
+      });
+    }
+  }
+
+  /// Load all rooms and current patient stay
+  Future<void> _loadRoomsAndCurrentStay() async {
+    _loadPricing();
+
+    try {
+      final roomService = ServiceLocator().roomService;
+
+      // Load active stays for lobby occupancy independently so an index error doesn't abort room loading
+      roomService
+          .getActiveStaysStream()
+          .first
+          .timeout(const Duration(seconds: 8))
+          .then((activeStays) {
+        if (mounted) {
+          setState(() {
+            _occupiedLobbies = {
+              for (final stay in activeStays)
+                if (stay.roomType == 'lobby' &&
+                    stay.status == 'active' &&
+                    stay.patientId != widget.patient.id)
+                  stay.roomNumber,
+            };
+          });
+        }
+      }).catchError((e) {
+        debugPrint('[EDIT PATIENT] active stays load failed: $e');
+      });
+
       final results = await Future.wait<dynamic>([
-        roomService.getRoomsStream().first,
-        roomService.getPricing(),
-        roomService.getActiveStaysStream().first,
+        roomService.getRoomsStream().first.timeout(const Duration(seconds: 8)),
+        roomService
+            .getStaysByPatientStream(widget.patient.id)
+            .first
+            .timeout(const Duration(seconds: 8)),
       ]);
       final rooms = results[0] as List<RoomModel>;
-      _pricing = Map<String, dynamic>.from(results[1] as Map);
-      _occupiedLobbies = {
-        for (final stay in results[2] as List<StayModel>)
-          if (stay.roomType == 'lobby' &&
-              stay.status == 'active' &&
-              stay.patientId != widget.patient.id)
-            stay.roomNumber,
-      };
+      final stays = results[1] as List<StayModel>;
 
       // Load stays even after discharge, when roomId has already been cleared.
       // The latest stay preserves the room type needed for a correct edit-time
       // estimate.
-      final stays = await roomService
-          .getStaysByPatientStream(widget.patient.id)
-          .first;
       _currentStayIds = stays
           .where((stay) => stay.status == 'active')
           .map((stay) => stay.id)
@@ -375,6 +412,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         });
       }
     } catch (e) {
+      debugPrint('[EDIT PATIENT] rooms and stay load failed: $e');
       if (mounted) {
         setState(() => _isLoadingRooms = false);
       }
@@ -1788,6 +1826,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                           selectedBedIds: _selectedBeds
                                               .map((bed) => bed.id)
                                               .toSet(),
+                                          hint: _selectedFloor == null
+                                              ? 'Select floor first'
+                                              : _selectedLobby != null
+                                              ? 'Clear lobby to select a room'
+                                              : 'Select room',
                                           onChanged:
                                               _selectedFloor != null &&
                                                   _selectedLobby == null

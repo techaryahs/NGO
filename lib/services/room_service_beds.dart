@@ -108,7 +108,7 @@ extension RoomServiceBeds on RoomService {
         if (bed == null) {
           throw bedConflict('Bed $bedId does not exist in this room');
         }
-        if (!bed.isAvailable) {
+        if (!bed.isAvailable && bed.currentPatientId != patientId) {
           throw bedConflict('Bed is no longer available');
         }
       }

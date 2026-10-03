@@ -2,23 +2,28 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/app_config.dart';
+
 /// ─────────────────────────────────────────────────────────────────────────────
 /// RazorpayBackendConfig — trusted backend endpoint.
 ///
-/// The Razorpay key secret NEVER exists in this application. Payment link
-/// creation, payment verification and webhook processing are performed by the
-/// Firebase Cloud Functions backend (`functions/`), which reads the keys from
-/// its own server environment.
+/// The Razorpay key secret NEVER exists in this application.  Payment link
+/// creation, payment verification, and webhook processing require a
+/// **separate trusted backend** that holds the Razorpay secret key.
 ///
-/// Configure the endpoint at build time:
-///   flutter build windows --dart-define=RAZORPAY_BACKEND_URL=https://...
+/// Configure the endpoint in the root `.env` file:
+///   RAZORPAY_BACKEND_URL=https://...
 ///
-/// When the backend is not configured, online payments are disabled and the
-/// UI asks staff to collect cash/cheque instead.
+/// When the backend is not configured (the default), online payments are
+/// disabled and the UI asks staff to collect cash/cheque instead.
+///
+/// **Note:** The previous Firebase Cloud Functions backend (`functions/`) has
+/// been removed from this repository.  A replacement trusted backend must be
+/// deployed independently before online Razorpay payments can be re-enabled.
 /// ─────────────────────────────────────────────────────────────────────────────
 class RazorpayBackendConfig {
-  static const String baseUrl = String.fromEnvironment('RAZORPAY_BACKEND_URL');
-  static bool get isConfigured => baseUrl.trim().isNotEmpty;
+  static String get baseUrl => AppConfig.razorpayBackendUrl;
+  static bool get isConfigured => AppConfig.isPaymentBackendConfigured;
 }
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -65,14 +70,17 @@ class RazorpayPaymentStatus {
 }
 
 /// ─────────────────────────────────────────────────────────────────────────────
-/// RazorpayService — thin client for the trusted payment backend.
+/// RazorpayService — thin client for a trusted payment backend.
 ///
-/// The client only ever talks to the Cloud Functions endpoints. It has no
+/// This client only ever talks to a trusted backend endpoint.  It has no
 /// access to the Razorpay secret key and cannot fabricate a payment:
 ///   - the backend computes the amount from the database balance
 ///   - the backend verifies payments with the Razorpay API
 ///   - the backend verifies webhook signatures server-side
 ///   - the backend writes the payment ledger idempotently
+///
+/// Online Razorpay features are **disabled** unless a trusted backend URL
+/// is provided in `.env` via `RAZORPAY_BACKEND_URL=https://...`.
 /// ─────────────────────────────────────────────────────────────────────────────
 class RazorpayService {
   static Never _backendMissing() {

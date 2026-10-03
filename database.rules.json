@@ -3,9 +3,9 @@
     "users": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
       "$uid": {
-        ".read": "auth != null && $uid == auth.uid",
-        ".write": "$uid === auth.uid",
-        ".validate": "newData.child('role').val() == (data.exists() ? data.child('role').val() : 'volunteer') && newData.child('uid').val() == $uid"
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && ($uid === auth.uid || root.child('users').child(auth.uid).child('role').val() == 'admin')",
+        ".validate": "newData.child('uid').val() == $uid && (data.exists() ? (newData.child('role').val() == data.child('role').val() || root.child('users').child(auth.uid).child('role').val() == 'admin') : newData.child('role').val() == 'volunteer')"
       }
     },
     "patientPhotos": {
@@ -35,9 +35,9 @@
       ],
       "$patientId": {
         ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff') && (newData.exists() || root.child('users').child(auth.uid).child('role').val() == 'admin')",
-        ".validate": "newData.hasChildren(['id', 'fullName', 'searchKey', 'dateOfBirth', 'age', 'gender', 'contactNumber', 'emergencyContact', 'emergencyContactName', 'medicalCondition', 'admissionDate', 'status', 'createdAt', 'updatedAt', 'createdBy']) && newData.child('id').val() == $patientId && (data.exists() ? newData.child('payments').val() == data.child('payments').val() && newData.child('totalPaidAmount').val() == data.child('totalPaidAmount').val() && newData.child('paymentStatus').val() == data.child('paymentStatus').val() && newData.child('currentDueAmount').val() == data.child('currentDueAmount').val() && newData.child('admissionBalances').val() == data.child('admissionBalances').val() && newData.child('paymentPending').val() == data.child('paymentPending').val() && newData.child('refundDueAmount').val() == data.child('refundDueAmount').val() && newData.child('totalRefundDueAmount').val() == data.child('totalRefundDueAmount').val() && newData.child('totalRefundedAmount').val() == data.child('totalRefundedAmount').val() : !newData.child('payments').exists() && newData.child('totalPaidAmount').val() == 0 && newData.child('paymentStatus').val() == 'Unpaid' && newData.child('refundDueAmount').val() == 0 && newData.child('totalRefundDueAmount').val() == 0 && newData.child('totalRefundedAmount').val() == 0 && !newData.child('admissionBalances').exists())",
+        ".validate": "newData.hasChildren(['id', 'fullName', 'searchKey', 'dateOfBirth', 'gender', 'contactNumber', 'emergencyContact', 'emergencyContactName', 'medicalCondition', 'admissionDate', 'status', 'createdAt', 'updatedAt', 'createdBy']) && newData.child('id').val() == $patientId && (newData.child('totalPaidAmount').val() == null || newData.child('totalPaidAmount').isNumber()) && (newData.child('currentDueAmount').val() == null || newData.child('currentDueAmount').isNumber())",
         "photoDataUrl": {
-          ".validate": "data.exists() && newData.val() == data.val()"
+          ".validate": "!newData.exists() || (data.exists() && newData.val() == data.val())"
         },
         "photoRef": {
           ".validate": "newData.isString() && newData.val() == 'patientPhotos/' + $patientId + '/patient'"
@@ -45,7 +45,7 @@
         "attendants": {
           "$index": {
             "photoDataUrl": {
-              ".validate": "data.exists() && newData.val() == data.val()"
+              ".validate": "!newData.exists() || (data.exists() && newData.val() == data.val())"
             },
             "photoRef": {
               ".validate": "newData.isString() && newData.val().beginsWith('patientPhotos/' + $patientId + '/attendants/')"
@@ -56,14 +56,14 @@
     },
     "rooms": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
       ".indexOn": [
         "roomType",
         "floor",
         "status"
       ],
       "$roomId": {
-        ".validate": "newData.hasChildren(['id', 'roomNumber', 'floor', 'roomType', 'status', 'createdAt', 'updatedAt']) && (newData.child('beds').val() == data.child('beds').val() || newData.child('version').val() == (data.child('version').val() == null ? 1 : data.child('version').val() + 1))",
+        ".validate": "newData.hasChildren(['id', 'roomNumber', 'floor', 'roomType', 'status', 'createdAt', 'updatedAt'])",
         "version": {
           ".validate": "newData.isNumber()"
         }
@@ -71,24 +71,25 @@
     },
     "stays": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
       ".indexOn": [
         "patientId",
         "roomId",
         "status",
         "expiryDate",
-        "roomNumber"
+        "roomNumber",
+        "expectedDischargeDate"
       ],
       "$stayId": {
-        ".validate": "newData.hasChildren(['id', 'patientId', 'roomId', 'admissionDate', 'durationDays', 'expiryDate', 'status', 'createdAt', 'updatedAt'])",
+        ".validate": "newData.hasChildren(['id', 'patientId', 'roomId', 'admissionDate', 'durationDays', 'expiryDate', 'status', 'createdAt', 'updatedAt']) && newData.child('id').val() == $stayId",
         "patientSnapshot": {
           "photoDataUrl": {
-            ".validate": "data.exists() && newData.val() == data.val()"
+            ".validate": "!newData.exists() || (data.exists() && newData.val() == data.val())"
           },
           "attendants": {
             "$index": {
               "photoDataUrl": {
-                ".validate": "data.exists() && newData.val() == data.val()"
+                ".validate": "!newData.exists() || (data.exists() && newData.val() == data.val())"
               }
             }
           }
@@ -97,29 +98,33 @@
     },
     "admin_settings": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin'"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "settings": {
+      ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'admin'"
     },
     "attendance": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "attendant_attendance": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "payments": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": false,
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
       ".indexOn": [
         "patientId"
       ],
       "$paymentId": {
-        ".validate": "newData.hasChildren(['id', 'patientId', 'type', 'amount', 'method', 'date'])",
+        ".validate": "newData.hasChildren(['id', 'patientId', 'type', 'amount', 'method', 'date']) && newData.child('id').val() == $paymentId",
         "amount": {
           ".validate": "newData.isNumber() && newData.val() != 0"
         },
         "type": {
-          ".validate": "newData.val() == 'payment' || newData.val() == 'refund'"
+          ".validate": "newData.val() == 'payment' || newData.val() == 'refund' || newData.val() == 'adjustment'"
         },
         "source": {
           ".validate": "newData.val() == 'razorpay' || newData.val() == 'manual'"
@@ -128,14 +133,17 @@
     },
     "paymentHistory": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": false,
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
       ".indexOn": [
         "patientId"
       ],
       "$paymentId": {
-        ".validate": "newData.hasChildren(['id', 'patientId', 'type', 'amount', 'method', 'date'])",
+        ".validate": "newData.hasChildren(['id', 'patientId', 'type', 'amount', 'method', 'date']) && newData.child('id').val() == $paymentId",
         "amount": {
           ".validate": "newData.isNumber() && newData.val() != 0"
+        },
+        "type": {
+          ".validate": "newData.val() == 'payment' || newData.val() == 'refund' || newData.val() == 'adjustment'"
         }
       }
     },
@@ -149,37 +157,37 @@
     },
     "payment_details": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin'"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'admin'"
     },
     "metadata": {
       ".read": "auth != null",
       "stats": {
-        ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
       }
     },
     "inventory_items": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "vendors": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "purchases": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "expense_entries": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "salaries": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin'"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() == 'admin'"
     },
     "sponsorships": {
       ".read": "auth != null",
-      ".write": "root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'admin' || root.child('users').child(auth.uid).child('role').val() == 'staff')"
     },
     "billingQueue": {
       ".read": false,

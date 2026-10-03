@@ -27,6 +27,7 @@ class AddPatientDialog extends StatefulWidget {
 class _AddPatientDialogState extends State<AddPatientDialog> {
   bool _isLoading = false;
   String? _createdPatientId;
+  List<String> _createdStayIds = [];
   // Retains the previous detailed attendant editor without rendering it; the
   // compact editor below is intentionally shown last in the form.
   bool _showLegacyAttendantSection = false;
@@ -76,6 +77,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   List<BedModel> _availableBeds = [];
   Map<String, dynamic> _pricing = const {};
   bool _pricingLoaded = false;
+  bool _isUsingFallbackPricing = false;
 
   @override
   void initState() {
@@ -83,7 +85,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     for (final attendant in _attendants) {
       attendant.nameController.addListener(_refreshPaymentSummary);
     }
+    _loadPricing();
     _loadAvailableRooms();
+    _loadOccupiedLobbies();
   }
 
   void _refreshPaymentSummary() {
@@ -114,32 +118,73 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     super.dispose();
   }
 
-  /// Load available rooms (filter out fully occupied rooms)
+  /// Load pricing independently with bounded timeout and fallback to RoomService.defaultPricing
+  Future<void> _loadPricing() async {
+    try {
+      final roomService = ServiceLocator().roomService;
+      final pricingData = await roomService
+          .getPricing()
+          .timeout(const Duration(seconds: 6));
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(pricingData);
+        _pricingLoaded = true;
+        _isUsingFallbackPricing = false;
+      });
+    } catch (e) {
+      debugPrint('[ADD PATIENT] pricing load failed: $e');
+      debugPrint('[ADD PATIENT] using fallback pricing');
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(RoomService.defaultPricing);
+        _pricingLoaded = true;
+        _isUsingFallbackPricing = true;
+      });
+    }
+  }
+
+  /// Load available rooms independently
   Future<void> _loadAvailableRooms() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final results = await Future.wait<dynamic>([
-        roomService.getRoomsStream().first,
-        roomService.getPricing(),
-        roomService.getActiveStaysStream().first,
-      ]);
-      final rooms = results[0] as List<RoomModel>;
-      if (mounted) {
-        setState(() {
-          _pricing = Map<String, dynamic>.from(results[1] as Map);
-          _pricingLoaded = true;
-          _occupiedLobbies = {
-            for (final stay in results[2] as List<StayModel>)
-              if (stay.roomType == 'lobby' && stay.status == 'active')
-                stay.roomNumber,
-          };
-          // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
-          _availableRooms = List.from(rooms)
-            ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
-        });
-      }
+      final rooms = await roomService
+          .getRoomsStream()
+          .first
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      setState(() {
+        // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
+        _availableRooms = List.from(rooms)
+          ..sort((a, b) => a.roomIdentifier.compareTo(b.roomIdentifier));
+      });
     } catch (e) {
+      debugPrint('[ADD PATIENT] rooms load failed: $e');
       // Keep the dialog usable; room selection will stay empty if loading fails.
+    }
+  }
+
+  /// Load occupied lobbies independently so missing index on stays does not block pricing or rooms
+  Future<void> _loadOccupiedLobbies() async {
+    try {
+      final roomService = ServiceLocator().roomService;
+      final stays = await roomService
+          .getActiveStaysStream()
+          .first
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      setState(() {
+        _occupiedLobbies = {
+          for (final StayModel stay in stays)
+            if (stay.roomType == 'lobby' && stay.status == 'active')
+              stay.roomNumber,
+        };
+      });
+    } catch (e) {
+      debugPrint('[ADD PATIENT] active stays load failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _occupiedLobbies = const <String>{};
+      });
     }
   }
 
@@ -487,6 +532,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       }
     }
 
+    debugPrint('[ADD PATIENT] SAVE START');
+
     // Create the admission first. Online payments are attached to a saved
     // patient record and verified by the payment backend, so the patient
     // must exist before the payment dialog opens.
@@ -538,6 +585,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   /// again if the follow-up write fails.
   Future<String?> _createPatientAdmission() async {
     setState(() => _isLoading = true);
+    final totalStopwatch = Stopwatch()..start();
 
     try {
       final resumingAdmission = _createdPatientId != null;
@@ -547,16 +595,17 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       }
 
       final roomService = ServiceLocator().roomService;
-      if (_createdPatientId != null) {
-        final existingStays = await ServiceLocator().rtdbService.getByChildValue(
-          'stays', child: 'patientId', value: _createdPatientId!,
+      if (_createdPatientId != null && _createdStayIds.isNotEmpty) {
+        debugPrint(
+          '[ADD PATIENT] STEP resume-check SUCCESS elapsed=${totalStopwatch.elapsedMilliseconds}ms: patient $_createdPatientId and ${_createdStayIds.length} stay(s) already recorded in session',
         );
-        if (existingStays is Map && existingStays.values.any(
-          (value) => value is Map && value['status'] == 'active',
-        )) return _createdPatientId;
+        return _createdPatientId;
       }
+
       RoomModel? room;
-      if (_selectedRoom != null) {
+      if (_selectedRoom != null && _createdStayIds.isEmpty) {
+        final stepWatch = Stopwatch()..start();
+        debugPrint('[ADD PATIENT] STEP room-validation START roomId=${_selectedRoom!.id}');
         // Concurrency check only applies to actual room beds. Lobby placements
         // are deliberately independent from rooms and their beds.
         room = await roomService.getRoomDirect(_selectedRoom!.id);
@@ -570,12 +619,15 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           final bed = room.beds
               .where((b) => b.id == selectedBed.id)
               .firstOrNull;
-          if (bed == null || !bed.isAvailable) {
+          if (bed == null || (!bed.isAvailable && bed.currentPatientId != _createdPatientId)) {
             throw Exception(
               '${BedHelper.getBedDisplayName(selectedBed.bedLabel, roomIdentifier: room.roomIdentifier)} is no longer available. Please reselect beds.',
             );
           }
         }
+        debugPrint(
+          '[ADD PATIENT] STEP room-validation SUCCESS elapsed=${stepWatch.elapsedMilliseconds}ms',
+        );
       }
 
       final dateOfBirth = _selectedDate!;
@@ -640,67 +692,80 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       }
 
       // Create patient
-      final patientId = _createdPatientId ?? await ServiceLocator().patientService.addPatient(
-        fullName: _patientNameController.text.trim(),
-        dateOfBirth: dateOfBirth,
-        gender: _selectedGender!.toLowerCase(),
-        contactNumber: _mobileController.text.trim(),
-        emergencyContact:
-            structuredAttendants
-                .where((a) => a.isEmergencyContact)
-                .firstOrNull
-                ?.mobileNumber ??
-            '',
-        emergencyContactName:
-            structuredAttendants
-                .where((a) => a.isEmergencyContact)
-                .firstOrNull
-                ?.name ??
-            '',
-        medicalCondition: _diagnosisController.text.trim(),
-        admissionDate: admissionDate,
-        roomId: _selectedRoom?.id,
-        roomNumber: _selectedRoom?.roomIdentifier,
-        floor: _selectedFloor,
-        bedIds: _selectedBeds.isEmpty
-            ? null
-            : _selectedBeds.map((b) => b.id).toList(),
-        bedLabels: _selectedBeds.isEmpty
-            ? null
-            : _selectedBeds.map((b) => b.bedLabel).toList(),
-        photoDataUrl: _patientPhotoDataUrl,
-        photoFileName: _patientPhotoFileName,
-        notes: notesList.isEmpty ? null : notesList.join('\n'),
-        address: _addressController.text.trim().isEmpty
-            ? null
-            : _addressController.text.trim(),
-        lobby: _selectedLobby,
-        exitDate: _selectedExitDate,
-        createdBy: currentUser.uid,
-        registrationNumber: _registrationNumberController.text.trim().isNotEmpty
-            ? _registrationNumberController.text.trim()
-            : null,
-        registrationDate: _selectedRegistrationDate ?? DateTime.now(),
-        panCardNumber: _panCardController.text.trim().isNotEmpty
-            ? _panCardController.text.trim()
-            : null,
-        aadhaarCardNumber: _aadhaarCardController.text.trim().isNotEmpty
-            ? _aadhaarCardController.text.trim()
-            : null,
-        utiNumber: _utiNumberController.text.trim().isNotEmpty
-            ? _utiNumberController.text.trim()
-            : null,
-        isAdvancePeriod: true,
-        advanceBilledAmount: _estimatedTotal,
-        attendanceCharges: 0.0,
-        totalPresentDays: 0,
-        totalAbsentDays: 0,
-        attendants: structuredAttendants.isNotEmpty
-            ? structuredAttendants
-            : null,
-        initialTotalAmount: _estimatedTotal,
-      );
-      _createdPatientId = patientId;
+      final patientWatch = Stopwatch()..start();
+      String patientId;
+      if (_createdPatientId != null) {
+        patientId = _createdPatientId!;
+        debugPrint(
+          '[ADD PATIENT] STEP patient-creation REUSED patientId=$patientId elapsed=${patientWatch.elapsedMilliseconds}ms',
+        );
+      } else {
+        debugPrint('[ADD PATIENT] STEP patient-creation START path=/patients');
+        patientId = await ServiceLocator().patientService.addPatient(
+          fullName: _patientNameController.text.trim(),
+          dateOfBirth: dateOfBirth,
+          gender: _selectedGender!.toLowerCase(),
+          contactNumber: _mobileController.text.trim(),
+          emergencyContact:
+              structuredAttendants
+                  .where((a) => a.isEmergencyContact)
+                  .firstOrNull
+                  ?.mobileNumber ??
+              '',
+          emergencyContactName:
+              structuredAttendants
+                  .where((a) => a.isEmergencyContact)
+                  .firstOrNull
+                  ?.name ??
+              '',
+          medicalCondition: _diagnosisController.text.trim(),
+          admissionDate: admissionDate,
+          roomId: _selectedRoom?.id,
+          roomNumber: _selectedRoom?.roomIdentifier,
+          floor: _selectedFloor,
+          bedIds: _selectedBeds.isEmpty
+              ? null
+              : _selectedBeds.map((b) => b.id).toList(),
+          bedLabels: _selectedBeds.isEmpty
+              ? null
+              : _selectedBeds.map((b) => b.bedLabel).toList(),
+          photoDataUrl: _patientPhotoDataUrl,
+          photoFileName: _patientPhotoFileName,
+          notes: notesList.isEmpty ? null : notesList.join('\n'),
+          address: _addressController.text.trim().isEmpty
+              ? null
+              : _addressController.text.trim(),
+          lobby: _selectedLobby,
+          exitDate: _selectedExitDate,
+          createdBy: currentUser.uid,
+          registrationNumber: _registrationNumberController.text.trim().isNotEmpty
+              ? _registrationNumberController.text.trim()
+              : null,
+          registrationDate: _selectedRegistrationDate ?? DateTime.now(),
+          panCardNumber: _panCardController.text.trim().isNotEmpty
+              ? _panCardController.text.trim()
+              : null,
+          aadhaarCardNumber: _aadhaarCardController.text.trim().isNotEmpty
+              ? _aadhaarCardController.text.trim()
+              : null,
+          utiNumber: _utiNumberController.text.trim().isNotEmpty
+              ? _utiNumberController.text.trim()
+              : null,
+          isAdvancePeriod: true,
+          advanceBilledAmount: _estimatedTotal,
+          attendanceCharges: 0.0,
+          totalPresentDays: 0,
+          totalAbsentDays: 0,
+          attendants: structuredAttendants.isNotEmpty
+              ? structuredAttendants
+              : null,
+          initialTotalAmount: _estimatedTotal,
+        );
+        _createdPatientId = patientId;
+        debugPrint(
+          '[ADD PATIENT] STEP patient-creation SUCCESS patientId=$patientId elapsed=${patientWatch.elapsedMilliseconds}ms',
+        );
+      }
 
       final attendantCount = structuredAttendants.length;
       final attendantLabels = structuredAttendants
@@ -711,47 +776,89 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           )
           .toList();
 
-      // Lobby placements create history records but never occupy room beds.
-      if (_selectedLobby != null) {
-        await roomService.createLobbyStay(
-          patientId: patientId,
-          patientName: _patientNameController.text.trim(),
-          lobbyName: _selectedLobby!,
-          admissionDate: admissionDate,
-          durationDays: _plannedStayDays,
-          attendantCount: attendantCount,
-          attendantLabels: attendantLabels,
-          createdBy: currentUser.uid,
+      if (_createdStayIds.isEmpty) {
+        final stayWatch = Stopwatch()..start();
+        debugPrint('[ADD PATIENT] STEP stay-creation START path=/stays');
+        // Lobby placements create history records but never occupy room beds.
+        if (_selectedLobby != null) {
+          final sanitizedLobby = _selectedLobby!.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+          final deterministicStayId = 'stay_${patientId}_lobby_$sanitizedLobby';
+          final stayId = await roomService.createLobbyStay(
+            patientId: patientId,
+            patientName: _patientNameController.text.trim(),
+            lobbyName: _selectedLobby!,
+            admissionDate: admissionDate,
+            durationDays: _plannedStayDays,
+            attendantCount: attendantCount,
+            attendantLabels: attendantLabels,
+            createdBy: currentUser.uid,
+            deterministicStayId: deterministicStayId,
+          );
+          _createdStayIds = [stayId];
+        }
+        if (_selectedRoom != null) {
+          // Private rooms assign one bed per patient; general wards allow
+          // several beds for one patient. All beds are reserved atomically.
+          final bedIds = _selectedRoom!.isPrivate
+              ? [_selectedBeds.first.id]
+              : _selectedBeds.map((b) => b.id).toList();
+          final patientSnapshot = <String, dynamic>{
+            'registrationNumber': _registrationNumberController.text.trim().isNotEmpty
+                ? _registrationNumberController.text.trim()
+                : null,
+            'admissionDate': admissionDate.millisecondsSinceEpoch,
+            'attendants': [
+              for (final a in structuredAttendants)
+                {
+                  'name': a.name,
+                  'age': a.age,
+                  'relation': a.relation,
+                  'aadhaarNumber': a.aadhaarNumber,
+                  'mobileNumber': a.mobileNumber,
+                  'photoRef': a.photoRef,
+                  'isEmergencyContact': a.isEmergencyContact,
+                }
+            ],
+          };
+          final deterministicStayIds = bedIds
+              .map((bedId) => 'stay_${patientId}_$bedId')
+              .toList();
+          final stayIds = await roomService.createStaysForBeds(
+            patientId: patientId,
+            patientName: _patientNameController.text.trim(),
+            roomId: _selectedRoom!.id,
+            admissionDate: admissionDate,
+            durationDays: _plannedStayDays,
+            attendantCount: attendantCount,
+            attendantLabels: attendantLabels,
+            bedIds: bedIds,
+            notes: [
+              _selectedRoom!.isPrivate
+                  ? 'Private room admission with $attendantCount attendant(s)'
+                  : _selectedBeds.length > 1
+                  ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                  : 'General ward admission',
+              if (_selectedLobby != null) 'Lobby: $_selectedLobby',
+            ].join('\n'),
+            createdBy: currentUser.uid,
+            patientSnapshot: patientSnapshot,
+            initialRoom: _selectedRoom,
+            deterministicStayIds: deterministicStayIds,
+          );
+          _createdStayIds = stayIds;
+        }
+        debugPrint(
+          '[ADD PATIENT] STEP stay-creation SUCCESS stayCount=${_createdStayIds.length} elapsed=${stayWatch.elapsedMilliseconds}ms',
         );
-      }
-      if (_selectedRoom != null) {
-        // Private rooms assign one bed per patient; general wards allow
-        // several beds for one patient. All beds are reserved atomically.
-        final bedIds = _selectedRoom!.isPrivate
-            ? [_selectedBeds.first.id]
-            : _selectedBeds.map((b) => b.id).toList();
-        await roomService.createStaysForBeds(
-          patientId: patientId,
-          patientName: _patientNameController.text.trim(),
-          roomId: _selectedRoom!.id,
-          admissionDate: admissionDate,
-          durationDays: _plannedStayDays,
-          attendantCount: attendantCount,
-          attendantLabels: attendantLabels,
-          bedIds: bedIds,
-          notes: [
-            _selectedRoom!.isPrivate
-                ? 'Private room admission with $attendantCount attendant(s)'
-                : _selectedBeds.length > 1
-                ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
-                : 'General ward admission',
-            if (_selectedLobby != null) 'Lobby: $_selectedLobby',
-          ].join('\n'),
-          createdBy: currentUser.uid,
+      } else {
+        debugPrint(
+          '[ADD PATIENT] STEP stay-creation REUSED stays=${_createdStayIds.length}',
         );
       }
 
       if (resumingAdmission) {
+        final patchWatch = Stopwatch()..start();
+        debugPrint('[ADD PATIENT] STEP patient-patch START path=/patients/$patientId');
         await ServiceLocator().rtdbService.patch('patients/$patientId', {
           'roomId': _selectedRoom?.id,
           'roomNumber': _selectedRoom?.roomIdentifier,
@@ -759,10 +866,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           'bedIds': _selectedBeds.map((bed) => bed.id).toList(),
           'bedLabels': _selectedBeds.map((bed) => bed.bedLabel).toList(),
         });
+        debugPrint(
+          '[ADD PATIENT] STEP patient-patch SUCCESS elapsed=${patchWatch.elapsedMilliseconds}ms',
+        );
       }
 
+      debugPrint(
+        '[ADD PATIENT] SAVE COMPLETE patientId=$patientId elapsed=${totalStopwatch.elapsedMilliseconds}ms',
+      );
       return patientId;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint(
+        '[ADD PATIENT] STEP FAILED elapsed=${totalStopwatch.elapsedMilliseconds}ms: $e',
+      );
+      debugPrint('[ADD PATIENT] SAVE FAILED: $e');
+      debugPrint('[ADD PATIENT] Stack trace: $stackTrace');
       if (e is BedConflictException) {
         _showError('${e.message} Please reselect the beds.');
       } else {
@@ -1362,6 +1480,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                                 )
                                                 .toList(),
                                       selectedRoom: _selectedRoom,
+                                      hint: _selectedFloor == null
+                                          ? 'Select floor first'
+                                          : _selectedLobby != null
+                                          ? 'Clear lobby to select a room'
+                                          : 'Select room',
                                       onChanged:
                                           _selectedFloor != null &&
                                               _selectedLobby == null
@@ -1419,6 +1542,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                           days: _plannedStayDays,
                           pricing: _pricing,
                           pricingLoaded: _pricingLoaded,
+                          isUsingFallbackPricing: _isUsingFallbackPricing,
                         ),
                         const SizedBox(height: 20),
                         _buildAttendantDetails(),
@@ -1716,6 +1840,9 @@ class _PatientPhotoPicker extends StatelessWidget {
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFF3B6D11),
                   textStyle: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
               if (hasImage)
@@ -2047,43 +2174,56 @@ class _RoomDropdown extends StatelessWidget {
   final List<RoomModel> rooms;
   final RoomModel? selectedRoom;
   final ValueChanged<RoomModel?>? onChanged;
+  final String hint;
 
   const _RoomDropdown({
     required this.label,
     required this.rooms,
     this.selectedRoom,
     this.onChanged,
+    this.hint = 'Select room',
   });
 
   @override
   Widget build(BuildContext context) {
+    final bool isDisabled = onChanged == null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 10.5,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF27500A),
+            color: isDisabled
+                ? const Color(0xFF27500A).withValues(alpha: 0.5)
+                : const Color(0xFF27500A),
             letterSpacing: 0.5,
           ),
         ),
         const SizedBox(height: 5),
         DropdownButtonFormField<RoomModel>(
+          isExpanded: true,
           value: selectedRoom,
           hint: Text(
-            "Select room",
+            hint,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: const Color(0xFF97C459).withOpacity(0.75),
+              color: isDisabled
+                  ? const Color(0xFF7A8B71).withValues(alpha: 0.8)
+                  : const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
+              fontStyle:
+                  hint.startsWith('Clear') ? FontStyle.italic : FontStyle.normal,
             ),
           ),
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           dropdownColor: const Color(0xFFF4F9F0),
           decoration: InputDecoration(
             filled: true,
-            fillColor: const Color(0xFFF4F9F0),
+            fillColor:
+                isDisabled ? const Color(0xFFF0F4ED) : const Color(0xFFF4F9F0),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 10,
@@ -2099,10 +2239,17 @@ class _RoomDropdown extends StatelessWidget {
                 width: 1.5,
               ),
             ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
+                width: 1,
+              ),
+            ),
           ),
-          icon: const Icon(
+          icon: Icon(
             Icons.keyboard_arrow_down_rounded,
-            color: Color(0xFF639922),
+            color: isDisabled ? Colors.grey : const Color(0xFF639922),
             size: 20,
           ),
           items: rooms.map((room) {
@@ -2117,6 +2264,7 @@ class _RoomDropdown extends StatelessWidget {
               enabled: availableBeds > 0,
               child: Text(
                 '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,
                   color: availableBeds > 0
@@ -2344,6 +2492,7 @@ class _PaymentSummary extends StatelessWidget {
   final String? placementLabel;
   final Map<String, dynamic> pricing;
   final bool pricingLoaded;
+  final bool isUsingFallbackPricing;
 
   // ── Pricing constants (edit here to update rates) ──
   static const int _defaultDays = 7; // default stay duration
@@ -2357,6 +2506,7 @@ class _PaymentSummary extends StatelessWidget {
     this.placementLabel,
     this.pricing = const {},
     this.pricingLoaded = false,
+    this.isUsingFallbackPricing = false,
     this.days = _defaultDays,
   });
 
@@ -2452,6 +2602,27 @@ class _PaymentSummary extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (isUsingFallbackPricing) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'Standard Rates',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,

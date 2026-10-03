@@ -7,13 +7,51 @@ extension RoomServiceRooms on RoomService {
   // --- Rooms ---
 
   Stream<List<RoomModel>> streamRooms() {
-    return RoomService.combineLatest2(
-      rtdb.stream(roomsPath),
-      rtdb.queryStream(staysPath, orderBy: 'status', equalTo: 'active'),
-      (roomsData, staysData) {
-        return _processRoomsData(roomsData, staysData);
-      },
-    );
+    return Stream<List<RoomModel>>.multi((controller) {
+      dynamic latestRooms;
+      dynamic latestStays;
+      bool hasRooms = false;
+
+      void emit() {
+        if (!hasRooms) return;
+        try {
+          final enriched = _processRoomsData(latestRooms, latestStays);
+          controller.add(enriched);
+        } catch (e, st) {
+          controller.addError(e, st);
+        }
+      }
+
+      final roomsSub = rtdb.stream(roomsPath).listen(
+        (data) {
+          latestRooms = data;
+          hasRooms = true;
+          emit();
+        },
+        onError: (Object e, StackTrace st) {
+          controller.addError(e, st);
+        },
+      );
+
+      final staysSub = rtdb
+          .queryStream(staysPath, orderBy: 'status', equalTo: 'active')
+          .listen(
+        (data) {
+          latestStays = data;
+          emit();
+        },
+        onError: (Object _, StackTrace __) {
+          // Stays query failed (e.g. missing .indexOn in RTDB).
+          // Emit with whatever room data we have rather than stalling the UI.
+          emit();
+        },
+      );
+
+      controller.onCancel = () {
+        roomsSub.cancel();
+        staysSub.cancel();
+      };
+    });
   }
 
   Stream<List<RoomModel>> getRoomsStream() {
@@ -210,7 +248,7 @@ extension RoomServiceRooms on RoomService {
         roomId,
         Map<String, dynamic>.from(roomData),
       );
-      final staysData = await rtdb.get(staysPath);
+      final staysData = await rtdb.getByChildValue(staysPath, child: 'roomId', value: roomId);
       final activeStays = parseStaysFromData(
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
@@ -240,7 +278,7 @@ extension RoomServiceRooms on RoomService {
           'Cannot delete room while one or more beds are occupied',
         );
 
-      final staysData = await rtdb.get(staysPath);
+      final staysData = await rtdb.getByChildValue(staysPath, child: 'roomId', value: roomId);
       final hasActiveStay = parseStaysFromData(
         staysData,
       ).any((s) => s.roomId == roomId && s.status == 'active');

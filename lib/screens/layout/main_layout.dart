@@ -12,6 +12,7 @@ import '../payments/payments_screen.dart';
 
 import 'widgets/sidebar.dart';
 import 'widgets/top_bar.dart';
+import '../../widgets/cache_status_banner.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -115,6 +116,7 @@ class _MainLayoutState extends State<MainLayout> {
                         : null,
                   ),
                 ),
+                const CacheStatusBanner(),
 
                 // PAGE CONTENT
                 Expanded(

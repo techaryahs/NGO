@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'firebase_auth_rest_service.dart';
 import 'auth_service.dart';
@@ -34,6 +37,7 @@ class ServiceLocator {
   SettingsService? _settingsService;
   PhotoRtdbService? _photoRtdbService;
   PhotoMigrationService? _photoMigrationService;
+  PersistentCache? _persistentCache;
 
   /// Initialize services with Firebase project configuration
   void initialize({
@@ -41,6 +45,8 @@ class ServiceLocator {
     required String apiKey,
     String? databaseUrl,
   }) {
+    _persistentCache = PersistentCache.open();
+
     // Initialize auth service first
     _authRestService = FirebaseAuthRestService(apiKey: apiKey);
 
@@ -52,12 +58,14 @@ class ServiceLocator {
         final token = await _authRestService?.getIdToken();
         return token;
       },
+      persistentCache: _persistentCache,
     );
 
     // Initialize other services
     _authService = AuthService(
       authService: _authRestService!,
       rtdbService: _rtdbService!,
+      persistentCache: _persistentCache,
     );
     _patientService = PatientService(rtdbService: _rtdbService!);
     _roomService = RoomService(rtdbService: _rtdbService!);
@@ -70,7 +78,10 @@ class ServiceLocator {
       patientService: _patientService!,
     );
     _settingsService = SettingsService(_rtdbService!);
-    _photoRtdbService = PhotoRtdbService(rtdb: _rtdbService!);
+    _photoRtdbService = PhotoRtdbService(
+      rtdb: _rtdbService!,
+      persistentCache: _persistentCache,
+    );
     _photoMigrationService = PhotoMigrationService(
       rtdb: _rtdbService!,
       photos: _photoRtdbService!,
@@ -126,6 +137,8 @@ class ServiceLocator {
     }
     return _roomService!;
   }
+
+  set roomService(RoomService? service) => _roomService = service;
 
   /// Get Inventory & Expense service instance
   InventoryExpenseService get inventoryExpenseService {
@@ -197,6 +210,18 @@ class ServiceLocator {
     return _photoMigrationService!;
   }
 
+  PersistentCache get persistentCache {
+    if (_persistentCache == null) {
+      throw Exception(
+        'ServiceLocator not initialized. Call initialize() first.',
+      );
+    }
+    return _persistentCache!;
+  }
+
+  /// Opens and validates the disposable local cache before the UI starts.
+  Future<void> initializePersistentCache() => persistentCache.initialize();
+
   /// Dispose all services
   void dispose() {
     _paymentService?.disposeScheduler();
@@ -214,5 +239,8 @@ class ServiceLocator {
     _settingsService = null;
     _photoRtdbService = null;
     _photoMigrationService = null;
+    final cache = _persistentCache;
+    _persistentCache = null;
+    if (cache != null) unawaited(cache.close());
   }
 }

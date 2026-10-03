@@ -111,39 +111,67 @@ class RoomService {
     Stream<B> streamB,
     T Function(A, B) combiner,
   ) {
-    A? latestA;
-    B? latestB;
-    bool hasA = false;
-    bool hasB = false;
+    return Stream<T>.multi((controller) {
+      A? latestA;
+      B? latestB;
+      bool hasA = false;
+      bool hasB = false;
+      bool doneA = false;
+      bool doneB = false;
 
-    late StreamController<T> controller;
-    StreamSubscription<A>? subA;
-    StreamSubscription<B>? subB;
+      void checkDone() {
+        if (doneA && doneB && !controller.isClosed) {
+          controller.close();
+        }
+      }
 
-    controller = StreamController<T>(
-      onListen: () {
-        subA = streamA.listen((a) {
+      final subA = streamA.listen(
+        (a) {
           latestA = a;
           hasA = true;
           if (hasA && hasB) {
-            controller.add(combiner(latestA as A, latestB as B));
+            try {
+              controller.add(combiner(latestA as A, latestB as B));
+            } catch (e, st) {
+              controller.addError(e, st);
+            }
           }
-        });
-        subB = streamB.listen((b) {
+        },
+        onError: (Object e, StackTrace st) {
+          controller.addError(e, st);
+        },
+        onDone: () {
+          doneA = true;
+          checkDone();
+        },
+      );
+
+      final subB = streamB.listen(
+        (b) {
           latestB = b;
           hasB = true;
           if (hasA && hasB) {
-            controller.add(combiner(latestA as A, latestB as B));
+            try {
+              controller.add(combiner(latestA as A, latestB as B));
+            } catch (e, st) {
+              controller.addError(e, st);
+            }
           }
-        });
-      },
-      onCancel: () {
-        subA?.cancel();
-        subB?.cancel();
-      },
-    );
+        },
+        onError: (Object e, StackTrace st) {
+          controller.addError(e, st);
+        },
+        onDone: () {
+          doneB = true;
+          checkDone();
+        },
+      );
 
-    return controller.stream;
+      controller.onCancel = () {
+        subA.cancel();
+        subB.cancel();
+      };
+    });
   }
 }
 

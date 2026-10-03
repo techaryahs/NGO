@@ -44,13 +44,11 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Environment and secret files
+# Environment and secret files — NEVER commit these
 .env
 .env.local
-functions/.env
-functions/.env.local
-functions/node_modules/
+*.env.local
 
-# Service account credentials
+# Service account credentials — NEVER commit these
 **/service-account*.json
 **/*service-account*.json

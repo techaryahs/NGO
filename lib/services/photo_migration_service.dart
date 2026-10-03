@@ -153,7 +153,45 @@ class PhotoMigrationService {
           final stay = stayEntry.value;
           if (stay is! Map || stay['patientSnapshot'] is! Map) continue;
           final snapshot = Map<String, dynamic>.from(stay['patientSnapshot']);
-          if (verified) {
+          final stayLegacyPhoto = snapshot['photoDataUrl']?.toString();
+          if (stayLegacyPhoto != null &&
+              stayLegacyPhoto.isNotEmpty &&
+              stayLegacyPhoto != source) {
+            final stayPhotoPath = PhotoRtdbService.attendantPath(
+              id,
+              'stay_${stayEntry.key}_patient',
+            );
+            try {
+              if (!await _photos.photoExists(stayPhotoPath)) {
+                final bytes =
+                    PhotoRtdbService.decodeLegacyBase64(stayLegacyPhoto);
+                if (bytes == null) {
+                  throw FormatException('Invalid historical stay photo');
+                }
+                await _photos.uploadPhoto(
+                  photoPath: stayPhotoPath,
+                  bytes: bytes,
+                );
+                patientCount++;
+              }
+              if (!await _photos.photoExists(stayPhotoPath)) {
+                throw StateError('Historical stay photo verification failed');
+              }
+              updates['stays/${stayEntry.key}/patientSnapshot/photoRef'] =
+                  stayPhotoPath;
+              updates['stays/${stayEntry.key}/patientSnapshot/photoDataUrl'] =
+                  null;
+              updates['stays/${stayEntry.key}/patientSnapshot/photoStorageRef'] =
+                  null;
+            } catch (e) {
+              failed++;
+              errors.add('$id stay ${stayEntry.key} patient photo: $e');
+              developer.log(
+                'Historical stay patient photo migration failed: $id/${stayEntry.key}: $e',
+                name: 'photo_migration',
+              );
+            }
+          } else if (verified) {
             updates['stays/${stayEntry.key}/patientSnapshot/photoDataUrl'] =
                 null;
             updates['stays/${stayEntry.key}/patientSnapshot/photoStorageRef'] =

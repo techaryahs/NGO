@@ -224,9 +224,11 @@ class PatientFormDropdown extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: (value != null && items.contains(value)) ? value : null,
           hint: Text(
             hint,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
@@ -282,6 +284,7 @@ class PatientRoomDropdown extends StatelessWidget {
   final bool Function(RoomModel room)? isRoomEnabled;
   final Widget Function(RoomModel room, bool enabled)? itemBuilder;
   final Set<String> selectedBedIds;
+  final String hint;
 
   const PatientRoomDropdown({
     super.key,
@@ -292,19 +295,24 @@ class PatientRoomDropdown extends StatelessWidget {
     this.isRoomEnabled,
     this.itemBuilder,
     this.selectedBedIds = const <String>{},
+    this.hint = 'Select room',
   });
 
   @override
   Widget build(BuildContext context) {
+    final bool isDisabled = onChanged == null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 10.5,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF27500A),
+            color: isDisabled
+                ? const Color(0xFF27500A).withValues(alpha: 0.5)
+                : const Color(0xFF27500A),
             letterSpacing: 0.5,
           ),
         ),
@@ -315,17 +323,23 @@ class PatientRoomDropdown extends StatelessWidget {
           key: ValueKey(selectedRoom?.id ?? 'no-room-selected'),
           initialValue: selectedRoom,
           hint: Text(
-            'Select room',
+            hint,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: const Color(0xFF97C459).withValues(alpha: 0.75),
+              color: isDisabled
+                  ? const Color(0xFF7A8B71).withValues(alpha: 0.8)
+                  : const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
+              fontStyle:
+                  hint.startsWith('Clear') ? FontStyle.italic : FontStyle.normal,
             ),
           ),
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           dropdownColor: const Color(0xFFF4F9F0),
           decoration: InputDecoration(
             filled: true,
-            fillColor: const Color(0xFFF4F9F0),
+            fillColor:
+                isDisabled ? const Color(0xFFF0F4ED) : const Color(0xFFF4F9F0),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 10,
@@ -341,10 +355,17 @@ class PatientRoomDropdown extends StatelessWidget {
                 width: 1.5,
               ),
             ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
+                width: 1,
+              ),
+            ),
           ),
-          icon: const Icon(
+          icon: Icon(
             Icons.keyboard_arrow_down_rounded,
-            color: Color(0xFF639922),
+            color: isDisabled ? Colors.grey : const Color(0xFF639922),
             size: 20,
           ),
           items: rooms.map((room) {
