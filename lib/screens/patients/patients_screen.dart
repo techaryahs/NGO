@@ -149,48 +149,36 @@ class _PatientsScreenState extends State<PatientsScreen> {
     }
   }
 
+  bool _paymentDialogOpen = false;
+
   Future<void> _handlePayNow(PatientModel patient) async {
-    final result = await showPatientPaymentDialog(
-      context: context,
-      patientName: patient.fullName,
-      contactNumber: patient.contactNumber,
-      bedsCount: patient.bedIds?.length ?? 1,
-      attendantsCount: patient.attendants?.length ?? 0,
-      roomIdentifier: patient.roomNumber,
-      alreadyPaid: patient.totalPaidAmount ?? 0.0,
-      showPayLater: false,
-      totalBillOverride:
-          patient.advanceBilledAmount + patient.attendanceCharges,
-      patientId: patient.id,
-    );
-
-    if (result != null && result.onlinePayment != null) {
-      // The trusted backend already verified and recorded the payment.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment confirmed by the payment server.'),
-            backgroundColor: Color(0xFF3B6D11),
-          ),
-        );
-      }
-      return;
-    }
-
-    if (result != null && result.payment != null) {
-      await ServiceLocator().patientService.recordPayment(
-        patient.id,
-        result.payment!,
+    if (_paymentDialogOpen) return;
+    _paymentDialogOpen = true;
+    try {
+      final result = await showPatientPaymentDialog(
+        context: context,
+        patientName: patient.fullName,
+        contactNumber: patient.contactNumber,
+        bedsCount: patient.bedIds?.length ?? 1,
+        attendantsCount: patient.attendants?.length ?? 0,
+        roomIdentifier: patient.roomNumber,
+        alreadyPaid: patient.totalPaidAmount ?? 0.0,
+        showPayLater: false,
+        totalBillOverride:
+            patient.advanceBilledAmount + patient.attendanceCharges,
+        patientId: patient.id,
       );
 
-      if (mounted) {
+      if (result?.recordedPaymentId != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Payment successfully processed!'),
+            content: Text('Online payment recorded.'),
             backgroundColor: Color(0xFF3B6D11),
           ),
         );
       }
+    } finally {
+      _paymentDialogOpen = false;
     }
   }
 
@@ -1231,7 +1219,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
             initialTotalAmount: totalAmount,
           );
           for (final payment in patientPayments) {
-            await ServiceLocator().patientService.recordPayment(importedId, payment);
+            await ServiceLocator().patientService.recordPayment(
+              importedId,
+              payment,
+            );
           }
           addedCount++;
         }

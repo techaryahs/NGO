@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
+import '../utils/pricing_helper.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'photo_rtdb_service.dart';
 import 'service_locator.dart';
@@ -20,10 +21,11 @@ class PatientService {
   final String _patientsPath = 'patients';
   Future<int>? _orphanCleanupFuture;
 
-  PatientService({required FirebaseRTDBRestService rtdbService,
-    PhotoRtdbService? photos})
-    : _rtdb = rtdbService,
-      _photos = photos;
+  PatientService({
+    required FirebaseRTDBRestService rtdbService,
+    PhotoRtdbService? photos,
+  }) : _rtdb = rtdbService,
+       _photos = photos;
 
   // ===========================================================================
   // STREAMS — Real-time listeners (polling-based)
@@ -262,15 +264,17 @@ class PatientService {
       }
       final now = DateTime.now();
       final random = Random.secure();
-      final patientId = 'p_${now.microsecondsSinceEpoch}_${List<int>.generate(12, (_) => random.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+      final patientId =
+          'p_${now.microsecondsSinceEpoch}_${List<int>.generate(12, (_) => random.nextInt(256)).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
       String? photoRef;
       if (photoDataUrl != null && photoDataUrl.isNotEmpty) {
         final bytes = PhotoRtdbService.decodeLegacyBase64(photoDataUrl);
         if (bytes == null) throw StateError('Patient photo is invalid');
-        photoRef = await (_photos ?? ServiceLocator().photoRtdbService).uploadPhoto(
-          photoPath: PhotoRtdbService.patientPath(patientId),
-          bytes: bytes,
-        );
+        photoRef = await (_photos ?? ServiceLocator().photoRtdbService)
+            .uploadPhoto(
+              photoPath: PhotoRtdbService.patientPath(patientId),
+              bytes: bytes,
+            );
       }
       final storedAttendants = <AttendantModel>[];
       for (var index = 0; index < (attendants?.length ?? 0); index++) {
@@ -280,16 +284,19 @@ class PatientService {
         if (dataUrl != null && dataUrl.isNotEmpty) {
           final bytes = PhotoRtdbService.decodeLegacyBase64(dataUrl);
           if (bytes == null) throw StateError('Attendant photo is invalid');
-          ref = await (_photos ?? ServiceLocator().photoRtdbService).uploadPhoto(
-            photoPath: PhotoRtdbService.attendantPath(patientId, '$index'),
-            bytes: bytes,
-          );
+          ref = await (_photos ?? ServiceLocator().photoRtdbService)
+              .uploadPhoto(
+                photoPath: PhotoRtdbService.attendantPath(patientId, '$index'),
+                bytes: bytes,
+              );
         }
-        storedAttendants.add(AttendantModel.fromMap({
-          ...attendant.toMap(),
-          'photoDataUrl': null,
-          'photoRef': ref,
-        }));
+        storedAttendants.add(
+          AttendantModel.fromMap({
+            ...attendant.toMap(),
+            'photoDataUrl': null,
+            'photoRef': ref,
+          }),
+        );
       }
       final age = PatientModel.calculateAge(dateOfBirth);
       final initialPaidAmount = (payments ?? []).fold<double>(
@@ -364,25 +371,67 @@ class PatientService {
         payments: payments,
       );
 
-      await _rtdb.put('$_patientsPath/$patientId', patient.toMap());
-
-      if (exitDate != null) {
-        await syncAutomaticPatientAttendance(
-          patientId: patientId,
-          patientName: fullName,
-          start: registrationDate ?? admissionDate,
-          end: exitDate,
-          cycleId: admissionDate.millisecondsSinceEpoch.toString(),
-          // A new push-key patient cannot have earlier attendance records, so
-          // the attendance history download is skipped entirely.
-          skipRead: true,
-        );
-      }
+      // The existing admission estimate assumes these registered attendants
+      // accompany the patient. Persist its initial attendance in the same
+      // atomic write, before placement/payment can recalculate the estimate.
+      // Subsequent attendance remains explicitly editable and is never reset.
+      final initialAttendance = initialAdmissionAttendance(
+        patientId: patientId,
+        patientName: fullName,
+        start: registrationDate ?? admissionDate,
+        exit: exitDate,
+        cycleId: admissionDate.millisecondsSinceEpoch.toString(),
+        attendants: storedAttendants,
+      );
+      await _rtdb.patch('', {
+        '$_patientsPath/$patientId': patient.toMap(),
+        ...initialAttendance,
+      });
 
       return patientId;
     } catch (e) {
       throw Exception('Failed to add patient: $e');
     }
+  }
+
+  static Map<String, dynamic> initialAdmissionAttendance({
+    required String patientId,
+    required String patientName,
+    required DateTime start,
+    required DateTime? exit,
+    required String cycleId,
+    required List<AttendantModel> attendants,
+  }) {
+    final period = PricingHelper.attendancePeriod(start, exit);
+    final first = period.start;
+    if (exit != null && StayBilling.day(exit).isBefore(first)) {
+      throw ArgumentError('Exit date cannot be before registration date.');
+    }
+    final updates = <String, dynamic>{};
+    for (var index = 0; index < period.days; index++) {
+      final date = StayBilling.dateKey(
+        DateTime(first.year, first.month, first.day + index),
+      );
+      final common = <String, dynamic>{
+        'patientId': patientId,
+        'patientName': patientName,
+        'status': 'Present',
+        'date': date,
+        'cycleId': cycleId,
+        'source': 'automatic_registration_period',
+        'timestamp': start.toIso8601String(),
+      };
+      // Keep the established automatic patient-period behavior for planned exits.
+      if (exit != null) updates['attendance/daily/$date/$patientId'] = common;
+      for (final attendant in attendants) {
+        final key = attendant.name.replaceAll(RegExp(r'[.#$\[\]/]'), '_');
+        updates['attendant_attendance/daily/$date/$patientId/$key'] = {
+          ...common,
+          'attendantName': attendant.name,
+        };
+      }
+    }
+    return updates;
   }
 
   /// Records a new payment for a patient and also adds it to a global payments collection.
@@ -455,9 +504,13 @@ class PatientService {
         if (patient is Map) {
           final merged = {...patient, ...updates};
           final rawStays = await _rtdb.getByChildValue(
-            'stays', child: 'patientId', value: patientId,
+            'stays',
+            child: 'patientId',
+            value: patientId,
           );
-          final stays = ServiceLocator().roomService.parseStaysFromData(rawStays);
+          final stays = ServiceLocator().roomService.parseStaysFromData(
+            rawStays,
+          );
           final rawAttendants = merged['attendants'];
           for (final stay in stays.where((stay) => stay.isActive)) {
             rootUpdates['stays/${stay.id}/patientSnapshot'] = {
@@ -471,7 +524,8 @@ class PatientService {
                 'attendants': [
                   for (final attendant in rawAttendants)
                     if (attendant is Map)
-                      (Map<String, dynamic>.from(attendant)..remove('photoDataUrl')),
+                      (Map<String, dynamic>.from(attendant)
+                        ..remove('photoDataUrl')),
                 ],
             };
           }

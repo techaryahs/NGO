@@ -61,6 +61,10 @@ class MemoryPhotoDb extends FirebaseRTDBRestService {
   Future<void> patch(String path, Map<String, dynamic> updates) async {
     for (final update in updates.entries) {
       final parts = update.key.split('/');
+      if (parts.length == 2) {
+        records[update.key] = update.value;
+        continue;
+      }
       if (parts.length < 3) continue;
       final collection = records[parts[0]] as Map;
       final record = collection[parts[1]] as Map;

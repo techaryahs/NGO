@@ -305,6 +305,11 @@ class PatientCollectionState {
     final old = record[path.first];
     final child = old is Map
         ? Map<String, dynamic>.from(old)
+        : old is List
+        ? {
+            for (final entry in old.asMap().entries)
+              entry.key.toString(): entry.value,
+          }
         : <String, dynamic>{};
     _setField(child, path.sublist(1), data);
     record[path.first] = child;

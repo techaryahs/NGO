@@ -1,19 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../services/service_locator.dart';
 import '../../models/patient_model.dart';
 import '../../models/stay_model.dart';
-import '../../utils/bed_helper.dart';
-import '../../widgets/patient_photo.dart';
-import 'dart:convert';
-
-class FlattenedAttendant {
-  final PatientModel patient;
-  final AttendantModel attendant;
-  FlattenedAttendant(this.patient, this.attendant);
-}
+import '../../services/service_locator.dart';
+import 'attendance_service.dart';
 
 class Attendance extends StatefulWidget {
   const Attendance({super.key});
@@ -22,1299 +13,411 @@ class Attendance extends StatefulWidget {
 }
 
 class _AttendanceState extends State<Attendance>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
-  // ── State ────────────────────────────────────────────────────────────────
-  String _attendanceType = 'patient'; // 'patient' or 'attendant'
-  int _selectedTabIndex = 0; // 0: Daily, 1: Weekly, 2: Monthly
-
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-
-  final Map<String, bool> attendanceStatus = {};
-  final Map<String, bool> attendantAttendanceStatus = {};
-  final Map<String, bool?> _pendingPatientStatus = {};
-  final Map<String, bool?> _pendingAttendantStatus = {};
-
-  late Future<Map<String, Map<String, String>>> _weeklyData;
-  late Future<Map<String, Map<String, String>>> _monthlyData;
-  final Map<String, Map<String, Map<String, String>>> _reportCache = {};
-  DateTime _selectedMonth = DateTime.now();
-  DateTime _selectedAttendanceDate = DateTime.now();
-
-  late Stream<List<PatientModel>> _patientsStream;
-  List<PatientModel> _patientSource = const [];
-  List<PatientModel>? _allPatients;
-
-  StreamSubscription? _patientSub;
-  StreamSubscription? _attendantSub;
-  StreamSubscription<List<PatientModel>>? _patientsDataSub;
-  StreamSubscription<List<StayModel>>? _activeStaysSub;
-  Map<String, StayModel> _activeStaysByPatient = {};
-
-  // Pagination
-  static const int _pageSize = 15;
-  int _currentPatientLimit = _pageSize;
-  int _currentAttendantLimit = _pageSize;
-  bool _isLoadingMore = false;
-  late ScrollController _scrollController;
-
-  // Animations
-  late AnimationController _fadeCtrl;
-  late TabController _tabController;
-
+    with AutomaticKeepAliveClientMixin {
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  MonthlyAttendanceEditor? _editor;
+  List<PatientModel> _patients = [];
+  List<StayModel> _stays = [];
+  List<AttendanceRow> _rows = [];
+  StreamSubscription<List<PatientModel>>? _patientsSub;
+  StreamSubscription<List<StayModel>>? _staysSub;
+  final _search = TextEditingController();
+  String? _room;
+  String? _error;
+  bool _loading = true;
+  bool _saving = false;
+  int _loadVersion = 0;
+  final Set<String> _billingRetry = {};
+  static const _cellWidth = 48.0;
+  static const _rowHeight = 44.0;
   @override
   bool get wantKeepAlive => true;
-
   @override
   void initState() {
     super.initState();
-    _fadeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    )..forward();
-
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging) return;
-      if (_selectedTabIndex != _tabController.index) {
-        setState(() {
-          _selectedTabIndex = _tabController.index;
-          _loadSelectedTabData();
-          _fadeCtrl.forward(from: 0);
-        });
-      }
-    });
-
-    _scrollController = ScrollController()..addListener(_onScroll);
-    _searchController.addListener(() {
-      setState(() {
-        _searchQuery = _searchController.text.toLowerCase();
-        // Each search starts at the first page so matching patients are
-        // immediately visible, even after the user has paged through a list.
-        _currentPatientLimit = _pageSize;
-        _currentAttendantLimit = _pageSize;
-      });
-    });
-
-    _patientsStream = ServiceLocator().patientService.getPatientsByStatuses(const ['active', 'Paid']);
-    _patientsDataSub = _patientsStream.listen((patients) {
+    _search.addListener(_filterChanged);
+    // Shared SSE/cache streams attach once, independently of month selection.
+    _patientsSub = ServiceLocator().patientService.getPatientsStream().listen((
+      value,
+    ) {
       if (!mounted) return;
       setState(() {
-        _patientSource = patients;
-        _allPatients = _patientSource
-            .where(
-              (patient) =>
-                  _isPatientEligibleOnDate(patient, _selectedAttendanceDate),
-            )
-            .toList();
+        _patients = value;
+        _buildRows();
       });
-    });
-
-    _activeStaysSub = ServiceLocator().roomService.getActiveStaysStream().listen((stays) {
+    }, onError: _streamError);
+    _staysSub = ServiceLocator().roomService.getStaysStream().listen((value) {
       if (!mounted) return;
       setState(() {
-        _activeStaysByPatient = {
-          for (final s in stays) s.patientId: s,
-        };
+        _stays = value;
+        _buildRows();
       });
-    });
-    // Daily is the opening view. Reports load only when their tabs open.
-    _weeklyData = Future.value(<String, Map<String, String>>{});
-    _monthlyData = Future.value(<String, Map<String, String>>{});
-    _initRealtimeStreams();
+    }, onError: _streamError);
+    _loadMonth();
   }
 
-  void _initRealtimeStreams() {
-    _patientSub?.cancel();
-    _attendantSub?.cancel();
-    _pendingPatientStatus.clear();
-    _pendingAttendantStatus.clear();
-    final selectedDate = DateFormat(
-      'yyyy-MM-dd',
-    ).format(_selectedAttendanceDate);
-
-    _patientSub = ServiceLocator().rtdbService
-        .stream(
-          'attendance/daily/$selectedDate',
-          pollInterval: const Duration(seconds: 10),
-        )
-        .listen((data) {
-          final newStatus = <String, bool>{};
-          if (data != null && data is Map) {
-            data.forEach((k, v) {
-              if (v['status'] == 'Present') newStatus[k] = true;
-              if (v['status'] == 'Absent') newStatus[k] = false;
-            });
-          }
-          for (final entry in _pendingPatientStatus.entries.toList()) {
-            final saved = data is Map ? data[entry.key] : null;
-            final savedStatus = saved is Map ? saved['status'] : null;
-            final expected = entry.value == null
-                ? 'Unmarked'
-                : entry.value!
-                ? 'Present'
-                : 'Absent';
-            if (savedStatus == expected) {
-              _pendingPatientStatus.remove(entry.key);
-            } else if (entry.value == null) {
-              newStatus.remove(entry.key);
-            } else {
-              newStatus[entry.key] = entry.value!;
-            }
-          }
-          if (mounted) {
-            setState(() {
-              attendanceStatus.clear();
-              attendanceStatus.addAll(newStatus);
-            });
-          }
-        });
-
-    _attendantSub = ServiceLocator().rtdbService
-        .stream(
-          'attendant_attendance/daily/$selectedDate',
-          pollInterval: const Duration(seconds: 10),
-        )
-        .listen((data) {
-          final newStatus = <String, bool>{};
-          if (data != null && data is Map) {
-            data.forEach((patientId, attendantsMap) {
-              if (attendantsMap is Map) {
-                attendantsMap.forEach((attendantSafeKey, v) {
-                  final key = '${patientId}_${v['attendantName']}';
-                  if (v['status'] == 'Present') newStatus[key] = true;
-                  if (v['status'] == 'Absent') newStatus[key] = false;
-                });
-              }
-            });
-          }
-          for (final entry in _pendingAttendantStatus.entries.toList()) {
-            if (newStatus[entry.key] == entry.value ||
-                (entry.value == null && !newStatus.containsKey(entry.key))) {
-              _pendingAttendantStatus.remove(entry.key);
-            } else if (entry.value == null) {
-              newStatus.remove(entry.key);
-            } else {
-              newStatus[entry.key] = entry.value!;
-            }
-          }
-          if (mounted) {
-            setState(() {
-              attendantAttendanceStatus.clear();
-              attendantAttendanceStatus.addAll(newStatus);
-            });
-          }
-        });
-
-    // Keep opening this screen read-only. Recalculating every patient's full
-    // history here caused hundreds of REST calls and blocked the UI.
-  }
-
-  DateTime _dateOnly(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
-
-  bool _isPatientEligibleOnDate(PatientModel patient, DateTime date) {
-    // Daily marking is only for currently active admissions. Discharged,
-    // transferred, and inactive records remain available in reports, but
-    // cannot be accidentally marked again from the daily screen.
-    if (patient.status != 'active' && patient.status != 'Paid') return false;
-    final selectedDate = _dateOnly(date);
-    final registrationDate = _dateOnly(
-      patient.registrationDate ?? patient.admissionDate,
-    );
-    if (selectedDate.isBefore(registrationDate)) return false;
-
-    // [exitDate] is a planned stay end, not proof that the patient has left.
-    // The status check above is the source of truth for actual discharge, so
-    // active patients remain available for attendance after a planned exit
-    // date until staff discharge them.
-    return !selectedDate.isAfter(_dateOnly(DateTime.now()));
-  }
-
-  String get _selectedAttendanceDateLabel =>
-      DateFormat('dd MMM yyyy').format(_selectedAttendanceDate);
-
-  Future<void> _selectAttendanceDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedAttendanceDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-    );
-    if (picked == null) return;
-    setState(() {
-      _selectedAttendanceDate = picked;
-      _currentPatientLimit = _pageSize;
-      _currentAttendantLimit = _pageSize;
-      _allPatients = _patientSource
-          .where(
-            (patient) =>
-                _isPatientEligibleOnDate(patient, _selectedAttendanceDate),
-          )
-          .toList();
-    });
-    _initRealtimeStreams();
-  }
-
-  void _loadSelectedTabData() {
-    if (_selectedTabIndex == 1) {
-      _weeklyData = fetchWeeklyAttendance(_attendanceType);
-    } else if (_selectedTabIndex == 2) {
-      _monthlyData = fetchMonthlyAttendance(_selectedMonth, _attendanceType);
+  void _streamError(Object error) {
+    if (mounted) {
+      setState(() => _error = 'Could not load patients or stays: $error');
     }
   }
 
-  void _refreshFutures() {
-    _loadSelectedTabData();
+  void _filterChanged() => setState(() {});
+  void _buildRows() {
+    _rows = _editor?.data.rows(_patients, _stays) ?? [];
+    if (_room != null && !_rows.any((row) => row.room == _room)) _room = null;
   }
 
   @override
   void dispose() {
-    _patientSub?.cancel();
-    _attendantSub?.cancel();
-    _patientsDataSub?.cancel();
-    _activeStaysSub?.cancel();
-    _scrollController.dispose();
-    _searchController.dispose();
-    _fadeCtrl.dispose();
-    _tabController.dispose();
+    _patientsSub?.cancel();
+    _staysSub?.cancel();
+    _search.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200 &&
-        !_isLoadingMore) {
-      _loadMore();
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (_isLoadingMore) return;
-    setState(() => _isLoadingMore = true);
-    // A short frame gives the footer feedback before rendering the next page,
-    // keeping long attendance lists responsive.
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-    if (!mounted) return;
+  Future<void> _loadMonth() async {
+    final version = ++_loadVersion;
     setState(() {
-      if (_attendanceType == 'patient') {
-        _currentPatientLimit += _pageSize;
-      } else {
-        _currentAttendantLimit += _pageSize;
-      }
-      _isLoadingMore = false;
+      _loading = true;
+      _error = null;
     });
-  }
-
-  // ── Data Fetching ────────────────────────────────────────────────────────
-
-  List<String> getLast7Days() {
-    final now = DateTime.now();
-    return List.generate(7, (i) {
-      final date = now.subtract(Duration(days: i));
-      return DateFormat('yyyy-MM-dd').format(date);
-    }).reversed.toList();
-  }
-
-  List<String> getDaysOfMonth(DateTime month) {
-    final last = DateTime(month.year, month.month + 1, 0);
-    return List.generate(last.day, (i) {
-      final date = DateTime(month.year, month.month, i + 1);
-      return DateFormat('yyyy-MM-dd').format(date);
-    });
-  }
-
-  String _monthTitle(DateTime m) => '${_monthShort(m.month)} ${m.year}';
-  String _monthShort(int m) => const [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ][m - 1];
-
-  Future<Map<String, Map<String, String>>> fetchWeeklyAttendance(
-    String type,
-  ) async {
-    final dates = getLast7Days();
-    return _fetchAttendanceRange(type, dates);
-  }
-
-  Future<Map<String, Map<String, String>>> fetchMonthlyAttendance(
-    DateTime month,
-    String type,
-  ) async {
-    final dates = getDaysOfMonth(month);
-    return _fetchAttendanceRange(type, dates);
-  }
-
-  Future<Map<String, Map<String, String>>> _fetchAttendanceRange(
-    String type,
-    List<String> dates,
-  ) async {
-    if (dates.isEmpty) return {};
-    final pathPrefix = type == 'patient'
-        ? 'attendance/daily'
-        : 'attendant_attendance/daily';
-    final cacheKey = '$type:${dates.first}:${dates.last}';
-    final cached = _reportCache[cacheKey];
-    if (cached != null) return cached;
-    final result = <String, Map<String, String>>{};
-    final rangeData = await ServiceLocator().rtdbService.getByKeyRange(
-      pathPrefix,
-      startKey: dates.first,
-      endKey: dates.last,
-    );
-    final dailyMap = rangeData is Map ? rangeData : const {};
-    for (final date in dates) {
-      final data = dailyMap[date];
-      if (data != null && data is Map) {
-        if (type == 'patient') {
-          Map<String, dynamic>.from(data).forEach((patientId, v) {
-            final name = v['patientName'] ?? '';
-            final status = v['status'] ?? '';
-            if (name.isNotEmpty &&
-                (status == 'Present' || status == 'Absent')) {
-              result.putIfAbsent(name, () => {})[date] = status;
-            }
-          });
-        } else {
-          Map<String, dynamic>.from(data).forEach((patientId, attendantsMap) {
-            if (attendantsMap is Map) {
-              Map<String, dynamic>.from(attendantsMap).forEach((_, v) {
-                final name = v['attendantName'] ?? '';
-                final status = v['status'] ?? '';
-                if (name.isNotEmpty) {
-                  result.putIfAbsent(name, () => {})[date] = status;
-                }
-              });
-            }
-          });
-        }
+    try {
+      final data = await AttendanceService(
+        ServiceLocator().rtdbService,
+      ).loadMonth(_month);
+      if (!mounted || version != _loadVersion) return;
+      setState(() {
+        _editor = MonthlyAttendanceEditor(data);
+        _buildRows();
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted && version == _loadVersion) {
+        setState(() {
+          _error = 'Could not load attendance: $e';
+          _loading = false;
+        });
       }
     }
-    _reportCache[cacheKey] = result;
-    return result;
   }
 
-  Future<void> markAttendance(
-    String patientId,
-    String patientName,
-    bool isPresent,
-  ) async {
-    _reportCache.clear();
-    final dateObj = _selectedAttendanceDate;
-    final today = DateFormat('yyyy-MM-dd').format(dateObj);
+  Future<void> _changeMonth(int offset, {DateTime? selected}) async {
+    if (_saving) return;
+    if (_editor?.dirty.isNotEmpty == true) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Unsaved attendance'),
+          content: const Text('Discard unsaved changes to change month?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep editing'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Discard changes'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true || !mounted) return;
+    }
+    setState(() {
+      _month = selected == null
+          ? DateTime(_month.year, _month.month + offset)
+          : DateTime(selected.year, selected.month);
+      _editor = null;
+      _rows = [];
+    });
+    await _loadMonth();
+  }
 
-    final bool? previousStatus = attendanceStatus[patientId];
-    _pendingPatientStatus[patientId] = isPresent;
-    setState(() => attendanceStatus[patientId] = isPresent);
-
+  Future<void> _save() async {
+    if (_saving || _editor == null) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
-      await ServiceLocator().rtdbService
-          .put('attendance/daily/$today/$patientId', {
-            'patientId': patientId,
-            'patientName': patientName,
-            'status': isPresent ? 'Present' : 'Absent',
-            'date': today,
-            'source': 'manual',
-            'timestamp': DateTime.now().toIso8601String(),
-          });
-
+      _billingRetry.addAll(await _editor!.save(ServiceLocator().rtdbService));
+      // Each distinct patient is scheduled once after the entire atomic batch.
+      final ids = _billingRetry.toList();
+      await Future.wait(
+        ids.map((id) async {
+          await ServiceLocator().paymentService.schedulePatientBilling(id);
+          _billingRetry.remove(id);
+        }),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: isPresent
-                ? const Color(0xFF3B6D11)
-                : const Color(0xFFD32F2F),
-            content: Text(
-              '$patientName marked as ${isPresent ? "Present" : "Absent"}',
-            ),
-            duration: const Duration(seconds: 1),
-          ),
+          const SnackBar(content: Text('Attendance changes saved.')),
         );
       }
     } catch (e) {
-      _pendingPatientStatus.remove(patientId);
       if (mounted) {
-        setState(() {
-          if (previousStatus != null) {
-            attendanceStatus[patientId] = previousStatus;
-          } else {
-            attendanceStatus.remove(patientId);
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text('Failed to update attendance'),
-          ),
+        setState(
+          () => _error = _billingRetry.isNotEmpty
+              ? 'Attendance saved; billing refresh failed. Use Retry billing. $e'
+              : 'Save failed. Your changes are still unsaved. $e',
         );
       }
-      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    await _refreshBilling(
-      patientId,
-      patientAttendanceOverrides: {today: isPresent ? 'Present' : 'Absent'},
-    );
   }
 
-  /// Attendance marks no longer trigger the full billing waterfall per click.
-  /// The mark is already persisted before this is called; billing is
-  /// scheduled once (debounced) and recalculated in the background.
-  Future<void> _refreshBilling(
-    String patientId, {
-    Map<String, String?> patientAttendanceOverrides = const {},
-    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
-  }) async {
-    unawaited(ServiceLocator().paymentService.schedulePatientBilling(patientId)
-        .catchError((Object _) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(
-            'Attendance saved; billing could not refresh. Reopen the patient profile to retry.',
-          )),
-        );
-      }
-    }));
-  }
-
-  /// A second click clears either selected status. Keep a manual unmarked
-  /// record so an automatic planned-exit sync does not select it again.
-  Future<void> toggleAttendance(
-    String patientId,
-    String patientName,
-    bool isPresent,
-  ) async {
-    if (attendanceStatus[patientId] == isPresent) {
-      _reportCache.clear();
-      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
-      _pendingPatientStatus[patientId] = null;
-      setState(() => attendanceStatus.remove(patientId));
-      try {
-        await ServiceLocator().rtdbService
-            .put('attendance/daily/$today/$patientId', {
-              'patientId': patientId,
-              'patientName': patientName,
-              'status': 'Unmarked',
-              'date': today,
-              'source': 'manual',
-              'timestamp': DateTime.now().toIso8601String(),
-            });
-      } catch (_) {
-        _pendingPatientStatus.remove(patientId);
-        if (mounted) {
-          setState(() => attendanceStatus[patientId] = isPresent);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to update attendance')),
-          );
-        }
-        return;
-      }
-      await _refreshBilling(
-        patientId,
-        patientAttendanceOverrides: {today: null},
-      );
-      return;
-    }
-    await markAttendance(patientId, patientName, isPresent);
-  }
-
-  Future<void> markAttendantAttendance(
-    String patientId,
-    String attendantName,
-    bool isPresent,
-  ) async {
-    _reportCache.clear();
-    final dateObj = _selectedAttendanceDate;
-    final today = DateFormat('yyyy-MM-dd').format(dateObj);
-    final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
-    final String statusKey = '${patientId}_$attendantName';
-
-    final bool? previousStatus = attendantAttendanceStatus[statusKey];
-    _pendingAttendantStatus[statusKey] = isPresent;
-    setState(() => attendantAttendanceStatus[statusKey] = isPresent);
-
-    try {
-      await ServiceLocator().rtdbService
-          .put('attendant_attendance/daily/$today/$patientId/$safeKey', {
-            'patientId': patientId,
-            'attendantName': attendantName,
-            'status': isPresent ? 'Present' : 'Absent',
-            'date': today,
-            'timestamp': DateTime.now().toIso8601String(),
-          });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: isPresent
-                ? const Color(0xFF3B6D11)
-                : const Color(0xFFD32F2F),
-            content: Text(
-              '$attendantName marked as ${isPresent ? "Present" : "Absent"}',
+  Widget _cell(AttendanceRow row, DateTime date) {
+    final editor = _editor!;
+    final enabled = row.enabled(date);
+    final status = editor.status(row, date);
+    final dirty = editor.isDirty(row, date);
+    final color = !enabled
+        ? Colors.grey.shade200
+        : switch (status) {
+            'Present' => const Color(0xFFE8F5E9),
+            'Absent' => const Color(0xFFFFEBEE),
+            _ => Colors.white,
+          };
+    return SizedBox(
+      width: _cellWidth,
+      height: _rowHeight,
+      child: Tooltip(
+        message: enabled
+            ? '${row.name} • ${DateFormat('dd MMM').format(date)} • $status${dirty ? ' (unsaved)' : ''}'
+            : 'Outside stay dates',
+        child: InkWell(
+          onTap: !enabled || _saving
+              ? null
+              : () => setState(() {
+                  editor.edit(row, date, switch (status) {
+                    'Present' => 'Absent',
+                    'Absent' => 'Unmarked',
+                    _ => 'Present',
+                  });
+                }),
+          child: Container(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color,
+              border: Border.all(
+                color: dirty ? Colors.orange : Colors.grey.shade300,
+                width: dirty ? 2 : 0.5,
+              ),
             ),
-            duration: const Duration(seconds: 1),
+            child: Text(
+              !enabled
+                  ? '—'
+                  : switch (status) {
+                      'Present' => 'P',
+                      'Absent' => 'A',
+                      _ => '·',
+                    },
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: !enabled
+                    ? Colors.grey
+                    : status == 'Present'
+                    ? Colors.green.shade800
+                    : status == 'Absent'
+                    ? Colors.red.shade800
+                    : Colors.grey,
+              ),
+            ),
           ),
-        );
-      }
-    } catch (e) {
-      _pendingAttendantStatus.remove(statusKey);
-      if (mounted) {
-        setState(() {
-          if (previousStatus != null) {
-            attendantAttendanceStatus[statusKey] = previousStatus;
-          } else {
-            attendantAttendanceStatus.remove(statusKey);
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.red,
-            content: Text('Failed to update attendance'),
-          ),
-        );
-      }
-      return;
-    }
-    await _refreshBilling(
-      patientId,
-      attendantAttendanceOverrides: {
-        today: {attendantName: isPresent ? 'Present' : 'Absent'},
-      },
+        ),
+      ),
     );
   }
-
-  Future<void> toggleAttendantAttendance(
-    String patientId,
-    String attendantName,
-    bool isPresent,
-  ) async {
-    _reportCache.clear();
-    final statusKey = '${patientId}_$attendantName';
-    if (attendantAttendanceStatus[statusKey] == isPresent) {
-      final today = DateFormat('yyyy-MM-dd').format(_selectedAttendanceDate);
-      final safeKey = attendantName.replaceAll(RegExp(r'[.#\$\[\]/]'), '_');
-      _pendingAttendantStatus[statusKey] = null;
-      setState(() => attendantAttendanceStatus.remove(statusKey));
-      try {
-        await ServiceLocator().rtdbService.delete(
-          'attendant_attendance/daily/$today/$patientId/$safeKey',
-        );
-      } catch (_) {
-        _pendingAttendantStatus.remove(statusKey);
-        if (mounted) {
-          setState(() => attendantAttendanceStatus[statusKey] = isPresent);
-        }
-        return;
-      }
-      await _refreshBilling(
-        patientId,
-        attendantAttendanceOverrides: {
-          today: {attendantName: null},
-        },
-      );
-      return;
-    }
-    await markAttendantAttendance(patientId, attendantName, isPresent);
-  }
-
-  // ── Layout & UI ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: const Color(0xFFF4F9F0),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildTabs(),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _buildDailyView(),
-                  _buildWeeklyView(),
-                  _buildMonthlyView(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: _selectedTabIndex == 0 ? 18 : 12,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
+    final query = _search.text.toLowerCase().trim();
+    final matchingPatients = _rows
+        .where(
+          (row) =>
+              (_room == null || row.room == _room) &&
+              (query.isEmpty ||
+                  row.patientName.toLowerCase().contains(query) ||
+                  row.name.toLowerCase().contains(query)),
+        )
+        .map((row) => row.patientId)
+        .toSet();
+    final rows = _rows
+        .where(
+          (row) =>
+              matchingPatients.contains(row.patientId) &&
+              (_room == null || row.room == _room),
+        )
+        .toList();
+    final rooms =
+        _rows
+            .map((row) => row.room)
+            .where((room) => room.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final dates = _editor?.data.dates ?? <DateTime>[];
+    final rowByKey = {for (final row in rows) row.path(_month): row};
+    return Padding(
+      padding: const EdgeInsets.all(20),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Attendance',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2E4A1F),
-                ),
-              ),
-              _buildSegmentedControl(),
-            ],
-          ),
-          if (_selectedTabIndex == 0) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: _selectAttendanceDate,
-                icon: const Icon(Icons.calendar_today_outlined, size: 16),
-                label: Text(_selectedAttendanceDateLabel),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF3B6D11),
-                  side: const BorderSide(color: Color(0xFFC0DD97)),
-                ),
-              ),
-            ),
-          ],
-          SizedBox(height: _selectedTabIndex == 0 ? 14 : 10),
-          _buildSearchAndSummary(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSegmentedControl() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildSegmentButton('patient', 'Patients'),
-          _buildSegmentButton('attendant', 'Attendants'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSegmentButton(String type, String label) {
-    final isSelected = _attendanceType == type;
-    return GestureDetector(
-      onTap: () {
-        if (_attendanceType != type) {
-          setState(() {
-            _attendanceType = type;
-            _refreshFutures();
-            _fadeCtrl.forward(from: 0);
-          });
-        }
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: isSelected
-              ? [
-                  const BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ]
-              : [],
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF3B6D11),
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchAndSummary() {
-    int total = 0;
-    int present = 0;
-    int absent = 0;
-    final patients = _allPatients ?? const <PatientModel>[];
-
-    if (_attendanceType == 'patient') {
-      total = patients.length;
-      for (final patient in patients) {
-        if (attendanceStatus[patient.id] != false) present++;
-        if (attendanceStatus[patient.id] == false) absent++;
-      }
-    } else {
-      for (final patient in patients) {
-        for (final attendant
-            in patient.attendants ?? const <AttendantModel>[]) {
-          total++;
-          final status =
-              attendantAttendanceStatus['${patient.id}_${attendant.name}'];
-          if (status == true) present++;
-          if (status == false) absent++;
-        }
-      }
-    }
-
-    return Column(
-      children: [
-        if (_selectedTabIndex == 0) ...[
           Wrap(
             spacing: 12,
             runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _SummaryCard(
-                title: 'Total',
-                count: total.toString(),
-                color: const Color(0xFF2E4A1F),
+              const Text(
+                'Monthly Attendance',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-              _SummaryCard(
-                title: 'Present',
-                count: present.toString(),
-                color: const Color(0xFF3B6D11),
+              IconButton(
+                onPressed: _saving || _loading ? null : () => _changeMonth(-1),
+                icon: const Icon(Icons.chevron_left),
               ),
-              _SummaryCard(
-                title: 'Absent',
-                count: absent.toString(),
-                color: const Color(0xFFD32F2F),
+              TextButton(
+                onPressed: _saving || _loading
+                    ? null
+                    : () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _month,
+                          firstDate: DateTime(1900),
+                          lastDate: DateTime(DateTime.now().year + 10, 12, 31),
+                        );
+                        if (picked != null && mounted)
+                          await _changeMonth(0, selected: picked);
+                      },
+                child: Text(
+                  DateFormat('MMMM yyyy').format(_month),
+                  style: const TextStyle(fontSize: 18),
+                ),
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-        ],
-        TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            hintText: 'Search by name...',
-            prefixIcon: const Icon(Icons.search, color: Color(0xFF3B6D11)),
-            suffixIcon: _searchQuery.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchController.clear();
-                      FocusScope.of(context).unfocus();
-                    },
-                  )
-                : null,
-            filled: true,
-            fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 0,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTabs() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: [
-          _buildPillTab(0, 'Daily'),
-          _buildPillTab(1, 'Weekly'),
-          _buildPillTab(2, 'Monthly'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPillTab(int index, String label) {
-    final isSelected = _selectedTabIndex == index;
-    return GestureDetector(
-      onTap: () {
-        _tabController.animateTo(index);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF3B6D11)
-                : const Color(0xFFC0DD97),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : const Color(0xFF639922),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Daily View ──────────────────────────────────────────────────────────
-
-  Widget _buildDailyView() {
-    return FadeTransition(
-      opacity: _fadeCtrl,
-      child: _allPatients == null
-          ? _buildShimmerList()
-          : (_attendanceType == 'patient'
-                ? _buildPatientList()
-                : _buildAttendantList()),
-    );
-  }
-
-  Widget _buildPatientList() {
-    var filtered = _allPatients!.where((p) {
-      if (_searchQuery.isEmpty) return true;
-      return p.fullName.toLowerCase().contains(_searchQuery);
-    }).toList();
-
-    if (filtered.isEmpty) {
-      return const Center(
-        child: Text(
-          'No active patients found.',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    final displayList = filtered.take(_currentPatientLimit).toList();
-    final hasMore = displayList.length < filtered.length;
-
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      itemCount: displayList.length + (hasMore || _isLoadingMore ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == displayList.length) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Center(
-              child: _isLoadingMore
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Color(0xFF3B6D11),
-                      ),
-                    )
-                  : OutlinedButton.icon(
-                      onPressed: _loadMore,
-                      icon: const Icon(Icons.expand_more_rounded),
-                      label: Text(
-                        'Show ${((filtered.length - displayList.length).clamp(0, _pageSize))} more patients',
-                      ),
-                    ),
-            ),
-          );
-        }
-        // return _PatientAttendanceCard(
-        //   patient: displayList[index],
-        //   status: attendanceStatus[displayList[index].id],
-        //   onMarkPresent: () => markAttendance(
-        //     displayList[index].id,
-        //     displayList[index].fullName,
-        //     true,
-        //   ),
-        //   onMarkAbsent: () => markAttendance(
-        //     displayList[index].id,
-        //     displayList[index].fullName,
-        //     false,
-        //   ),
-        // );
-        return _PatientAttendanceCard(
-          patient: displayList[index],
-          activeStay: _activeStaysByPatient[displayList[index].id],
-          status: attendanceStatus[displayList[index].id],
-          onMarkPresent: () => toggleAttendance(
-            displayList[index].id,
-            displayList[index].fullName,
-            true,
-          ),
-          onMarkAbsent: () => toggleAttendance(
-            displayList[index].id,
-            displayList[index].fullName,
-            false,
-          ),
-          attendantAttendanceStatus: attendantAttendanceStatus,
-          onMarkAttendantPresent: (patientId, attendantName, isPresent) =>
-              toggleAttendantAttendance(patientId, attendantName, isPresent),
-        );
-      },
-    );
-  }
-
-  Widget _buildAttendantList() {
-    List<FlattenedAttendant> allAttendants = [];
-    for (var p in _allPatients!) {
-      if (p.attendants != null) {
-        for (var a in p.attendants!) {
-          allAttendants.add(FlattenedAttendant(p, a));
-        }
-      }
-    }
-
-    var filtered = allAttendants.where((item) {
-      if (_searchQuery.isEmpty) return true;
-      return item.attendant.name.toLowerCase().contains(_searchQuery) ||
-          item.patient.fullName.toLowerCase().contains(_searchQuery);
-    }).toList();
-
-    if (filtered.isEmpty) {
-      return const Center(
-        child: Text(
-          'No active attendants found.',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    final displayList = filtered.take(_currentAttendantLimit).toList();
-
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      itemCount: displayList.length + (_isLoadingMore ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == displayList.length) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(8.0),
-              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
-            ),
-          );
-        }
-        final item = displayList[index];
-        final key = '${item.patient.id}_${item.attendant.name}';
-        return _AttendantAttendanceCard(
-          item: item,
-          status: attendantAttendanceStatus[key],
-          onMarkPresent: () => toggleAttendantAttendance(
-            item.patient.id,
-            item.attendant.name,
-            true,
-          ),
-          onMarkAbsent: () => toggleAttendantAttendance(
-            item.patient.id,
-            item.attendant.name,
-            false,
-          ),
-        );
-      },
-    );
-  }
-
-  // ── Weekly & Monthly Views ──────────────────────────────────────────────
-
-  Widget _buildWeeklyView() {
-    return FutureBuilder(
-      future: _weeklyData,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildTableShimmer();
-        }
-        if (snapshot.hasError) {
-          return const Center(child: Text('Error loading data'));
-        }
-        final data = snapshot.data as Map<String, Map<String, String>>;
-        if (data.isEmpty) {
-          return const Center(child: Text('No data found'));
-        }
-        return FadeTransition(
-          opacity: _fadeCtrl,
-          child: _buildDataTable(data, getLast7Days()),
-        );
-      },
-    );
-  }
-
-  Widget _buildMonthlyView() {
-    return FutureBuilder(
-      future: _monthlyData,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildTableShimmer();
-        }
-        if (snapshot.hasError) {
-          return const Center(child: Text('Error loading data'));
-        }
-        final data = snapshot.data as Map<String, Map<String, String>>;
-
-        return FadeTransition(
-          opacity: _fadeCtrl,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.chevron_left,
-                      color: Color(0xFF3B6D11),
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _selectedMonth = DateTime(
-                          _selectedMonth.year,
-                          _selectedMonth.month - 1,
-                        );
-                        _monthlyData = fetchMonthlyAttendance(
-                          _selectedMonth,
-                          _attendanceType,
-                        );
-                        _fadeCtrl.forward(from: 0);
-                      });
-                    },
+              IconButton(
+                onPressed: _saving || _loading ? null : () => _changeMonth(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+              SizedBox(
+                width: 220,
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Search patient / attendant',
+                    prefixIcon: Icon(Icons.search),
                   ),
-                  Text(
-                    _monthTitle(_selectedMonth),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Color(0xFF2E4A1F),
-                    ),
+                ),
+              ),
+              DropdownButton<String>(
+                value: _room,
+                hint: const Text('All rooms'),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All rooms'),
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.chevron_right,
-                      color: Color(0xFF3B6D11),
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _selectedMonth = DateTime(
-                          _selectedMonth.year,
-                          _selectedMonth.month + 1,
-                        );
-                        _monthlyData = fetchMonthlyAttendance(
-                          _selectedMonth,
-                          _attendanceType,
-                        );
-                        _fadeCtrl.forward(from: 0);
-                      });
-                    },
-                  ),
+                  for (final room in rooms)
+                    DropdownMenuItem(value: room, child: Text(room)),
                 ],
+                onChanged: (value) => setState(() => _room = value),
               ),
-              if (data.isEmpty)
-                const Expanded(child: Center(child: Text('No data found')))
-              else
-                Expanded(
-                  child: _buildDataTable(data, getDaysOfMonth(_selectedMonth)),
+              FilledButton.icon(
+                onPressed:
+                    _saving ||
+                        _loading ||
+                        ((_editor?.dirty.isEmpty ?? true) &&
+                            _billingRetry.isEmpty)
+                    ? null
+                    : _save,
+                icon: const Icon(Icons.save),
+                label: Text(
+                  _saving
+                      ? 'Saving…'
+                      : _billingRetry.isNotEmpty &&
+                            (_editor?.dirty.isEmpty ?? true)
+                      ? 'Retry billing'
+                      : 'Save Changes (${_editor?.dirty.length ?? 0})',
                 ),
+              ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDataTable(
-    Map<String, Map<String, String>> data,
-    List<String> dates,
-  ) {
-    final tableWidth = StickyAttendanceTableState.nameWidth +
-        (dates.length * StickyAttendanceTableState.cellWidth) +
-        24;
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: tableWidth),
-        child: StickyAttendanceTable(
-          key: ValueKey('${_attendanceType}_${_searchQuery.trim()}'),
-          data: {
-            for (final entry in data.entries)
-              if (entry.key.toLowerCase().contains(_searchQuery.trim()))
-                entry.key: entry.value,
-          },
-          dates: dates,
-          monthLabel: _monthShort,
-          cellBuilder: (name, date, status) {
-        DateTime? exit;
-        DateTime? registration;
-        bool isRejoined = false;
-        for (final patient in _allPatients ?? const <PatientModel>[]) {
-          if (patient.fullName != name) continue;
-          final currentRegistration =
-              patient.registrationDate ?? patient.admissionDate;
-          if (DateFormat('yyyy-MM-dd').format(currentRegistration) == date) {
-            registration = currentRegistration;
-            // Rejoin resets admissionDate but preserves the original createdAt.
-            isRejoined = patient.admissionDate.isAfter(
-              patient.createdAt.add(const Duration(minutes: 1)),
-            );
-          }
-          if (patient.exitDate != null &&
-              DateFormat('yyyy-MM-dd').format(patient.exitDate!) == date) {
-            exit = patient.exitDate;
-          }
-          if (registration != null || exit != null) {
-            break;
-          }
-        }
-        if (status == null) {
-          if (registration == null && exit == null) {
-            return const Text('-', style: TextStyle(color: Colors.grey));
-          }
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (registration != null)
-                _registrationTimeLabel(registration, isRejoined),
-              if (exit != null) _exitTimeLabel(exit),
-            ],
-          );
-        }
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: status == 'Present'
-                    ? Colors.green.withOpacity(0.15)
-                    : Colors.red.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                status == 'Present' ? 'P' : 'A',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: status == 'Present' ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              'Click a cell: Unmarked → Present → Absent → Unmarked.  P = Present • A = Absent • · = Unmarked • Orange border = Unsaved',
             ),
-            if (registration != null)
-              _registrationTimeLabel(registration, isRejoined),
-            if (exit != null) _exitTimeLabel(exit),
-          ],
-        );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _exitTimeLabel(DateTime exit) => Padding(
-    padding: const EdgeInsets.only(top: 3),
-    child: Text(
-      'Exit ${DateFormat('h:mm a').format(exit)}',
-      style: const TextStyle(
-        fontSize: 8,
-        color: Color(0xFFD32F2F),
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
-
-  Widget _registrationTimeLabel(
-    DateTime registration,
-    bool isRejoined,
-  ) => Padding(
-    padding: const EdgeInsets.only(top: 3),
-    child: Text(
-      '${isRejoined ? 'Rejoined' : 'Joined'} ${DateFormat('h:mm a').format(registration)}',
-      textAlign: TextAlign.center,
-      style: const TextStyle(
-        fontSize: 8,
-        color: Color(0xFF3B6D11),
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
-
-  // ── Shimmers ────────────────────────────────────────────────────────────
-
-  Widget _buildShimmerList() {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      itemCount: 6,
-      itemBuilder: (_, __) => Shimmer.fromColors(
-        baseColor: Colors.grey.shade200,
-        highlightColor: Colors.white,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          height: 100,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTableShimmer() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Shimmer.fromColors(
-        baseColor: Colors.grey.shade200,
-        highlightColor: Colors.white,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+          if (_error != null)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ),
+                if (_editor == null && !_loading)
+                  TextButton(onPressed: _loadMonth, child: const Text('Retry')),
+              ],
+            ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _editor == null
+                ? const SizedBox.shrink()
+                : rows.isEmpty
+                ? const Center(
+                    child: Text('No patients with stays in this month.'),
+                  )
+                : StickyAttendanceTable(
+                    data: {
+                      for (final key in rowByKey.keys) key: <String, String>{},
+                    },
+                    dates: dates
+                        .map((date) => DateFormat('yyyy-MM-dd').format(date))
+                        .toList(),
+                    monthLabel: (month) =>
+                        DateFormat('EEE').format(DateTime(_month.year, month)),
+                    nameBuilder: (key) {
+                      final row = rowByKey[key]!;
+                      return Container(
+                        alignment: Alignment.centerLeft,
+                        padding: EdgeInsets.only(
+                          left: row.isAttendant ? 28 : 12,
+                          right: 8,
+                        ),
+                        color: row.isAttendant
+                            ? Colors.white
+                            : const Color(0xFFF1F8E9),
+                        child: Tooltip(
+                          message: '${row.name} • ${row.room}',
+                          child: Text(
+                            '${row.isAttendant ? '↳ ' : ''}${row.name}',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: row.isAttendant
+                                  ? FontWeight.normal
+                                  : FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    cellBuilder: (key, date, _) =>
+                        _cell(rowByKey[key]!, DateTime.parse(date)),
+                  ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Components
-// ─────────────────────────────────────────────────────────────────────────────
-
 class StickyAttendanceTable extends StatefulWidget {
+  final Widget Function(String key)? nameBuilder;
   final Map<String, Map<String, String>> data;
   final List<String> dates;
   final String Function(int month) monthLabel;
@@ -1322,6 +425,7 @@ class StickyAttendanceTable extends StatefulWidget {
 
   const StickyAttendanceTable({
     super.key,
+    this.nameBuilder,
     required this.data,
     required this.dates,
     required this.monthLabel,
@@ -1333,10 +437,10 @@ class StickyAttendanceTable extends StatefulWidget {
 }
 
 class StickyAttendanceTableState extends State<StickyAttendanceTable> {
-  static const nameWidth = 190.0;
-  static const cellWidth = 72.0;
+  static const nameWidth = 260.0;
+  static const cellWidth = 48.0;
   static const headerHeight = 48.0;
-  static const rowHeight = 64.0;
+  static const rowHeight = 44.0;
   final horizontalController = ScrollController();
   final verticalController = ScrollController();
   final headerController = ScrollController();
@@ -1366,8 +470,9 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
       0.0,
       verticalController.position.maxScrollExtent,
     );
-    if ((verticalController.offset - offset).abs() > 0.5)
+    if ((verticalController.offset - offset).abs() > 0.5) {
       verticalController.jumpTo(offset);
+    }
   }
 
   void _syncNames() {
@@ -1376,8 +481,9 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
       0.0,
       namesController.position.maxScrollExtent,
     );
-    if ((namesController.offset - offset).abs() > 0.5)
+    if ((namesController.offset - offset).abs() > 0.5) {
       namesController.jumpTo(offset);
+    }
   }
 
   @override
@@ -1398,7 +504,9 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
       width: width,
       height: rowHeight,
       alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: widget.nameBuilder == null
+          ? const EdgeInsets.symmetric(horizontal: 6)
+          : EdgeInsets.zero,
       decoration: BoxDecoration(
         color: color ?? Colors.white,
         border: Border(
@@ -1413,8 +521,9 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
   @override
   Widget build(BuildContext context) {
     final entries = widget.data.entries.toList();
-    if (entries.isEmpty)
+    if (entries.isEmpty) {
       return const Center(child: Text('No matching attendance records'));
+    }
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -1449,25 +558,32 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
                   child: SingleChildScrollView(
                     controller: horizontalController,
                     scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      controller: verticalController,
-                      child: Column(
-                        children: [
-                          for (final entry in entries)
-                            Row(
-                              children: [
-                                for (final date in widget.dates)
-                                  _borderedCell(
-                                    width: cellWidth,
-                                    child: widget.cellBuilder(
-                                      entry.key,
-                                      date,
-                                      entry.value[date],
-                                    ),
+                    child: SizedBox(
+                      width: widget.dates.length * cellWidth,
+                      height: (constraints.maxHeight - headerHeight).clamp(
+                        0,
+                        double.infinity,
+                      ),
+                      child: ListView.builder(
+                        controller: verticalController,
+                        itemExtent: rowHeight,
+                        itemCount: entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = entries[index];
+                          return Row(
+                            children: [
+                              for (final date in widget.dates)
+                                _borderedCell(
+                                  width: cellWidth,
+                                  child: widget.cellBuilder(
+                                    entry.key,
+                                    date,
+                                    entry.value[date],
                                   ),
-                              ],
-                            ),
-                        ],
+                                ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1502,7 +618,9 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
                             builder: (context) {
                               final value = DateTime.parse(date);
                               return Text(
-                                '${value.day} ${widget.monthLabel(value.month)}',
+                                widget.nameBuilder == null
+                                    ? '${value.day} ${widget.monthLabel(value.month)}'
+                                    : '${value.day}\n${DateFormat('EEE').format(value)}',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 12,
@@ -1524,14 +642,17 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
               width: nameWidth,
               bottom: 0,
               child: ClipRect(
-                child: SingleChildScrollView(
+                child: ListView.builder(
                   controller: namesController,
-                  child: Column(
-                    children: [
-                      for (final entry in entries)
-                        _borderedCell(
-                          width: nameWidth,
-                          child: Align(
+                  itemExtent: rowHeight,
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) {
+                    final entry = entries[index];
+                    return _borderedCell(
+                      width: nameWidth,
+                      child:
+                          widget.nameBuilder?.call(entry.key) ??
+                          Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
                               entry.key,
@@ -1543,9 +664,8 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -1559,7 +679,7 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 color: const Color(0xFFE8F5E9),
                 child: const Text(
-                  'Name',
+                  'Patient / Attendant',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF2E4A1F),
@@ -1568,856 +688,6 @@ class StickyAttendanceTableState extends State<StickyAttendanceTable> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  final String title;
-  final String count;
-  final Color color;
-
-  const _SummaryCard({
-    required this.title,
-    required this.count,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 150, maxWidth: 220),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.2)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              count,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: color.withOpacity(0.8),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// class _PatientAttendanceCard extends StatelessWidget {
-//   final PatientModel patient;
-//   final bool? status;
-//   final VoidCallback onMarkPresent;
-//   final VoidCallback onMarkAbsent;
-
-//   const _PatientAttendanceCard({
-//     required this.patient,
-//     required this.status,
-//     required this.onMarkPresent,
-//     required this.onMarkAbsent,
-//   });
-
-//   @override
-//   Widget build(BuildContext context) {
-//     String initials = patient.fullName.isNotEmpty
-//         ? patient.fullName[0].toUpperCase()
-//         : '?';
-
-//     return Container(
-//       margin: const EdgeInsets.only(bottom: 16),
-//       decoration: BoxDecoration(
-//         color: Colors.white,
-//         borderRadius: BorderRadius.circular(20),
-//         border: Border.all(
-//           color: status == true
-//               ? const Color(0xFF3B6D11).withOpacity(0.5)
-//               : status == false
-//               ? const Color(0xFFD32F2F).withOpacity(0.5)
-//               : const Color(0xFFE8F5E9),
-//           width: 1.5,
-//         ),
-//         boxShadow: const [
-//           BoxShadow(
-//             color: Colors.black12,
-//             blurRadius: 10,
-//             offset: Offset(0, 4),
-//           ),
-//         ],
-//       ),
-//       padding: const EdgeInsets.all(16),
-//       child: Column(
-//         children: [
-//           Row(
-//             children: [
-//               CircleAvatar(
-//                 radius: 24,
-//                 backgroundColor: const Color(0xFFE8F5E9),
-//                 child: Text(
-//                   initials,
-//                   style: const TextStyle(
-//                     color: Color(0xFF3B6D11),
-//                     fontSize: 18,
-//                     fontWeight: FontWeight.bold,
-//                   ),
-//                 ),
-//               ),
-//               const SizedBox(width: 16),
-//               Expanded(
-//                 child: Column(
-//                   crossAxisAlignment: CrossAxisAlignment.start,
-//                   children: [
-//                     Text(
-//                       patient.fullName,
-//                       style: const TextStyle(
-//                         fontSize: 18,
-//                         fontWeight: FontWeight.bold,
-//                         color: Color(0xFF2E4A1F),
-//                       ),
-//                       maxLines: 1,
-//                       overflow: TextOverflow.ellipsis,
-//                     ),
-//                     const SizedBox(height: 4),
-//                     Wrap(
-//                       spacing: 8,
-//                       runSpacing: 4,
-//                       children: [
-//                         _InfoChip(
-//                           Icons.phone,
-//                           patient.contactNumber ?? 'No contact',
-//                         ),
-//                         if (patient.roomNumber != null)
-//                           _InfoChip(
-//                             Icons.meeting_room,
-//                             'Room ${patient.roomNumber}',
-//                           ),
-//                         if (patient.bedLabels != null &&
-//                             patient.bedLabels!.isNotEmpty)
-//                           _InfoChip(
-//                             Icons.bed,
-//                             patient.bedLabels!
-//                                 .map(
-//                                   (b) => BedHelper.getBedDisplayName(
-//                                     b,
-//                                     roomIdentifier: patient.roomNumber,
-//                                   ),
-//                                 )
-//                                 .join(', '),
-//                           ),
-//                         _InfoChip(
-//                           Icons.check_circle_outline,
-//                           'Present: ${patient.totalPresentDays}',
-//                         ),
-//                         _InfoChip(
-//                           Icons.cancel_outlined,
-//                           'Absent: ${patient.totalAbsentDays}',
-//                         ),
-//                       ],
-//                     ),
-//                   ],
-//                 ),
-//               ),
-//               if (status != null)
-//                 Container(
-//                   padding: const EdgeInsets.symmetric(
-//                     horizontal: 10,
-//                     vertical: 6,
-//                   ),
-//                   decoration: BoxDecoration(
-//                     color: status!
-//                         ? Colors.green.withOpacity(0.1)
-//                         : Colors.red.withOpacity(0.1),
-//                     borderRadius: BorderRadius.circular(12),
-//                   ),
-//                   child: Text(
-//                     status! ? 'Present' : 'Absent',
-//                     style: TextStyle(
-//                       color: status! ? Colors.green : Colors.red,
-//                       fontWeight: FontWeight.bold,
-//                       fontSize: 12,
-//                     ),
-//                   ),
-//                 ),
-//             ],
-//           ),
-//           const SizedBox(height: 16),
-//           Row(
-//             children: [
-//               Expanded(
-//                 child: _AttendanceButton(
-//                   label: 'Present',
-//                   isSelected: status == true,
-//                   activeColor: const Color(0xFF3B6D11),
-//                   onTap: onMarkPresent,
-//                 ),
-//               ),
-//               const SizedBox(width: 12),
-//               Expanded(
-//                 child: _AttendanceButton(
-//                   label: 'Absent',
-//                   isSelected: status == false,
-//                   activeColor: const Color(0xFFD32F2F),
-//                   onTap: onMarkAbsent,
-//                 ),
-//               ),
-//             ],
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-// }
-class _PatientAttendanceCard extends StatefulWidget {
-  final PatientModel patient;
-  final StayModel? activeStay;
-  final bool? status;
-  final VoidCallback onMarkPresent;
-  final VoidCallback onMarkAbsent;
-  final Map<String, bool> attendantAttendanceStatus;
-  final Function(String patientId, String attendantName, bool isPresent)
-  onMarkAttendantPresent;
-
-  const _PatientAttendanceCard({
-    required this.patient,
-    this.activeStay,
-    required this.status,
-    required this.onMarkPresent,
-    required this.onMarkAbsent,
-    required this.attendantAttendanceStatus,
-    required this.onMarkAttendantPresent,
-  });
-
-  @override
-  State<_PatientAttendanceCard> createState() => _PatientAttendanceCardState();
-}
-
-class _PatientAttendanceCardState extends State<_PatientAttendanceCard> {
-  bool _attendantsExpanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasAttendants =
-        widget.patient.attendants != null &&
-        widget.patient.attendants!.isNotEmpty;
-    final exit = widget.patient.exitDate;
-    final hasKnownExitTime =
-        exit != null &&
-        (exit.hour != 0 || exit.minute != 0 || exit.second != 0);
-    String initials = widget.patient.fullName.isNotEmpty
-        ? widget.patient.fullName[0].toUpperCase()
-        : '?';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: widget.status == true
-              ? const Color(0xFF3B6D11).withOpacity(0.5)
-              : widget.status == false
-              ? const Color(0xFFD32F2F).withOpacity(0.5)
-              : const Color(0xFFE8F5E9),
-          width: 1.5,
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          // ── Patient info row ──
-          Row(
-            children: [
-              // CircleAvatar(
-              //   radius: 24,
-              //   backgroundColor: const Color(0xFFE8F5E9),
-              //   child: Text(
-              //     initials,
-              //     style: const TextStyle(
-              //       color: Color(0xFF3B6D11),
-              //       fontSize: 18,
-              //       fontWeight: FontWeight.bold,
-              //     ),
-              //   ),
-              // ),
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: const Color(0xFFE8F5E9),
-                child: ClipOval(
-                  child: PatientPhoto(
-                    patient: widget.patient,
-                    size: 48,
-                    fallbackText: initials,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.patient.fullName,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E4A1F),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        _InfoChip(
-                          Icons.phone,
-                          widget.patient.contactNumber ?? 'No contact',
-                        ),
-                        if (widget.patient.roomNumber != null ||
-                            widget.activeStay?.roomNumber != null)
-                          _InfoChip(
-                            Icons.meeting_room,
-                            'Room ${widget.patient.roomNumber ?? widget.activeStay?.roomNumber}',
-                          ),
-                        if ((widget.patient.bedLabels != null &&
-                                widget.patient.bedLabels!.isNotEmpty) ||
-                            (widget.activeStay?.bedLabel != null &&
-                                widget.activeStay!.bedLabel!.isNotEmpty))
-                          _InfoChip(
-                            Icons.bed,
-                            (widget.patient.bedLabels != null &&
-                                    widget.patient.bedLabels!.isNotEmpty)
-                                ? widget.patient.bedLabels!
-                                    .map(
-                                      (b) => BedHelper.getBedDisplayName(
-                                        b,
-                                        roomIdentifier:
-                                            widget.patient.roomNumber ??
-                                                widget.activeStay?.roomNumber,
-                                      ),
-                                    )
-                                    .join(', ')
-                                : BedHelper.getBedDisplayName(
-                                    widget.activeStay!.bedLabel!,
-                                    roomIdentifier:
-                                        widget.activeStay?.roomNumber,
-                                  ),
-                          ),
-                        _InfoChip(
-                          Icons.check_circle_outline,
-                          'Present: ${widget.patient.totalPresentDays}',
-                        ),
-                        _InfoChip(
-                          Icons.cancel_outlined,
-                          'Absent: ${widget.patient.totalAbsentDays}',
-                        ),
-                        if (hasKnownExitTime)
-                          _InfoChip(
-                            Icons.exit_to_app,
-                            'Exit ${DateFormat('dd MMM, h:mm a').format(exit)}',
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.status != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: widget.status!
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    widget.status! ? 'Present' : 'Absent',
-                    style: TextStyle(
-                      color: widget.status! ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // ── Patient attendance buttons ──
-          Row(
-            children: [
-              Expanded(
-                child: _AttendanceButton(
-                  label: 'Present',
-                  isSelected: widget.status == true,
-                  activeColor: const Color(0xFF3B6D11),
-                  onTap: widget.onMarkPresent,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _AttendanceButton(
-                  label: 'Absent',
-                  isSelected: widget.status == false,
-                  activeColor: const Color(0xFFD32F2F),
-                  onTap: widget.onMarkAbsent,
-                ),
-              ),
-            ],
-          ),
-
-          // ── Attendants expandable section ──
-          if (hasAttendants) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () =>
-                  setState(() => _attendantsExpanded = !_attendantsExpanded),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF4F9F0),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFC0DD97)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.people_outline,
-                      size: 16,
-                      color: Color(0xFF3B6D11),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Attendants (${widget.patient.attendants!.length})',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF3B6D11),
-                      ),
-                    ),
-                    const Spacer(),
-                    Icon(
-                      _attendantsExpanded
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
-                      color: const Color(0xFF3B6D11),
-                      size: 20,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_attendantsExpanded) ...[
-              const SizedBox(height: 8),
-              ...widget.patient.attendants!.map((attendant) {
-                final key = '${widget.patient.id}_${attendant.name}';
-                final attStatus = widget.attendantAttendanceStatus[key];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F9F0),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: attStatus == true
-                          ? const Color(0xFF3B6D11).withOpacity(0.4)
-                          : attStatus == false
-                          ? const Color(0xFFD32F2F).withOpacity(0.4)
-                          : const Color(0xFFC0DD97),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          // CircleAvatar(
-                          //   radius: 16,
-                          //   backgroundColor: const Color(0xFFE3F2FD),
-                          //   child: Text(
-                          //     attendant.name.isNotEmpty
-                          //         ? attendant.name[0].toUpperCase()
-                          //         : '?',
-                          //     style: const TextStyle(
-                          //       color: Color(0xFF1565C0),
-                          //       fontSize: 13,
-                          //       fontWeight: FontWeight.bold,
-                          //     ),
-                          //   ),
-                          // ),
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: const Color(0xFFE3F2FD),
-                            child: ClipOval(
-                              child: PatientPhoto(
-                                attendant: attendant,
-                                size: 32,
-                                fallbackText: attendant.name.isNotEmpty
-                                    ? attendant.name[0].toUpperCase()
-                                    : '?',
-                                textColor: const Color(0xFF1565C0),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  attendant.name,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF2E4A1F),
-                                  ),
-                                ),
-                                if (attendant.relation != null)
-                                  Text(
-                                    attendant.relation!,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF639922),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          if (attStatus != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: attStatus
-                                    ? Colors.green.withOpacity(0.1)
-                                    : Colors.red.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                attStatus ? 'Present' : 'Absent',
-                                style: TextStyle(
-                                  color: attStatus ? Colors.green : Colors.red,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _AttendanceButton(
-                              label: 'Present',
-                              isSelected: attStatus == true,
-                              activeColor: const Color(0xFF3B6D11),
-                              onTap: () => widget.onMarkAttendantPresent(
-                                widget.patient.id,
-                                attendant.name,
-                                true,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _AttendanceButton(
-                              label: 'Absent',
-                              isSelected: attStatus == false,
-                              activeColor: const Color(0xFFD32F2F),
-                              onTap: () => widget.onMarkAttendantPresent(
-                                widget.patient.id,
-                                attendant.name,
-                                false,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _AttendantAttendanceCard extends StatelessWidget {
-  final FlattenedAttendant item;
-  final bool? status;
-  final VoidCallback onMarkPresent;
-  final VoidCallback onMarkAbsent;
-
-  const _AttendantAttendanceCard({
-    required this.item,
-    required this.status,
-    required this.onMarkPresent,
-    required this.onMarkAbsent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String initials = item.attendant.name.isNotEmpty
-        ? item.attendant.name[0].toUpperCase()
-        : '?';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: status == true
-              ? const Color(0xFF3B6D11).withOpacity(0.5)
-              : status == false
-              ? const Color(0xFFD32F2F).withOpacity(0.5)
-              : const Color(0xFFE8F5E9),
-          width: 1.5,
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: const Color(0xFFE3F2FD),
-                child: Text(
-                  initials,
-                  style: const TextStyle(
-                    color: Color(0xFF1565C0),
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.attendant.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E4A1F),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Attendant of: ${item.patient.fullName}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF639922),
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    // Wrap(
-                    //   spacing: 8,
-                    //   runSpacing: 4,
-                    //   children: [
-                    //     if (item.attendant.relation != null &&
-                    //         item.attendant.relation!.isNotEmpty)
-                    //       _InfoChip(
-                    //         Icons.family_restroom,
-                    //         item.attendant.relation!,
-                    //       ),
-                    //     if (item.patient.contactNumber != null &&
-                    //         item.patient.contactNumber!.isNotEmpty)
-                    //       _InfoChip(Icons.phone, item.patient.contactNumber!),
-                    //   ],
-                    // ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        if (item.attendant.relation != null &&
-                            item.attendant.relation!.isNotEmpty)
-                          _InfoChip(
-                            Icons.family_restroom,
-                            item.attendant.relation!,
-                          ),
-                        if (item.patient.contactNumber != null &&
-                            item.patient.contactNumber!.isNotEmpty)
-                          _InfoChip(Icons.phone, item.patient.contactNumber!),
-                        if (item.attendant.aadhaarNumber != null &&
-                            item.attendant.aadhaarNumber!.isNotEmpty)
-                          _InfoChip(
-                            Icons.credit_card,
-                            item.attendant.aadhaarNumber!,
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (status != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: status!
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    status! ? 'Present' : 'Absent',
-                    style: TextStyle(
-                      color: status! ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _AttendanceButton(
-                  label: 'Present',
-                  isSelected: status == true,
-                  activeColor: const Color(0xFF3B6D11),
-                  onTap: onMarkPresent,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _AttendanceButton(
-                  label: 'Absent',
-                  isSelected: status == false,
-                  activeColor: const Color(0xFFD32F2F),
-                  onTap: onMarkAbsent,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _InfoChip(this.icon, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF4F9F0),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: const Color(0xFF639922)),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AttendanceButton extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final Color activeColor;
-  final VoidCallback onTap;
-
-  const _AttendanceButton({
-    required this.label,
-    required this.isSelected,
-    required this.activeColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? activeColor : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? activeColor : Colors.grey.shade300,
-            width: 1.5,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey.shade600,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-          ),
         ),
       ),
     );

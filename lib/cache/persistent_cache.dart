@@ -1139,6 +1139,11 @@ class PersistentCache {
     }
     final child = target[parts.first] is Map
         ? Map<String, dynamic>.from(target[parts.first] as Map)
+        : target[parts.first] is List
+        ? {
+            for (final entry in (target[parts.first] as List).asMap().entries)
+              entry.key.toString(): entry.value,
+          }
         : <String, dynamic>{};
     _setNested(child, parts.sublist(1), value);
     target[parts.first] = child;

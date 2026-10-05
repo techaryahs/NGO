@@ -4,8 +4,9 @@ import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
 import 'firebase_rtdb_rest_service.dart';
-import 'payment_backend_client.dart';
-import 'razorpay_service.dart' show RazorpayBackendConfig;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import '../utils/upi_payment.dart';
 
 class PaymentService {
   final FirebaseRTDBRestService _rtdb;
@@ -128,12 +129,13 @@ class PaymentService {
       final data = stay.toMap()..['dailyRate'] = null;
       return StayModel.fromMap(stay.id, data);
     }).toList();
+    final patientRange = StayBilling.attendanceDateRange(patient);
     final rangeStarts = <DateTime>[
-      patient.registrationDate ?? patient.admissionDate,
+      DateTime.parse(patientRange.start),
       ...stays.map((stay) => stay.admissionDate),
     ];
     final rangeEnds = <DateTime>[
-      patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
+      DateTime.parse(patientRange.end),
       ...stays.map((stay) => stay.completedAt ?? stay.expectedDischargeDate),
     ];
     rangeStarts.sort();
@@ -157,11 +159,6 @@ class PaymentService {
     final pricing = rawPricing is Map
         ? Map<String, dynamic>.from(rawPricing)
         : <String, dynamic>{};
-    final savedGeneralRate = (pricing['generalRoomBedPrice'] as num?)
-        ?.toDouble();
-    final migrateGeneralRate =
-        savedGeneralRate == null || savedGeneralRate == 150;
-    if (migrateGeneralRate) pricing['generalRoomBedPrice'] = 200;
     final records = reads[1];
     final attendance = <String, String>{};
     if (records is Map)
@@ -217,12 +214,8 @@ class PaymentService {
     final current = balances.firstWhere(
       (b) => b.id == StayBilling.currentCycle(patient),
     );
-    final start = StayBilling.day(
-      patient.registrationDate ?? patient.admissionDate,
-    );
-    final end = StayBilling.day(
-      patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
-    );
+    final start = DateTime.parse(patientRange.start);
+    final end = DateTime.parse(patientRange.end);
     final cycleAttendance = attendance.entries.where((entry) {
       final date = DateTime.tryParse(entry.key);
       return date != null && !date.isBefore(start) && !date.isAfter(end);
@@ -332,24 +325,69 @@ class PaymentService {
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
-    if (RazorpayBackendConfig.isConfigured) {
-      final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken != null) {
-        await PaymentBackendClient.recalculateBilling(
-          idToken: idToken,
-          patientId: patientId,
-        );
-        return;
+    if (!updateBilling) return;
+    final paymentSubmission = _paymentSubmissions[patientId];
+    if (paymentSubmission != null) {
+      try {
+        await paymentSubmission;
+      } catch (_) {
+        /* Recalculate after a failed receipt too. */
       }
     }
-    await _rtdb.patch(
-      '',
-      await billingUpdates(
-        patientId,
-        patientAttendanceOverrides: patientAttendanceOverrides,
-        attendantAttendanceOverrides: attendantAttendanceOverrides,
-      ),
+    final snapshots = await Future.wait<dynamic>([
+      _rtdb.get('patients/$patientId'),
+      _rtdb.getByChildValue('stays', child: 'patientId', value: patientId),
+    ]);
+    if (snapshots[0] is! Map) throw StateError('Patient not found');
+    final patientData = Map<String, dynamic>.from(snapshots[0] as Map);
+    final stayData = snapshots[1] is Map ? snapshots[1] as Map : const {};
+    final updates = await billingUpdates(
+      patientId,
+      patientData: patientData,
+      stays: [
+        for (final entry in stayData.entries)
+          if (entry.value is Map)
+            StayModel.fromMap(entry.key.toString(), entry.value),
+      ],
+      patientAttendanceOverrides: patientAttendanceOverrides,
+      attendantAttendanceOverrides: attendantAttendanceOverrides,
     );
+    updates.removeWhere((path, value) {
+      if (path.endsWith('/updatedAt')) return true;
+      final parts = path.split('/');
+      dynamic previous = parts.first == 'patients'
+          ? patientData
+          : stayData[parts[1]];
+      for (final key in parts.skip(2)) {
+        previous = previous is Map ? previous[key] : null;
+      }
+      return valuesEqual(previous, value);
+    });
+    if (updates.isNotEmpty) await _rtdb.patch('', updates);
+  }
+
+  static bool valuesEqual(dynamic a, dynamic b) {
+    // Firebase omits empty collections and null fields; legacy arrays may
+    // also be returned as objects once a keyed receipt is appended.
+    if (a is List)
+      a = <String, dynamic>{
+        for (final entry in a.asMap().entries)
+          entry.key.toString(): entry.value,
+      };
+    if (b is List)
+      b = <String, dynamic>{
+        for (final entry in b.asMap().entries)
+          entry.key.toString(): entry.value,
+      };
+    if (a == null && b is Map)
+      return b.values.every((value) => valuesEqual(null, value));
+    if (b == null && a is Map)
+      return a.values.every((value) => valuesEqual(value, null));
+    if (a is Map && b is Map) {
+      final keys = {...a.keys, ...b.keys};
+      return keys.every((key) => valuesEqual(a[key], b[key]));
+    }
+    return a == b;
   }
 
   Future<void> recalculateAllActivePatientsBilling({String? patientId}) async {
@@ -371,34 +409,87 @@ class PaymentService {
     required bool isPresent,
     required bool? wasPresent,
   }) => recalculatePatientAttendanceAndBilling(patientId);
+  final Map<String, Future<String>> _paymentSubmissions = {};
+
   Future<String> recordPayment({
+    required String patientId,
+    required String patientName,
+    required PaymentModel payment,
+  }) {
+    final running = _paymentSubmissions[patientId];
+    if (running != null)
+      return Future.error(StateError('A payment is already being recorded.'));
+    final billing = _runningBilling[patientId];
+    late final Future<String> task;
+    task =
+        (() async {
+          if (billing != null) {
+            try {
+              await billing;
+            } catch (_) {
+              /* The receipt recalculates billing. */
+            }
+          }
+          return _recordPayment(
+            patientId: patientId,
+            patientName: patientName,
+            payment: payment,
+          );
+        })().whenComplete(() {
+          if (identical(_paymentSubmissions[patientId], task))
+            _paymentSubmissions.remove(patientId);
+        });
+    _paymentSubmissions[patientId] = task;
+    return task;
+  }
+
+  Future<String> _recordPayment({
     required String patientId,
     required String patientName,
     required PaymentModel payment,
   }) async {
     if (!payment.amount.isFinite || payment.amount <= 0)
       throw ArgumentError('Enter a positive payment amount');
-    if (RazorpayBackendConfig.isConfigured) {
-      final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken != null) {
-        return PaymentBackendClient.recordManualPayment(
-          idToken: idToken,
-          patientId: patientId,
-          payment: payment.toMap(),
-          refund: false,
-        );
-      }
-    }
     final raw = await _rtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
     final data = Map<String, dynamic>.from(raw);
     final currentPatient = PatientModel.fromMap(patientId, data);
+    final online = payment.method.toUpperCase() == 'ONLINE';
+    final reference = payment.transactionId?.trim().toUpperCase() ?? '';
+    if (online && UpiPayment.validateReference(reference) != null) {
+      throw ArgumentError(UpiPayment.validateReference(reference));
+    }
+    final id = online
+        ? 'upi_${sha256.convert(utf8.encode('$patientId:$reference'))}'
+        : payment.id;
+    if (id.isEmpty || RegExp(r'[.#$\[\]/]').hasMatch(id)) {
+      throw ArgumentError('Invalid payment ID');
+    }
+    final existing = (currentPatient.payments ?? [])
+        .where(
+          (p) =>
+              p.id == id ||
+              (online &&
+                  p.method.toUpperCase() == 'ONLINE' &&
+                  (p.transactionId?.trim().toUpperCase() ?? '') == reference),
+        )
+        .firstOrNull;
+    if (existing != null) {
+      if (existing.amount != payment.amount ||
+          (existing.transactionId?.trim().toUpperCase() ?? '') != reference) {
+        throw StateError(
+          'This reference is already recorded with a different amount.',
+        );
+      }
+      return id;
+    }
     final stays = await loadStays(patientId);
-    final id =
-        'payment_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     final pMap = payment.toMap()
       ..addAll({
         'id': id,
+        'method': online ? 'ONLINE' : payment.method,
+        if (online) 'transactionId': reference,
+        'cycleId': payment.cycleId ?? StayBilling.currentCycle(currentPatient),
         'patientId': patientId,
         'patientName': patientName,
         'type': 'payment',
@@ -416,7 +507,7 @@ class PaymentService {
     updates.addAll({
       'payments/$id': pMap,
       'paymentHistory/$id': pMap,
-      'patients/$patientId/payments': payments,
+      'patients/$patientId/payments/$id': pMap,
     });
     await _rtdb.patch('', updates);
     return id;
@@ -447,17 +538,6 @@ class PaymentService {
       'type': 'refund',
       'notes': 'Refund recorded',
     };
-    if (RazorpayBackendConfig.isConfigured) {
-      final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken != null) {
-        return PaymentBackendClient.recordManualPayment(
-          idToken: idToken,
-          patientId: patientId,
-          payment: payment,
-          refund: true,
-        );
-      }
-    }
     final raw = await _rtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
     final data = Map<String, dynamic>.from(raw);
@@ -534,20 +614,6 @@ class PaymentService {
     String? embeddedPaymentId,
     Map<String, dynamic>? changes,
   ) async {
-    if (RazorpayBackendConfig.isConfigured) {
-      final idToken = await _rtdb.getAuthToken?.call();
-      if (idToken != null) {
-        await PaymentBackendClient.amendManualPayment(
-          idToken: idToken,
-          patientId: patientId,
-          paymentId: paymentId,
-          embeddedPaymentId: embeddedPaymentId,
-          changes: changes,
-          voidPayment: changes == null,
-        );
-        return;
-      }
-    }
     final raw = await _rtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
     final data = Map<String, dynamic>.from(raw);

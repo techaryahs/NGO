@@ -659,9 +659,7 @@ class _SummaryCard extends StatelessWidget {
 class _PatientBillingTile extends StatefulWidget {
   final PatientModel patient;
 
-  const _PatientBillingTile({
-    required this.patient,
-  });
+  const _PatientBillingTile({required this.patient});
 
   @override
   State<_PatientBillingTile> createState() => _PatientBillingTileState();
@@ -835,57 +833,34 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                   onPressed: _isProcessing
                       ? null
                       : () async {
-                          final result = await showPatientPaymentDialog(
-                            context: context,
-                            patientName: patient.fullName,
-                            contactNumber: patient.contactNumber,
-                            bedsCount: patient.bedIds?.length ?? 1,
-                            attendantsCount: patient.attendants?.length ?? 0,
-                            roomIdentifier: patient.roomNumber,
-                            alreadyPaid: patient.effectivePaidAmount,
-                            showPayLater: false,
-                            totalBillOverride:
-                                patient.advanceBilledAmount +
-                                patient.attendanceCharges,
-                            patientId: patient.id,
-                          );
+                          setState(() => _isProcessing = true);
+                          try {
+                            final result = await showPatientPaymentDialog(
+                              context: context,
+                              patientName: patient.fullName,
+                              contactNumber: patient.contactNumber,
+                              bedsCount: patient.bedIds?.length ?? 1,
+                              attendantsCount: patient.attendants?.length ?? 0,
+                              roomIdentifier: patient.roomNumber,
+                              alreadyPaid: patient.effectivePaidAmount,
+                              showPayLater: false,
+                              totalBillOverride:
+                                  patient.advanceBilledAmount +
+                                  patient.attendanceCharges,
+                              patientId: patient.id,
+                            );
 
-                          if (result != null &&
-                              result.onlinePayment != null) {
-                            // Recorded server-side by the payment backend.
-                            if (context.mounted) {
+                            if (result?.recordedPaymentId != null &&
+                                context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text(
-                                    'Payment confirmed by the payment server.',
-                                  ),
+                                  content: Text('Online payment recorded.'),
                                   backgroundColor: Color(0xFF3B6D11),
                                 ),
                               );
                             }
-                            return;
-                          }
-
-                          if (result != null && result.payment != null) {
-                            setState(() => _isProcessing = true);
-                            try {
-                              await ServiceLocator().patientService
-                                  .recordPayment(patient.id, result.payment!);
-
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Payment successfully recorded!',
-                                    ),
-                                    backgroundColor: Color(0xFF3B6D11),
-                                  ),
-                                );
-                              }
-                            } finally {
-                              if (mounted)
-                                setState(() => _isProcessing = false);
-                            }
+                          } finally {
+                            if (mounted) setState(() => _isProcessing = false);
                           }
                         },
                   style: ElevatedButton.styleFrom(

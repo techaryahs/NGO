@@ -27,9 +27,6 @@ class _StayHistoryTabState extends State<StayHistoryTab> {
     stream = ServiceLocator().roomService.getStaysByPatientStream(
       widget.patient.id,
     );
-    ServiceLocator().paymentService
-        .recalculatePatientAttendanceAndBilling(widget.patient.id)
-        .catchError((Object _) {});
   }
 
   Widget _heading(String text) => Padding(

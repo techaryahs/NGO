@@ -122,9 +122,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   Future<void> _loadPricing() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final pricingData = await roomService
-          .getPricing()
-          .timeout(const Duration(seconds: 6));
+      final pricingData = await roomService.getPricing().timeout(
+        const Duration(seconds: 6),
+      );
       if (!mounted) return;
       setState(() {
         _pricing = Map<String, dynamic>.from(pricingData);
@@ -147,10 +147,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   Future<void> _loadAvailableRooms() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final rooms = await roomService
-          .getRoomsStream()
-          .first
-          .timeout(const Duration(seconds: 8));
+      final rooms = await roomService.getRoomsStream().first.timeout(
+        const Duration(seconds: 8),
+      );
       if (!mounted) return;
       setState(() {
         // Do not filter out any rooms! We need to show them as disabled if full, so we can display their Expected Vacancy Date.
@@ -167,10 +166,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   Future<void> _loadOccupiedLobbies() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final stays = await roomService
-          .getActiveStaysStream()
-          .first
-          .timeout(const Duration(seconds: 8));
+      final stays = await roomService.getActiveStaysStream().first.timeout(
+        const Duration(seconds: 8),
+      );
       if (!mounted) return;
       setState(() {
         _occupiedLobbies = {
@@ -371,6 +369,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     return PricingHelper.calculateStayDays(start, _selectedExitDate);
   }
 
+  int get _attendanceDays => PricingHelper.attendancePeriod(
+    _selectedRegistrationDate ?? DateTime.now(),
+    _selectedExitDate,
+  ).days;
+
   double get _estimatedTotal =>
       PricingHelper.calculateDailyCharge(
         _selectedRoom?.isPrivate ?? false,
@@ -382,7 +385,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             ? 1
             : _selectedBeds.length.clamp(1, 999),
       ) *
-      _plannedStayDays;
+      _attendanceDays;
 
   Future<void> _pickPatientPhoto() async {
     try {
@@ -534,15 +537,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
     debugPrint('[ADD PATIENT] SAVE START');
 
-    // Create the admission first. Online payments are attached to a saved
-    // patient record and verified by the payment backend, so the patient
-    // must exist before the payment dialog opens.
+    // Save the admission before the QR confirmation can record its payment.
     final patientId = await _createPatientAdmission();
     if (patientId == null || !mounted) return;
 
-    // Payment step. Cash/cheque are recorded after this; online payments are
-    // created and verified by the trusted backend and never written locally.
-    final result = await showPatientPaymentDialog(
+    await showPatientPaymentDialog(
       context: context,
       patientName: _patientNameController.text.trim(),
       contactNumber: _mobileController.text.trim(),
@@ -555,20 +554,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       showPayLater: true,
       patientId: patientId,
     );
-
-    if (result != null && result.payment != null) {
-      try {
-        await ServiceLocator().paymentService.recordPayment(
-          patientId: patientId,
-          patientName: _patientNameController.text.trim(),
-          payment: result.payment!,
-        );
-      } catch (e) {
-        if (mounted) {
-          _showError('Admission saved, but the payment could not be recorded: $e');
-        }
-      }
-    }
 
     if (mounted) _finishAdmission(patientId);
   }
@@ -605,7 +590,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       RoomModel? room;
       if (_selectedRoom != null && _createdStayIds.isEmpty) {
         final stepWatch = Stopwatch()..start();
-        debugPrint('[ADD PATIENT] STEP room-validation START roomId=${_selectedRoom!.id}');
+        debugPrint(
+          '[ADD PATIENT] STEP room-validation START roomId=${_selectedRoom!.id}',
+        );
         // Concurrency check only applies to actual room beds. Lobby placements
         // are deliberately independent from rooms and their beds.
         room = await roomService.getRoomDirect(_selectedRoom!.id);
@@ -619,7 +606,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           final bed = room.beds
               .where((b) => b.id == selectedBed.id)
               .firstOrNull;
-          if (bed == null || (!bed.isAvailable && bed.currentPatientId != _createdPatientId)) {
+          if (bed == null ||
+              (!bed.isAvailable && bed.currentPatientId != _createdPatientId)) {
             throw Exception(
               '${BedHelper.getBedDisplayName(selectedBed.bedLabel, roomIdentifier: room.roomIdentifier)} is no longer available. Please reselect beds.',
             );
@@ -738,7 +726,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           lobby: _selectedLobby,
           exitDate: _selectedExitDate,
           createdBy: currentUser.uid,
-          registrationNumber: _registrationNumberController.text.trim().isNotEmpty
+          registrationNumber:
+              _registrationNumberController.text.trim().isNotEmpty
               ? _registrationNumberController.text.trim()
               : null,
           registrationDate: _selectedRegistrationDate ?? DateTime.now(),
@@ -781,7 +770,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         debugPrint('[ADD PATIENT] STEP stay-creation START path=/stays');
         // Lobby placements create history records but never occupy room beds.
         if (_selectedLobby != null) {
-          final sanitizedLobby = _selectedLobby!.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+          final sanitizedLobby = _selectedLobby!.replaceAll(
+            RegExp(r'[^a-zA-Z0-9_-]'),
+            '_',
+          );
           final deterministicStayId = 'stay_${patientId}_lobby_$sanitizedLobby';
           final stayId = await roomService.createLobbyStay(
             patientId: patientId,
@@ -803,7 +795,8 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
               ? [_selectedBeds.first.id]
               : _selectedBeds.map((b) => b.id).toList();
           final patientSnapshot = <String, dynamic>{
-            'registrationNumber': _registrationNumberController.text.trim().isNotEmpty
+            'registrationNumber':
+                _registrationNumberController.text.trim().isNotEmpty
                 ? _registrationNumberController.text.trim()
                 : null,
             'admissionDate': admissionDate.millisecondsSinceEpoch,
@@ -817,7 +810,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                   'mobileNumber': a.mobileNumber,
                   'photoRef': a.photoRef,
                   'isEmergencyContact': a.isEmergencyContact,
-                }
+                },
             ],
           };
           final deterministicStayIds = bedIds
@@ -858,7 +851,9 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
       if (resumingAdmission) {
         final patchWatch = Stopwatch()..start();
-        debugPrint('[ADD PATIENT] STEP patient-patch START path=/patients/$patientId');
+        debugPrint(
+          '[ADD PATIENT] STEP patient-patch START path=/patients/$patientId',
+        );
         await ServiceLocator().rtdbService.patch('patients/$patientId', {
           'roomId': _selectedRoom?.id,
           'roomNumber': _selectedRoom?.roomIdentifier,
@@ -898,11 +893,14 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   /// in the background so it never blocks the admission flow.
   void _finishAdmission(String patientId) {
     unawaited(
-      ServiceLocator().paymentService.schedulePatientBilling(patientId).catchError(
-        (Object error) {
-          if (mounted) _showError('Admission saved; billing will need a refresh: $error');
-        },
-      ),
+      ServiceLocator().paymentService
+          .schedulePatientBilling(patientId)
+          .catchError((Object error) {
+            if (mounted)
+              _showError(
+                'Admission saved; billing will need a refresh: $error',
+              );
+          }),
     );
     Navigator.of(context).pop();
     widget.onPatientAdded?.call();
@@ -1539,7 +1537,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                           placementSelected:
                               _selectedRoom != null || _selectedLobby != null,
                           placementLabel: _selectedLobby,
-                          days: _plannedStayDays,
+                          days: _attendanceDays,
                           pricing: _pricing,
                           pricingLoaded: _pricingLoaded,
                           isUsingFallbackPricing: _isUsingFallbackPricing,
@@ -2214,16 +2212,18 @@ class _RoomDropdown extends StatelessWidget {
                   ? const Color(0xFF7A8B71).withValues(alpha: 0.8)
                   : const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
-              fontStyle:
-                  hint.startsWith('Clear') ? FontStyle.italic : FontStyle.normal,
+              fontStyle: hint.startsWith('Clear')
+                  ? FontStyle.italic
+                  : FontStyle.normal,
             ),
           ),
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           dropdownColor: const Color(0xFFF4F9F0),
           decoration: InputDecoration(
             filled: true,
-            fillColor:
-                isDisabled ? const Color(0xFFF0F4ED) : const Color(0xFFF4F9F0),
+            fillColor: isDisabled
+                ? const Color(0xFFF0F4ED)
+                : const Color(0xFFF4F9F0),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 10,

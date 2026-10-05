@@ -5,7 +5,7 @@
 ; -----------------------------------------------------------------------------
 
 #define MyAppName "NGO Management"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Aryahs World Infotech(OPC) Pvt. Ltd."
 #define MyAppExeName "ngo.exe"
 #define MyAppCopyright "Copyright (C) 2026 Aryahs World Infotech(OPC) Pvt. Ltd."
@@ -56,7 +56,7 @@ DisableProgramGroupPage=no
 CloseApplications=yes
 
 ; Executable Version Info Metadata
-VersionInfoVersion=1.0.0.1
+VersionInfoVersion=1.0.1.2
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}

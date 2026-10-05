@@ -99,6 +99,14 @@ class Harness {
       httpClient: MockClient((request) async {
         requests.add(request);
         if (request.method == 'GET') {
+          if (allowBillingReads && request.url.path == '/patients/p1.json') {
+            return http.Response(jsonEncode(memory!['p1']), 200);
+          }
+          if (allowBillingReads &&
+              request.url.path == '/stays.json' &&
+              request.url.queryParameters['equalTo'] == '"p1"') {
+            return http.Response('{}', 200);
+          }
           throw StateError('Unexpected REST read: ${request.url}');
         }
         final decoded = request.body.isEmpty ? null : jsonDecode(request.body);
@@ -128,6 +136,7 @@ class Harness {
   final subscriptions = <StreamSubscription<dynamic>>[];
   final emissions = <Map<String, dynamic>>[];
   int clock = 1000;
+  bool allowBillingReads = false;
 
   Map<String, dynamic>? get memory =>
       rest.latestValuesForTesting['patients'] as Map<String, dynamic>?;
@@ -649,11 +658,12 @@ void main() {
     );
 
     test(
-      'profile and Stays billing coalesce and only mutate targeted records',
+      'concurrent mutation billing coalesces and only changes targeted records',
       () async {
         await h.seed();
         await h.listen();
         await h.rest.rehydratePatientsForTesting();
+        h.allowBillingReads = true;
         final billing = GatedBilling(h.rest);
         final profile = billing.recalculatePatientAttendanceAndBilling('p1');
         await billing.gate.entered.future;
@@ -664,8 +674,18 @@ void main() {
         expect(billing.calculations, 1);
         expect(h.memory, hasLength(109));
         expect(h.memory!['p1']['totalPaidAmount'], 500);
-        expect(h.requests, hasLength(1));
-        expect(h.requests.single.method, 'PATCH');
+        expect(
+          h.requests.where((request) => request.method == 'GET'),
+          hasLength(2),
+        );
+        expect(
+          h.requests.where((request) => request.method == 'PATCH'),
+          hasLength(1),
+        );
+        expect(
+          h.requests.where((request) => request.url.path == '/patients.json'),
+          isEmpty,
+        );
       },
     );
   });

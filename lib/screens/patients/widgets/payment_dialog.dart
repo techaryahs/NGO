@@ -1,41 +1,16 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import '../../../models/patient_model.dart';
-import '../../../services/razorpay_service.dart';
 import '../../../services/service_locator.dart';
 import '../../../utils/pricing_helper.dart';
-
-// ── Pricing constants ─────────────────────────────────────────────────────────
-const int _kDefaultDays = 7;
-
-// ── Poll interval ─────────────────────────────────────────────────────────────
-const Duration _kPollInterval = Duration(seconds: 5);
-
-// ── Payment Methods ───────────────────────────────────────────────────────────
-enum PaymentMethod { cash, check, online }
+import '../../../utils/upi_payment.dart';
+import '../../../models/patient_model.dart';
 
 class PaymentDialogResult {
-  final PaymentModel? payment;
   final bool payLater;
-  final bool totalAmountEdited;
-
-  /// Populated when an online payment was verified and recorded by the
-  /// trusted backend. No local ledger write may happen for these payments.
-  final Map<String, dynamic>? onlinePayment;
-
-  PaymentDialogResult({
-    this.payment,
-    this.payLater = false,
-    this.totalAmountEdited = false,
-    this.onlinePayment,
-  });
+  final String? recordedPaymentId;
+  const PaymentDialogResult({this.payLater = false, this.recordedPaymentId});
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public helper — returns PaymentDialogResult if user confirmed/paid/selected pay later, null if cancelled.
-// ─────────────────────────────────────────────────────────────────────────────
 Future<PaymentDialogResult?> showPatientPaymentDialog({
   required BuildContext context,
   required String patientName,
@@ -43,979 +18,240 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
   required int bedsCount,
   required int attendantsCount,
   required String? roomIdentifier,
-  double alreadyPaid = 0.0,
+  double alreadyPaid = 0,
   bool showPayLater = false,
   double? totalBillOverride,
   String? patientId,
-}) {
-  return showDialog<PaymentDialogResult?>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _PatientPaymentDialog(
-      patientName: patientName,
-      contactNumber: contactNumber,
-      bedsCount: bedsCount,
-      attendantsCount: attendantsCount,
-      roomIdentifier: roomIdentifier,
-      alreadyPaid: alreadyPaid,
-      showPayLater: showPayLater,
-      totalBillOverride: totalBillOverride,
-      patientId: patientId,
-    ),
-  );
-}
+}) => showDialog<PaymentDialogResult>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => _PatientPaymentDialog(
+    patientName: patientName,
+    patientId: patientId,
+    total:
+        totalBillOverride ??
+        PricingHelper.calculateAdvanceAmount(
+          (roomIdentifier ?? '').toUpperCase().endsWith('A') ||
+              (roomIdentifier ?? '').toUpperCase().endsWith('B'),
+          attendantsCount,
+          bedsCount: bedsCount,
+        ),
+    alreadyPaid: alreadyPaid,
+    showPayLater: showPayLater,
+  ),
+);
 
-// ─────────────────────────────────────────────────────────────────────────────
-enum _PaymentStep { selectMethod, process, done }
-
-// ─────────────────────────────────────────────────────────────────────────────
 class _PatientPaymentDialog extends StatefulWidget {
   final String patientName;
-  final String contactNumber;
-  final int bedsCount;
-  final int attendantsCount;
-  final String? roomIdentifier;
+  final String? patientId;
+  final double total;
   final double alreadyPaid;
   final bool showPayLater;
-  final double? totalBillOverride;
-  final String? patientId;
-
   const _PatientPaymentDialog({
     required this.patientName,
-    required this.contactNumber,
-    required this.bedsCount,
-    required this.attendantsCount,
-    required this.roomIdentifier,
-    this.alreadyPaid = 0.0,
+    required this.patientId,
+    required this.total,
+    required this.alreadyPaid,
     required this.showPayLater,
-    this.totalBillOverride,
-    this.patientId,
   });
-
   @override
   State<_PatientPaymentDialog> createState() => _PatientPaymentDialogState();
 }
 
 class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
-  _PaymentStep _step = _PaymentStep.selectMethod;
-  PaymentMethod _selectedMethod = PaymentMethod.cash;
-
-  // Forms
-  final _receiptController = TextEditingController();
-  final _checkNoController = TextEditingController();
-  final _bankNameController = TextEditingController();
-  final _notesController = TextEditingController();
-  final _amountPayingNowController = TextEditingController();
-  final _totalAmountController = TextEditingController();
-  bool _payingAmountManuallyEdited = false;
-  bool _totalAmountManuallyEdited = false;
-  bool _updatingPayingAmount = false;
-
-  // Online / Razorpay
-  bool _isCreatingLink = false;
-  RazorpayPaymentLink? _paymentLink;
+  final _form = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _reference = TextEditingController();
+  final _receipt = TextEditingController();
+  final _notes = TextEditingController();
+  bool _submitting = false;
   String? _error;
-  Timer? _pollTimer;
-  int _pollCount = 0;
-  bool _polling = false;
-  static const int _maxPolls = 72;
-
-  // ── Amounts ────────────────────────────────────────────────────────────────
-  double get _calculatedTotal =>
-      widget.totalBillOverride ??
-      PricingHelper.calculateAdvanceAmount(
-        _isPrivateRoom,
-        widget.attendantsCount,
-      );
-  double get _grandTotal =>
-      double.tryParse(_totalAmountController.text.trim()) ?? _calculatedTotal;
-  double get _pendingTotal {
-    double p = _grandTotal - widget.alreadyPaid;
-    return p < 0 ? 0 : p;
-  }
-
-  double get _currentPayingAmount {
-    if (_amountPayingNowController.text.trim().isEmpty) return _pendingTotal;
-    return double.tryParse(_amountPayingNowController.text.trim()) ??
-        _pendingTotal;
-  }
-
-  int get _amountInPaise => (_currentPayingAmount * 100).round();
-  bool get _isPrivateRoom =>
-      (widget.roomIdentifier ?? '').toUpperCase().endsWith('A') ||
-      (widget.roomIdentifier ?? '').toUpperCase().endsWith('B');
-
-  String _fmt(double v) {
-    if (v >= 1000) {
-      return '₹${v.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'), (m) => '${m[1]},')}';
-    }
-    return '₹${v.toStringAsFixed(0)}';
-  }
-
+  double get _pending =>
+      (widget.total - widget.alreadyPaid).clamp(0, double.infinity);
+  double? get _paying => double.tryParse(_amount.text.trim());
   @override
   void initState() {
     super.initState();
-    _totalAmountController.text = _calculatedTotal.toStringAsFixed(0);
-    _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
-    _amountPayingNowController.addListener(_handlePayingAmountChanged);
-    _totalAmountController.addListener(_handleTotalAmountChanged);
+    _amount.text = _pending.toStringAsFixed(2);
+    _amount.addListener(_amountChanged);
   }
 
-  void _handlePayingAmountChanged() {
-    if (!_updatingPayingAmount) _payingAmountManuallyEdited = true;
-    if (mounted) setState(() {});
-  }
-
-  void _handleTotalAmountChanged() {
-    _totalAmountManuallyEdited = true;
-    if (!_payingAmountManuallyEdited) {
-      _updatingPayingAmount = true;
-      _amountPayingNowController.text = _pendingTotal.toStringAsFixed(0);
-      _amountPayingNowController.selection = TextSelection.collapsed(
-        offset: _amountPayingNowController.text.length,
-      );
-      _updatingPayingAmount = false;
-    }
-    if (mounted) setState(() {});
-  }
-
+  void _amountChanged() => setState(() {});
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _receiptController.dispose();
-    _checkNoController.dispose();
-    _bankNameController.dispose();
-    _notesController.dispose();
-    _amountPayingNowController.dispose();
-    _totalAmountController.dispose();
+    _amount.dispose();
+    _reference.dispose();
+    _receipt.dispose();
+    _notes.dispose();
     super.dispose();
   }
 
-  // ── Online Logic ──────────────────────────────────────────────────────────
-  Future<void> _startOnlinePayment() async {
-    if (_currentPayingAmount > _pendingTotal) {
-      setState(() => _error = 'Payment amount exceeds outstanding balance.');
-      return;
-    }
+  Future<void> _confirm() async {
+    if (_submitting || !_form.currentState!.validate()) return;
     if (widget.patientId == null) {
-      setState(
-        () => _error = 'Online payment requires the patient record to be saved first.',
-      );
+      setState(() => _error = 'Save the admission before recording payment.');
       return;
     }
-
     setState(() {
-      _isCreatingLink = true;
+      _submitting = true;
       _error = null;
-      _step = _PaymentStep.process;
     });
-
     try {
-      final idToken = await ServiceLocator().authRestService.getIdToken();
-      if (idToken == null) {
-        throw Exception('You are not authenticated.');
-      }
-      final link = await RazorpayService.createPaymentLink(
-        idToken: idToken,
+      final payment = PaymentModel(
+        id: 'upi_${widget.patientId}_${_reference.text.trim().toUpperCase()}',
+        amount: double.parse(UpiPayment.formatAmount(_paying!)),
+        method: 'ONLINE',
+        date: DateTime.now(),
+        transactionId: _reference.text.trim().toUpperCase(),
+        receiptNumber: _receipt.text.trim(),
+        notes: _notes.text.trim(),
+        totalAmount: widget.total,
+        paidAmount: widget.alreadyPaid + _paying!,
+        pendingAmount: (_pending - _paying!).clamp(0, double.infinity),
+      );
+      final id = await ServiceLocator().paymentService.recordPayment(
         patientId: widget.patientId!,
-        amountInPaise: _amountInPaise,
         patientName: widget.patientName,
-        contactNumber: widget.contactNumber,
-        description:
-            'Admission — ${widget.patientName} (Room ${widget.roomIdentifier ?? 'N/A'})',
-        notes: {
-          'beds': widget.bedsCount.toString(),
-          'attendants': widget.attendantsCount.toString(),
-          'room': widget.roomIdentifier ?? 'N/A',
-        },
+        payment: payment,
       );
-
-      setState(() {
-        _paymentLink = link;
-      });
-
-      _startPolling(link.id);
+      if (mounted)
+        Navigator.pop(context, PaymentDialogResult(recordedPaymentId: id));
     } catch (e) {
-      setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _step = _PaymentStep.selectMethod;
-      });
+      if (mounted) setState(() => _error = 'Payment could not be recorded: $e');
     } finally {
-      if (mounted) setState(() => _isCreatingLink = false);
-    }
-  }
-
-  void _startPolling(String linkId) {
-    _pollCount = 0;
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_kPollInterval, (_) => _poll(linkId));
-  }
-
-  Future<void> _poll(String linkId) async {
-    if (_polling) return;
-    _polling = true;
-    _pollCount++;
-    if (_pollCount > _maxPolls) {
-      _pollTimer?.cancel();
-      _polling = false;
-      return;
-    }
-
-    try {
-      final idToken = await ServiceLocator().authRestService.getIdToken();
-      if (idToken == null) return;
-      final status = await RazorpayService.getPaymentLinkStatus(
-        idToken: idToken,
-        linkId: linkId,
-      );
-      if (!mounted) return;
-
-      if (status.isPaid) {
-        _pollTimer?.cancel();
-        _onOnlinePaymentConfirmed(status);
-      }
-    } catch (_) {} finally {
-      _polling = false;
-    }
-  }
-
-  /// The backend verified the payment and recorded it in the ledger. The
-  /// client must not write a second payment record for this transaction.
-  void _onOnlinePaymentConfirmed(RazorpayPaymentStatus status) {
-    setState(() => _step = _PaymentStep.done);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted)
-        Navigator.of(context).pop(
-          PaymentDialogResult(
-            onlinePayment: {
-              'paymentId': status.paymentId,
-              'method': status.method,
-              'paidAt': status.paidAt?.millisecondsSinceEpoch,
-              'amountPaid': status.amountPaid,
-              'amount': _currentPayingAmount,
-            },
-            totalAmountEdited: _totalAmountManuallyEdited,
-          ),
-        );
-    });
-  }
-
-  void _onPaymentSuccess({String? transactionId, String? methodName}) {
-    double total = _grandTotal;
-    double payingNow = _currentPayingAmount;
-    double newPaid = widget.alreadyPaid + payingNow;
-    double pending = total - newPaid;
-    if (pending < 0) pending = 0;
-
-    String status = "Pending";
-    if (pending == 0) {
-      status = "Paid";
-    } else if (newPaid > 0) {
-      status = "Partial";
-    }
-
-    final payment = PaymentModel(
-      id: 'pay_${DateTime.now().millisecondsSinceEpoch}',
-      amount: payingNow,
-      totalAmount: total,
-      paidAmount: newPaid,
-      pendingAmount: pending,
-      paymentStatus: status,
-      method: methodName ?? _selectedMethod.name.toUpperCase(),
-      date: DateTime.now(),
-      receiptNumber: _receiptController.text.trim().isEmpty
-          ? null
-          : _receiptController.text.trim(),
-      checkNumber: _checkNoController.text.trim().isEmpty
-          ? null
-          : _checkNoController.text.trim(),
-      bankName: _bankNameController.text.trim().isEmpty
-          ? null
-          : _bankNameController.text.trim(),
-      transactionId: transactionId,
-      notes: _notesController.text.trim().isEmpty
-          ? null
-          : _notesController.text.trim(),
-    );
-
-    setState(() => _step = _PaymentStep.done);
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted)
-        Navigator.of(context).pop(
-          PaymentDialogResult(
-            payment: payment,
-            totalAmountEdited: _totalAmountManuallyEdited,
-          ),
-        );
-    });
-  }
-
-  void _confirmManual() {
-    if (_currentPayingAmount > _pendingTotal) {
-      setState(() => _error = 'Payment amount exceeds outstanding balance.');
-      return;
-    }
-    if (_selectedMethod == PaymentMethod.online) return;
-    if (_selectedMethod == PaymentMethod.cash) {
-      if (_receiptController.text.trim().isEmpty) {
-        setState(() => _error = 'Please enter receipt number');
-        return;
-      }
-      _onPaymentSuccess(methodName: 'Cash');
-    } else {
-      if (_checkNoController.text.trim().isEmpty) {
-        setState(() => _error = 'Please enter check number');
-        return;
-      }
-      _onPaymentSuccess(methodName: 'Check');
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-      child: Container(
-        width: 520,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 32,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _Header(step: _step),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: _buildBody(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_step == _PaymentStep.selectMethod) {
-      return _SelectMethodBody(
-        patientName: widget.patientName,
-        grandTotal: _grandTotal,
-        alreadyPaid: widget.alreadyPaid,
-        pendingTotal: (_pendingTotal - _currentPayingAmount)
-            .clamp(0, double.infinity)
-            .toDouble(),
-        amountPayingNowController: _amountPayingNowController,
-        totalAmountController: _totalAmountController,
-        fmt: _fmt,
-        selectedMethod: _selectedMethod,
-        error: _error,
-        onMethodChanged: (m) => setState(() => _selectedMethod = m),
-        showPayLater: widget.showPayLater,
-        onPayLater: () =>
-            Navigator.of(context).pop(PaymentDialogResult(payLater: true)),
-        onProceed: () {
-          if (_selectedMethod == PaymentMethod.online) {
-            _startOnlinePayment();
-          } else {
-            setState(() => _step = _PaymentStep.process);
-          }
-        },
-        onCancel: () => Navigator.of(context).pop(null),
-      );
-    } else if (_step == _PaymentStep.process) {
-      return _ProcessBody(
-        method: _selectedMethod,
-        patientName: widget.patientName,
-        grandTotal: _grandTotal,
-        payingAmount: _currentPayingAmount,
-        fmt: _fmt,
-        paymentLink: _paymentLink,
-        pollCount: _pollCount,
-        error: _error,
-        isLoading: _isCreatingLink,
-        receiptController: _receiptController,
-        checkNoController: _checkNoController,
-        bankNameController: _bankNameController,
-        notesController: _notesController,
-        onConfirm: _confirmManual,
-        onBack: () {
-          _pollTimer?.cancel();
-          setState(() => _step = _PaymentStep.selectMethod);
-        },
-      );
-    } else {
-      return _SuccessBody(
-        fmt: _fmt,
-        amount: _currentPayingAmount,
-        method: _selectedMethod,
-      );
-    }
-  }
-}
-
-class _Header extends StatelessWidget {
-  final _PaymentStep step;
-  const _Header({required this.step});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDone = step == _PaymentStep.done;
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: isDone ? const Color(0xFF3B6D11) : const Color(0xFFF8FBF4),
-        border: Border(
-          bottom: BorderSide(
-            color: isDone ? Colors.transparent : const Color(0xFFEAF3DE),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isDone ? Icons.check_circle_rounded : Icons.payments_rounded,
-            color: isDone ? Colors.white : const Color(0xFF3B6D11),
-            size: 28,
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isDone ? 'Payment Confirmed' : 'Payment Collection',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: isDone ? Colors.white : const Color(0xFF27500A),
-                ),
-              ),
-              Text(
-                isDone
-                    ? 'The transaction has been recorded'
-                    : 'Select a payment method to proceed',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDone ? Colors.white70 : const Color(0xFF639922),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SelectMethodBody extends StatelessWidget {
-  final String patientName;
-  final double grandTotal;
-  final double alreadyPaid;
-  final double pendingTotal;
-  final TextEditingController amountPayingNowController;
-  final TextEditingController totalAmountController;
-  final String Function(double) fmt;
-  final PaymentMethod selectedMethod;
-  final String? error;
-  final ValueChanged<PaymentMethod> onMethodChanged;
-  final VoidCallback onProceed;
-  final VoidCallback onCancel;
-  final bool showPayLater;
-  final VoidCallback? onPayLater;
-
-  const _SelectMethodBody({
-    required this.patientName,
-    required this.grandTotal,
-    required this.alreadyPaid,
-    required this.pendingTotal,
-    required this.amountPayingNowController,
-    required this.totalAmountController,
-    required this.fmt,
-    required this.selectedMethod,
-    this.error,
-    required this.onMethodChanged,
-    required this.onProceed,
-    required this.onCancel,
-    required this.showPayLater,
-    this.onPayLater,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _InfoTile(
-            label: 'Patient',
-            value: patientName,
-            icon: Icons.person_outline,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _TextField(
-                  label: 'Total Amount',
-                  controller: totalAmountController,
-                  icon: Icons.currency_rupee,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoTile(
-                  label: 'Already Paid',
-                  value: fmt(alreadyPaid),
-                  icon: Icons.verified_rounded,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoTile(
-                  label: 'Pending Amount',
-                  value: fmt(pendingTotal),
-                  icon: Icons.pending_actions_rounded,
-                  valueColor: pendingTotal > 0
-                      ? Colors.red
-                      : const Color(0xFF27500A),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _TextField(
-            label: 'Amount Paying Now',
-            controller: amountPayingNowController,
-            icon: Icons.payments_outlined,
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'SELECT PAYMENT METHOD',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF639922),
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _MethodCard(
-                method: PaymentMethod.cash,
-                selected: selectedMethod == PaymentMethod.cash,
-                label: 'Cash',
-                icon: Icons.money_rounded,
-                onTap: () => onMethodChanged(PaymentMethod.cash),
-              ),
-              const SizedBox(width: 12),
-              _MethodCard(
-                method: PaymentMethod.check,
-                selected: selectedMethod == PaymentMethod.check,
-                label: 'Check',
-                icon: Icons.account_balance_wallet_rounded,
-                onTap: () => onMethodChanged(PaymentMethod.check),
-              ),
-              const SizedBox(width: 12),
-              _MethodCard(
-                method: PaymentMethod.online,
-                selected: selectedMethod == PaymentMethod.online,
-                label: 'Online / QR',
-                icon: Icons.qr_code_rounded,
-                onTap: () => onMethodChanged(PaymentMethod.online),
-              ),
-            ],
-          ),
-          if (error != null) ...[
-            const SizedBox(height: 16),
-            Text(
-              error!,
-              style: const TextStyle(color: Colors.red, fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 32),
-          Row(
-            children: [
-              TextButton(
-                onPressed: onCancel,
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-              if (showPayLater && onPayLater != null) ...[
-                const SizedBox(width: 12),
-                OutlinedButton(
-                  onPressed: onPayLater,
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFF639922)),
-                    foregroundColor: const Color(0xFF639922),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+    final amount = _paying;
+    final validAmount =
+        amount != null &&
+        amount.isFinite &&
+        amount >= 0.01 &&
+        amount <= _pending;
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
+        title: const Text('Online UPI Payment'),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Form(
+              key: _form,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(widget.patientName),
+                  Text('Pending: ₹${_pending.toStringAsFixed(2)}'),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _amount,
+                    enabled: !_submitting,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 16,
+                    decoration: const InputDecoration(
+                      labelText: 'Amount to collect (₹)',
+                    ),
+                    validator: (value) {
+                      if (!validAmount)
+                        return 'Enter a positive amount within the pending balance.';
+                      if (!RegExp(
+                        r'^\d+(?:\.\d{1,2})?$',
+                      ).hasMatch(value!.trim())) {
+                        return 'Use at most two decimal places.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  if (validAmount) ...[
+                    Text(
+                      'Scan QR & Pay ₹${UpiPayment.formatAmount(amount)}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    QrImageView(
+                      data: UpiPayment.uri(
+                        amount,
+                        note: 'Stay payment - ${widget.patientName}',
+                      ),
+                      size: 240,
+                      backgroundColor: Colors.white,
+                    ),
+                  ],
+                  const Text(
+                    UpiPayment.payee,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SelectableText(UpiPayment.vpa),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Confirm receipt in the NGO account before entering the reference. '
+                    'This app does not verify payment with the bank.',
+                  ),
+                  TextFormField(
+                    controller: _reference,
+                    enabled: !_submitting,
+                    decoration: const InputDecoration(
+                      labelText: 'UTR / UPI reference',
+                    ),
+                    validator: UpiPayment.validateReference,
+                  ),
+                  TextFormField(
+                    controller: _receipt,
+                    enabled: !_submitting,
+                    decoration: const InputDecoration(
+                      labelText: 'Receipt number (optional)',
                     ),
                   ),
-                  child: const Text(
-                    'Pay Later',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  TextFormField(
+                    controller: _notes,
+                    enabled: !_submitting,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes (optional)',
+                    ),
                   ),
-                ),
-              ],
-              const Spacer(),
-              ElevatedButton(
-                onPressed: onProceed,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B6D11),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 32,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Continue →',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                ],
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProcessBody extends StatelessWidget {
-  final PaymentMethod method;
-  final String patientName;
-  final double grandTotal;
-  final double payingAmount;
-  final String Function(double) fmt;
-  final RazorpayPaymentLink? paymentLink;
-  final int pollCount;
-  final String? error;
-  final bool isLoading;
-  final TextEditingController receiptController;
-  final TextEditingController checkNoController;
-  final TextEditingController bankNameController;
-  final TextEditingController notesController;
-  final VoidCallback onConfirm;
-  final VoidCallback onBack;
-
-  const _ProcessBody({
-    required this.method,
-    required this.patientName,
-    required this.grandTotal,
-    required this.payingAmount,
-    required this.fmt,
-    this.paymentLink,
-    required this.pollCount,
-    this.error,
-    required this.isLoading,
-    required this.receiptController,
-    required this.checkNoController,
-    required this.bankNameController,
-    required this.notesController,
-    required this.onConfirm,
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          if (method == PaymentMethod.online) ...[
-            if (isLoading)
-              const Center(child: CircularProgressIndicator())
-            else ...[
-              const Text(
-                'Scan QR Code to Pay',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              if (paymentLink != null) Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFEAF3DE)),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: QrImageView(
-                  data: paymentLink!.url,
-                  size: 200,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Checking payment status... (#$pollCount)',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF639922)),
-              ),
-            ],
-          ] else if (method == PaymentMethod.cash) ...[
-            _TextField(
-              label: 'Receipt Number',
-              controller: receiptController,
-              icon: Icons.receipt_long_rounded,
             ),
-          ] else ...[
-            _TextField(
-              label: 'Check Number',
-              controller: checkNoController,
-              icon: Icons.pin_rounded,
-            ),
-            const SizedBox(height: 12),
-            _TextField(
-              label: 'Bank Name',
-              controller: bankNameController,
-              icon: Icons.account_balance_rounded,
-            ),
-          ],
-          const SizedBox(height: 12),
-          _TextField(
-            label: 'Notes (Optional)',
-            controller: notesController,
-            icon: Icons.notes_rounded,
-            maxLines: 2,
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              TextButton(onPressed: onBack, child: const Text('← Back')),
-              const Spacer(),
-              if (method != PaymentMethod.online) ElevatedButton(
-                onPressed: onConfirm,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B6D11),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 32,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Save Payment'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SuccessBody extends StatelessWidget {
-  final String Function(double) fmt;
-  final double amount;
-  final PaymentMethod method;
-
-  const _SuccessBody({
-    required this.fmt,
-    required this.amount,
-    required this.method,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        children: [
-          const Icon(
-            Icons.check_circle_rounded,
-            color: Color(0xFF3B6D11),
-            size: 80,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            fmt(amount),
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF27500A),
-            ),
-          ),
-          const Text(
-            'Payment Recorded Successfully',
-            style: TextStyle(
-              color: Color(0xFF639922),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final bool isBold;
-  final Color? valueColor;
-
-  const _InfoTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-    this.isBold = false,
-    this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FBF4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: const Color(0xFF3B6D11)),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF639922)),
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
-              color: valueColor ?? const Color(0xFF27500A),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MethodCard extends StatelessWidget {
-  final PaymentMethod method;
-  final bool selected;
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _MethodCard({
-    required this.method,
-    required this.selected,
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFF3B6D11) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected
-                  ? const Color(0xFF3B6D11)
-                  : const Color(0xFFEAF3DE),
-              width: 2,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                color: selected ? Colors.white : const Color(0xFF3B6D11),
-                size: 28,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? Colors.white : const Color(0xFF27500A),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _TextField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final IconData icon;
-  final int maxLines;
-  final TextInputType? keyboardType;
-
-  const _TextField({
-    required this.label,
-    required this.controller,
-    required this.icon,
-    this.maxLines = 1,
-    this.keyboardType,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      maxLines: maxLines,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF3B6D11)),
-        filled: true,
-        fillColor: const Color(0xFFF8FBF4),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF3B6D11)),
-        ),
+        actions: [
+          TextButton(
+            onPressed: _submitting ? null : () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          if (widget.showPayLater)
+            TextButton(
+              onPressed: _submitting
+                  ? null
+                  : () => Navigator.pop(
+                      context,
+                      const PaymentDialogResult(payLater: true),
+                    ),
+              child: const Text('Pay Later'),
+            ),
+          FilledButton(
+            onPressed: _submitting ? null : _confirm,
+            child: Text(
+              _submitting ? 'Recording…' : 'Confirm received payment',
+            ),
+          ),
+        ],
       ),
     );
   }

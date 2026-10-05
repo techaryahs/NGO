@@ -122,7 +122,14 @@ class TestDatabase extends FirebaseRTDBRestService {
       final keys = entry.key.split('/');
       Map parent = root;
       for (final key in keys.take(keys.length - 1)) {
-        parent = parent.putIfAbsent(key, () => <String, dynamic>{}) as Map;
+        final child = parent.putIfAbsent(key, () => <String, dynamic>{});
+        if (child is List) {
+          parent[key] = {
+            for (final entry in child.asMap().entries)
+              entry.key.toString(): entry.value,
+          };
+        }
+        parent = parent[key] as Map;
       }
       if (entry.value == null) {
         parent.remove(keys.last);
@@ -187,23 +194,25 @@ void main() {
     expect(bill.days['active'], 7);
   });
 
-  test('an active stay without an exit date remains billed for seven days', () {
-    final bill = StayBilling.calculate(
-      patient: patient(status: 'active'),
-      stays: [
-        StayModel.fromMap(
-          'active',
-          segment('active', 'general', 1, 8, status: 'active'),
-        ),
-      ],
-      pricing: {'generalRoomBedPrice': 200},
-      // A much later date must not extend the default estimate.
-      now: DateTime(2026, 2, 7),
-    ).single;
+  test(
+    'an active stay without an exit date bills elapsed days beyond seven',
+    () {
+      final bill = StayBilling.calculate(
+        patient: patient(status: 'active'),
+        stays: [
+          StayModel.fromMap(
+            'active',
+            segment('active', 'general', 1, 8, status: 'active'),
+          ),
+        ],
+        pricing: {'generalRoomBedPrice': 200},
+        now: DateTime(2026, 2, 7),
+      ).single;
 
-    expect(bill.days['active'], 7);
-    expect(bill.total, 1400);
-  });
+      expect(bill.days['active'], 38);
+      expect(bill.total, 7600);
+    },
+  );
 
   test('active shifted segment without exit date gets its own estimate', () {
     final bill = StayBilling.calculate(
@@ -223,16 +232,16 @@ void main() {
     ).single;
 
     expect(bill.days['lobby'], 7);
-    expect(bill.days['room'], 7);
-    expect(bill.charges['room'], 1400);
-    expect(bill.total, 2800);
+    expect(bill.days['room'], 19);
+    expect(bill.charges['room'], 3800);
+    expect(bill.total, 5200);
   });
 
-  test('present marks replace the seven-day estimate for patient days', () {
+  test('present marks do not erase other unmarked patient days', () {
     final data = segment('lobby', 'lobby', 1, 8, status: 'active')
       ..['attendantCount'] = 1;
     final bill = StayBilling.calculate(
-      patient: patient(status: 'active'),
+      patient: patient(status: 'active', exit: 8),
       stays: [StayModel.fromMap('lobby', data)],
       pricing: {'generalRoomBedPrice': 200},
       attendance: {
@@ -245,15 +254,15 @@ void main() {
       },
     ).single;
 
-    expect(bill.days['lobby'], 4);
-    expect(bill.total, 1400);
+    expect(bill.days['lobby'], 7);
+    expect(bill.total, 2000);
   });
 
   test('patient marks do not create unmarked attendant charges', () {
     final data = segment('lobby', 'lobby', 1, 8, status: 'active')
       ..['attendantCount'] = 1;
     final bill = StayBilling.calculate(
-      patient: patient(status: 'active'),
+      patient: patient(status: 'active', exit: 8),
       stays: [StayModel.fromMap('lobby', data)],
       pricing: {'generalRoomBedPrice': 200},
       attendance: {
@@ -262,15 +271,15 @@ void main() {
       },
     ).single;
 
-    expect(bill.days['lobby'], 4);
-    expect(bill.total, 800);
+    expect(bill.days['lobby'], 7);
+    expect(bill.total, 1400);
   });
 
   test(
     'saved attendant mark updates billing even when the next read is stale',
     () async {
       final db = TestDatabase({
-        'patients': {'p': patient(status: 'active').toMap()},
+        'patients': {'p': patient(status: 'active', exit: 8).toMap()},
         'stays': {'lobby': segment('lobby', 'lobby', 1, 8, status: 'active')},
         'attendance': {
           'daily': {
@@ -300,8 +309,8 @@ void main() {
         },
       );
 
-      expect(stale['patients/p/advanceBilledAmount'], 1800);
-      expect(corrected['patients/p/advanceBilledAmount'], 2000);
+      expect(stale['patients/p/advanceBilledAmount'], 2200);
+      expect(corrected['patients/p/advanceBilledAmount'], 2400);
     },
   );
 

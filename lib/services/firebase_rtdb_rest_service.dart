@@ -691,6 +691,11 @@ class FirebaseRTDBRestService {
     final existing = map[path[0]];
     final nested = existing is Map
         ? Map<String, dynamic>.from(existing)
+        : existing is List
+        ? {
+            for (final entry in existing.asMap().entries)
+              entry.key.toString(): entry.value,
+          }
         : <String, dynamic>{};
     _setNestedField(nested, path.sublist(1), value);
     map[path[0]] = nested;
