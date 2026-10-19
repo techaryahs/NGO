@@ -12,17 +12,34 @@ import 'package:path_provider/path_provider.dart';
 
 import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
+import 'backend_api_service.dart';
 
 /// Targeted RTDB photo records. Patient and stay metadata never contain bytes.
 class PhotoRtdbService {
   PhotoRtdbService({
-    required FirebaseRTDBRestService rtdb,
+    FirebaseRTDBRestService? rtdb,
+    BackendApiService? backendApi,
     PersistentCache? persistentCache,
   }) : _rtdb = rtdb,
+       _backendApi = backendApi,
        _persistentCache = persistentCache;
 
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _rtdb;
+  final BackendApiService? _backendApi;
   final PersistentCache? _persistentCache;
+
+  bool get isPostgres => _backendApi != null;
+
+  FirebaseRTDBRestService get _safeRtdb {
+    final rtdb = _rtdb;
+    if (rtdb == null) {
+      throw StateError(
+        'Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true. '
+        'All database operations must route through BackendApiService.',
+      );
+    }
+    return rtdb;
+  }
   static const maxDimension = 720;
   static const jpegQuality = 78;
   static const maxSourceBytes = 8 * 1024 * 1024;
@@ -106,19 +123,36 @@ class PhotoRtdbService {
     final prepared = await Isolate.run(() => prepare(bytes));
     final version = DateTime.now().microsecondsSinceEpoch;
     final data = base64Encode(prepared.bytes);
-    await _rtdb.put(photoPath, {
-      'data': data,
-      'contentType': prepared.contentType,
-      'version': version,
-      'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    });
-    // Read back the exact targeted record before metadata can point at it.
-    final saved = await _rtdb.get(photoPath);
-    if (saved is! Map ||
-        saved['data'] != data ||
-        saved['contentType'] != prepared.contentType ||
-        saved['version'] != version) {
-      throw StateError('Photo write verification failed');
+    final backendApi = _backendApi;
+    if (backendApi != null) {
+      await backendApi.putPhoto(
+        photoPath,
+        data: data,
+        contentType: prepared.contentType,
+        version: version,
+      );
+      final saved = await backendApi.getPhoto(photoPath);
+      if (saved == null ||
+          saved['data'] != data ||
+          saved['contentType'] != prepared.contentType ||
+          saved['version'] != version) {
+        throw StateError('Photo write verification failed');
+      }
+    } else {
+      await _safeRtdb.put(photoPath, {
+        'data': data,
+        'contentType': prepared.contentType,
+        'version': version,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      // Read back the exact targeted record before metadata can point at it.
+      final saved = await _safeRtdb.get(photoPath);
+      if (saved is! Map ||
+          saved['data'] != data ||
+          saved['contentType'] != prepared.contentType ||
+          saved['version'] != version) {
+        throw StateError('Photo write verification failed');
+      }
     }
     invalidate(photoPath);
     _remember(photoPath, prepared.bytes);
@@ -133,7 +167,13 @@ class PhotoRtdbService {
 
   Future<bool> photoExists(String photoPath) async {
     if (!validPath(photoPath)) return false;
-    final value = await _rtdb.get(photoPath);
+    final dynamic value;
+    final backendApi = _backendApi;
+    if (backendApi != null) {
+      value = await backendApi.getPhoto(photoPath);
+    } else {
+      value = await _safeRtdb.get(photoPath);
+    }
     if (value is! Map ||
         value['data'] is! String ||
         value['contentType'] is! String)
@@ -153,7 +193,13 @@ class PhotoRtdbService {
   Future<({Uint8List bytes, int version, String contentType})?>
   _downloadPhotoRecord(String photoPath) async {
     if (!validPath(photoPath)) return null;
-    final value = await _rtdb.get(photoPath);
+    final dynamic value;
+    final backendApi = _backendApi;
+    if (backendApi != null) {
+      value = await backendApi.getPhoto(photoPath);
+    } else {
+      value = await _safeRtdb.get(photoPath);
+    }
     if (value is! Map || value['data'] is! String) return null;
     if (value['contentType'] != 'image/jpeg' &&
         value['contentType'] != 'image/png') {
@@ -250,7 +296,15 @@ class PhotoRtdbService {
   Future<void> deletePhoto(String photoPath) async {
     if (!validPath(photoPath))
       throw ArgumentError.value(photoPath, 'photoPath');
-    await _rtdb.delete(photoPath);
+    final backendApi = _backendApi;
+    if (backendApi != null) {
+      final cleanPath = photoPath.startsWith('patientPhotos/')
+          ? photoPath
+          : 'patientPhotos/$photoPath';
+      await backendApi.delete('photos/$cleanPath');
+    } else {
+      await _safeRtdb.delete(photoPath);
+    }
     invalidate(photoPath);
     try {
       await _deleteDisk(photoPath);

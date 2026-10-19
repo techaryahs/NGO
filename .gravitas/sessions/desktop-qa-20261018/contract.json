@@ -1,0 +1,31 @@
+{
+  "allowed_write_scope": [
+    "lib/",
+    "backend/",
+    "test/",
+    "tool/",
+    "audit/",
+    ".gravitas/sessions/desktop-qa-20261018/"
+  ],
+  "objective": "Fix and verify NGO workflows through code-based tests and measure scalability with synthetic data; no Computer Use",
+  "verification": "code-based-cross-layer-postgres-regression-and-scale-measurements",
+  "non_goals": [
+    "No computer skill or desktop operation",
+    "No VPS deployment",
+    "No production data or database reset",
+    "No auth bypass in app",
+    "No unrequested billing formula changes"
+  ],
+  "risk": "high",
+  "mode": "debug",
+  "acceptance_criteria": [
+    "Current code compiles and financial expectedVersion fixes preserve conflict protection",
+    "Code-based coverage of registration, rooms/beds, attendance, billing, payments, discharge, auth, settings and ERP with explicit gaps",
+    "Real PostgreSQL cross-layer regression workflows pass against isolated synthetic database",
+    "Data-volume benchmarks record sizes, durations and request counts with demonstrated bottlenecks corrected",
+    "No unexpected PostgreSQL-mode application data routes to RTDB",
+    "Current Windows release builds after final mutations",
+    "Report actual evidence and scalability limits without desktop verification claims"
+  ],
+  "budget": "deep"
+}

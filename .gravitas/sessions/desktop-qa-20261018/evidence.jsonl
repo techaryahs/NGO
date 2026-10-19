@@ -1,0 +1,4 @@
+{"phase":"before","criterion":"Startup role restoration","evidence":"Actual desktop Volunteer Portal despite admin SQL; deterministic role HTTP starts before SQLite activation;503 swallowed","status":"FAIL"}
+{"phase":"after","criterion":"Startup role restoration","evidence":"13 targeted Flutter auth/cache tests passed; desktop retest pending","status":"SUPPORTED"}
+{"phase":"before","criterion":"Registration safe retry","evidence":"Disposable PG regression:7 failures,2 passes; mismatched assignments200 and concurrent identical201/201","status":"FAIL"}
+{"phase":"before","criterion":"Backend baseline","evidence":"70 unit tests passed84 skipped,6 files passed6 skipped,8.09s","artifact":"audit/desktop-qa-20261018/backend-unit-baseline.log","status":"PASS"}

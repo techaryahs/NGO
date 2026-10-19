@@ -1,6 +1,9 @@
+import '../../config/app_config.dart';
 import '../../models/patient_model.dart';
 import '../../models/stay_model.dart';
+import '../../services/backend_api_service.dart';
 import '../../services/firebase_rtdb_rest_service.dart';
+import '../../services/service_locator.dart';
 import '../../utils/pricing_helper.dart';
 import '../../utils/stay_billing.dart';
 
@@ -14,18 +17,28 @@ class AttendanceInterval {
 class AttendanceRow {
   final String patientId;
   final String patientName;
+  final String? registrationNumber;
   final String? attendantName;
   final String room;
   final List<AttendanceInterval> intervals;
   const AttendanceRow({
     required this.patientId,
     required this.patientName,
+    this.registrationNumber,
     this.attendantName,
     required this.room,
     required this.intervals,
   });
   bool get isAttendant => attendantName != null;
   String get name => attendantName ?? patientName;
+  String get displayName {
+    if (isAttendant) return attendantName!;
+    if (registrationNumber != null && registrationNumber!.trim().isNotEmpty) {
+      return '$patientName (#$registrationNumber)';
+    }
+    return patientName;
+  }
+
   bool enabled(DateTime date) =>
       intervals.any((interval) => interval.contains(StayBilling.day(date)));
   String path(DateTime date) {
@@ -61,9 +74,18 @@ class MonthlyAttendanceData {
       byPatient.putIfAbsent(stay.patientId, () => []).add(stay);
     }
     final sorted = [...patients]
-      ..sort(
-        (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
-      );
+      ..sort((a, b) {
+        final cmp = a.fullName.toLowerCase().compareTo(
+          b.fullName.toLowerCase(),
+        );
+        if (cmp != 0) return cmp;
+        final regA = int.tryParse(a.registrationNumber ?? '') ?? 0;
+        final regB = int.tryParse(b.registrationNumber ?? '') ?? 0;
+        if (regA != 0 && regB != 0) return regA.compareTo(regB);
+        return (a.registrationNumber ?? '').compareTo(
+          b.registrationNumber ?? '',
+        );
+      });
     for (final patient in sorted) {
       final intervals = <AttendanceInterval>[];
       final attendantIntervals = <String, List<AttendanceInterval>>{};
@@ -145,6 +167,7 @@ class MonthlyAttendanceData {
         AttendanceRow(
           patientId: patient.id,
           patientName: patient.fullName,
+          registrationNumber: patient.registrationNumber,
           room: room,
           intervals: intervals,
         ),
@@ -154,6 +177,7 @@ class MonthlyAttendanceData {
           AttendanceRow(
             patientId: patient.id,
             patientName: patient.fullName,
+            registrationNumber: patient.registrationNumber,
             attendantName: entry.key,
             room: room,
             intervals: entry.value,
@@ -207,14 +231,59 @@ class MonthlyAttendanceEditor {
   };
   Set<String> get affectedPatientIds =>
       dirty.values.map((record) => record['patientId'] as String).toSet();
-  Future<Set<String>> save(FirebaseRTDBRestService db) async {
+  Future<Set<String>> save([
+    FirebaseRTDBRestService? db,
+    BackendApiService? backendApi,
+  ]) async {
     if (saving || dirty.isEmpty) return {};
     saving = true;
     final submitted = Map<String, Map<String, dynamic>>.from(dirty);
     final affected = affectedPatientIds;
+    final currentPatch = patch;
+    final usePostgres =
+        backendApi != null || (db == null && AppConfig.usePostgresBackend);
     try {
-      // REST PATCH also updates partitioned SQLite and targeted shared streams.
-      await db.patch('', patch);
+      if (usePostgres) {
+        final api = backendApi ?? ServiceLocator().backendApiService;
+        final groups = <String, Map<String, dynamic>>{};
+        currentPatch.forEach((path, val) {
+          if (val is Map) {
+            final parts = path.split('/');
+            final kind = parts[0];
+            final date = parts[2];
+            final patientId = parts[3];
+            final groupKey = '$kind|$date';
+            final recordsForDate = groups.putIfAbsent(
+              groupKey,
+              () => <String, dynamic>{},
+            );
+            if (kind == 'attendant_attendance' && parts.length > 4) {
+              final attKey = parts[4];
+              final attMap =
+                  recordsForDate.putIfAbsent(
+                        patientId,
+                        () => <String, dynamic>{},
+                      )
+                      as Map<String, dynamic>;
+              attMap[attKey] = Map<String, dynamic>.from(val);
+            } else {
+              recordsForDate[patientId] = Map<String, dynamic>.from(val);
+            }
+          }
+        });
+        for (final entry in groups.entries) {
+          final parts = entry.key.split('|');
+          await api.postAttendanceBulk(
+            kind: parts[0],
+            date: parts[1],
+            records: entry.value,
+          );
+        }
+      } else {
+        final rtdb = db ?? ServiceLocator().rtdbService;
+        // REST PATCH also updates partitioned SQLite and targeted shared streams.
+        await rtdb.patch('', currentPatch);
+      }
       data.records.addAll(submitted);
       for (final entry in submitted.entries) {
         if (identical(dirty[entry.key], entry.value)) dirty.remove(entry.key);
@@ -227,19 +296,70 @@ class MonthlyAttendanceEditor {
 }
 
 class AttendanceService {
-  final FirebaseRTDBRestService db;
-  AttendanceService(this.db);
+  final FirebaseRTDBRestService? _db;
+  final BackendApiService? _backendApi;
+  AttendanceService([this._db, this._backendApi]);
+
+  /// Project the same stored daily map used by the monthly grid into a profile.
+  /// Missing days stay absent from the map and are displayed as Unmarked.
+  static Map<String, Map<String, dynamic>> patientRecords(
+    dynamic daily,
+    String patientId,
+  ) => {
+    if (daily is Map)
+      for (final day in daily.entries)
+        if (day.value is Map && day.value[patientId] is Map)
+          day.key.toString(): Map<String, dynamic>.from(day.value[patientId]),
+  };
+
+  static ({int present, int absent, int total, double percentage}) summary(
+    Iterable<Map<String, dynamic>> records,
+  ) {
+    final marks = records.toList();
+    final present = marks.where((r) => r['status'] == 'Present').length;
+    final absent = marks.where((r) => r['status'] == 'Absent').length;
+    final total = present + absent;
+    return (
+      present: present,
+      absent: absent,
+      total: total,
+      percentage: total == 0 ? 0 : present * 100 / total,
+    );
+  }
+
+  bool get isPostgres =>
+      _backendApi != null || (_db == null && AppConfig.usePostgresBackend);
+
   Future<MonthlyAttendanceData> loadMonth(DateTime month) async {
     final first = StayBilling.dateKey(DateTime(month.year, month.month, 1));
     final last = StayBilling.dateKey(DateTime(month.year, month.month + 1, 0));
-    final values = await Future.wait<dynamic>([
-      db.getByKeyRange('attendance/daily', startKey: first, endKey: last),
-      db.getByKeyRange(
-        'attendant_attendance/daily',
-        startKey: first,
-        endKey: last,
-      ),
-    ]);
+    final values = isPostgres
+        ? await Future.wait<dynamic>([
+            (_backendApi ?? ServiceLocator().backendApiService)
+                .getAttendanceRange(
+                  kind: 'attendance',
+                  startKey: first,
+                  endKey: last,
+                ),
+            (_backendApi ?? ServiceLocator().backendApiService)
+                .getAttendanceRange(
+                  kind: 'attendant_attendance',
+                  startKey: first,
+                  endKey: last,
+                ),
+          ])
+        : await Future.wait<dynamic>([
+            (_db ?? ServiceLocator().rtdbService).getByKeyRange(
+              'attendance/daily',
+              startKey: first,
+              endKey: last,
+            ),
+            (_db ?? ServiceLocator().rtdbService).getByKeyRange(
+              'attendant_attendance/daily',
+              startKey: first,
+              endKey: last,
+            ),
+          ]);
     final records = <String, Map<String, dynamic>>{};
     for (var index = 0; index < values.length; index++) {
       final daily = values[index];

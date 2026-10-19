@@ -1,0 +1,57 @@
+ M .gitignore
+ M database.rules.json
+ M installer/NGO-Management.iss
+ M lib/cache/persistent_cache.dart
+ M lib/config/app_config.dart
+ M lib/screens/attendance/attendance.dart
+ M lib/screens/attendance/attendance_service.dart
+ M lib/screens/auth/auth_wrapper.dart
+ M lib/screens/auth/login_screen.dart
+ M lib/screens/auth/signup_screen.dart
+ M lib/screens/dashboard/dashboard_screen.dart
+ M lib/screens/patients/patient_profile_screen.dart
+ M lib/screens/patients/patients_screen.dart
+ M lib/screens/patients/widgets/add_patient_dialog.dart
+ M lib/screens/patients/widgets/edit_patient_dialog.dart
+ M lib/screens/patients/widgets/inline_stay_editor.dart
+ M lib/screens/patients/widgets/shift_timeline_editor.dart
+ M lib/screens/patients/widgets/stay_history_card.dart
+ M lib/services/auth_service.dart
+ M lib/services/firebase_auth_rest_service.dart
+ M lib/services/firebase_rtdb_rest_service.dart
+ M lib/services/inventory_expense_service.dart
+ M lib/services/patient_service.dart
+ M lib/services/payment_service.dart
+ M lib/services/photo_migration_service.dart
+ M lib/services/photo_rtdb_service.dart
+ M lib/services/room_service.dart
+ M lib/services/room_service_beds.dart
+ M lib/services/room_service_pricing.dart
+ M lib/services/room_service_rooms.dart
+ M lib/services/room_service_stays.dart
+ M lib/services/service_locator.dart
+ M lib/services/settings_service.dart
+ M lib/services/sponsorship_service.dart
+ M lib/services/stay_history_service.dart
+ M test/patient_collection_consistency_test.dart
+ M test/photo_rtdb_test.dart
+?? .dockerignore
+?? .env.example
+?? .gravitas/
+?? DEPLOYMENT.md
+?? audit/
+?? backend/
+?? docker-compose.yml
+?? installer/output/NGO-Management-Setup-1.0.2.exe
+?? lib/services/backend_api_service.dart
+?? lib/services/registration_number_service.dart
+?? test/automatic_registration_number_test.dart
+?? test/backend_api_regression_test.dart
+?? test/backend_api_service_test.dart
+?? test/backend_config_test.dart
+?? test/domain_service_postgres_integration_test.dart
+?? test/global_billing_restatement_test.dart
+?? test/global_billing_restatement_transport_test.py
+?? test/postgres_cutover_regression_test.dart
+?? test/postgres_real_workflows_e2e_test.dart
+?? tool/

@@ -379,18 +379,26 @@ class FirebaseAuthRestService {
       _expiresAt = DateTime.parse(expiresAtStr);
     }
 
+    if (_authStateController.isClosed) return;
+
     // Emit initial auth state
     if (_isTokenValid()) {
       _currentAuthState = currentUser;
-      _authStateController.add(currentUser);
+      if (!_authStateController.isClosed) {
+        _authStateController.add(currentUser);
+      }
     } else if (_refreshToken != null) {
       // Try to refresh token
       await _refreshIdToken();
       _currentAuthState = currentUser;
-      _authStateController.add(currentUser);
+      if (!_authStateController.isClosed) {
+        _authStateController.add(currentUser);
+      }
     } else {
       _currentAuthState = null;
-      _authStateController.add(null);
+      if (!_authStateController.isClosed) {
+        _authStateController.add(null);
+      }
     }
   }
 

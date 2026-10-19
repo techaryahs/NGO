@@ -1,0 +1,17 @@
+ current_database | current_setting 
+------------------+-----------------
+ ngo_db           | 16.15
+(1 row)
+
+   entity   | count |              digest              
+------------+-------+----------------------------------
+ attendance |    13 | 3ddabaf4cecbcec48af0a1fd51dcbee6
+ payments   |     1 | 3094bb2160414db9bc990e17214a9080
+ stays      |     1 | 2bfc8a7c6b2a6d0426369bfa1a48e656
+(3 rows)
+
+    kind    | auto_rows |    min     |    max     
+------------+-----------+------------+------------
+ attendance |        13 | 2026-10-19 | 2026-10-31
+(1 row)
+

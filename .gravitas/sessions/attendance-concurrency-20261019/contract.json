@@ -1,0 +1,61 @@
+{
+  "mode": "implement",
+  "objective": "Correct automatic attendance initialization, then audit and fix confirmed concurrency defects locally",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "Registration and extensions generate no patient or attendant attendance; manual records and identity isolation survive retries/reopen"
+    },
+    {
+      "id": "AC-2",
+      "text": "Isolated PostgreSQL and Flutter regressions cover October 19-31, explicit marks, summary, billing and rollback"
+    },
+    {
+      "id": "AC-3",
+      "text": "Audit all requested critical workflows; confirmed defects have deterministic regression evidence and fixes"
+    },
+    {
+      "id": "AC-4",
+      "text": "Build, backend tests, PostgreSQL suites, Flutter tests and Dart analysis executed; desktop limitations reported"
+    },
+    {
+      "id": "AC-5",
+      "text": "Existing local auto records inventoried read-only; no historical/payment correction or deployment"
+    }
+  ],
+  "non_goals": [
+    "VPS deployment",
+    "production import",
+    "volume reset",
+    "Firebase Authentication changes",
+    "historical financial recalculation"
+  ],
+  "risk": "high",
+  "budget": "deep",
+  "allowed_write_scope": [
+    "lib/",
+    "backend/",
+    "test/",
+    "audit/attendance-concurrency-20261019/",
+    ".gravitas/sessions/attendance-concurrency-20261019/"
+  ],
+  "verification": "impact",
+  "validators": [
+    {
+      "id": "backend-units",
+      "command": [
+        "cmd.exe",
+        "/c",
+        "npm.cmd",
+        "--prefix",
+        "backend",
+        "test",
+        "--",
+        "--reporter=dot"
+      ],
+      "criterion_ids": [
+        "AC-4"
+      ]
+    }
+  ]
+}

@@ -34,9 +34,83 @@ extension RoomServiceBeds on RoomService {
 
   /// Reads a room directly without downloading the stays collection.
   Future<RoomModel?> getRoomDirect(String roomId) async {
-    final data = await rtdb.get('$roomsPath/$roomId');
+    final data = isPostgres
+        ? await backendApi!.get('$roomsPath/$roomId')
+        : await rtdb.get('$roomsPath/$roomId');
     if (data == null || data is! Map) return null;
     return RoomModel.fromMap(roomId, Map<String, dynamic>.from(data));
+  }
+
+  /// Adds a bed to an existing room.
+  Future<BedModel> addBed({
+    required String roomId,
+    required String bedLabel,
+    String? id,
+    String status = 'available',
+  }) async {
+    final bedId = id ?? BedModel.generateId(roomId, bedLabel);
+    if (isPostgres) {
+      final res = await backendApi!.addBed(roomId, {
+        'id': bedId,
+        'bedLabel': bedLabel,
+        'status': status,
+      });
+      return BedModel.fromMap(res['id']?.toString() ?? bedId, res);
+    }
+    final newBed = BedModel(
+      id: bedId,
+      bedLabel: bedLabel,
+      status: status,
+    );
+    final applied = await _updateRoomBedsWithCas(roomId, (room) {
+      if (room.beds.any((b) => b.bedLabel == bedLabel || b.id == bedId)) {
+        throw bedConflict('Bed $bedLabel already exists in room $roomId');
+      }
+      return [...room.beds, newBed];
+    });
+    if (!applied) throw bedConflict('Room changed while adding bed');
+    return newBed;
+  }
+
+  /// Updates an existing bed's label or status.
+  Future<BedModel> updateBed({
+    required String roomId,
+    required String bedId,
+    String? bedLabel,
+    String? status,
+    DateTime? lastCleaned,
+  }) async {
+    if (isPostgres) {
+      final res = await backendApi!.updateBed(roomId, bedId, {
+        if (bedLabel != null) 'bedLabel': bedLabel,
+        if (status != null) 'status': status,
+        if (lastCleaned != null)
+          'lastCleaned': lastCleaned.millisecondsSinceEpoch,
+      });
+      return BedModel.fromMap(res['id']?.toString() ?? bedId, res);
+    }
+    BedModel? updated;
+    final applied = await _updateRoomBedsWithCas(roomId, (room) {
+      final existing = room.beds.where((b) => b.id == bedId).firstOrNull;
+      if (existing == null) {
+        throw bedConflict('Bed $bedId does not exist in this room');
+      }
+      return room.beds.map((b) {
+        if (b.id == bedId) {
+          updated = b.copyWith(
+            bedLabel: bedLabel ?? b.bedLabel,
+            status: status ?? b.status,
+            lastCleaned: lastCleaned ?? b.lastCleaned,
+          );
+          return updated!;
+        }
+        return b;
+      }).toList();
+    });
+    if (!applied || updated == null) {
+      throw bedConflict('Room changed while updating bed');
+    }
+    return updated!;
   }
 
   /// Concurrency-safe bed status change for a single bed.
@@ -48,6 +122,21 @@ extension RoomServiceBeds on RoomService {
     String? stayId,
   }) async {
     try {
+      if (isPostgres) {
+        try {
+          await backendApi!.updateBed(roomId, bedId, {
+            'status': status,
+            if (patientId != null) 'currentPatientId': patientId,
+            if (stayId != null) 'currentStayId': stayId,
+          });
+          return;
+        } on BackendApiException catch (e) {
+          if (e.statusCode == 409 || e.statusCode == 404) {
+            throw bedConflict(e.message);
+          }
+          rethrow;
+        }
+      }
       final success = await _updateRoomBedsWithCas(roomId, (room) {
         final bed = room.beds.where((b) => b.id == bedId).firstOrNull;
         if (bed == null) {

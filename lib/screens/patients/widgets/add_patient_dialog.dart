@@ -11,6 +11,7 @@ import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../models/patient_model.dart';
 import '../../../models/stay_model.dart';
+import '../../../services/patient_service.dart';
 import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'payment_dialog.dart';
@@ -46,7 +47,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
   final List<_AttendantEntry> _attendants = [];
 
   // New field controllers
-  final _registrationNumberController = TextEditingController();
+  String? _pendingPatientId;
+  String? _allocatedRegistrationNumber;
+  String? _liveRegistrationNumber;
+  bool _isLoadingRegNumber = true;
+  StreamSubscription<String>? _regNumberSubscription;
   final _registrationDateController = TextEditingController();
   final _registrationTimeController = TextEditingController();
   final _panCardController = TextEditingController();
@@ -88,6 +93,54 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _loadPricing();
     _loadAvailableRooms();
     _loadOccupiedLobbies();
+    _initLiveRegistrationNumber();
+  }
+
+  void _initLiveRegistrationNumber() {
+    try {
+      final regService = ServiceLocator().registrationNumberService;
+      final cached = regService.cachedHighestAllocatedNumber;
+      if (cached != null) {
+        _liveRegistrationNumber = (cached + 1).toString();
+        _isLoadingRegNumber = false;
+      }
+
+      regService
+          .peekNextRegistrationNumber()
+          .then((nextRegNo) {
+            if (mounted && _allocatedRegistrationNumber == null) {
+              setState(() {
+                _liveRegistrationNumber = nextRegNo;
+                _isLoadingRegNumber = false;
+              });
+            }
+          })
+          .catchError((e) {
+            debugPrint('[ADD PATIENT] error peeking reg number: $e');
+            if (mounted) {
+              setState(() {
+                _isLoadingRegNumber = false;
+              });
+            }
+          });
+
+      _regNumberSubscription = regService.watchNextRegistrationNumber().listen(
+        (nextRegNo) {
+          if (mounted && _allocatedRegistrationNumber == null) {
+            setState(() {
+              _liveRegistrationNumber = nextRegNo;
+              _isLoadingRegNumber = false;
+            });
+          }
+        },
+        onError: (e) {
+          debugPrint('[ADD PATIENT] error watching reg number: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('[ADD PATIENT] live reg number setup error: $e');
+      _isLoadingRegNumber = false;
+    }
   }
 
   void _refreshPaymentSummary() {
@@ -96,6 +149,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
   @override
   void dispose() {
+    _regNumberSubscription?.cancel();
     _dateController.dispose();
     _fileNoController.dispose();
     _patientNameController.dispose();
@@ -107,7 +161,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
       attendant.dispose();
     }
     _attendantCountController.dispose();
-    _registrationNumberController.dispose();
     _registrationDateController.dispose();
     _registrationTimeController.dispose();
     _panCardController.dispose();
@@ -369,10 +422,10 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     return PricingHelper.calculateStayDays(start, _selectedExitDate);
   }
 
-  int get _attendanceDays => PricingHelper.attendancePeriod(
+  int get _billingDays => PricingHelper.calculateBillingDays(
     _selectedRegistrationDate ?? DateTime.now(),
     _selectedExitDate,
-  ).days;
+  );
 
   double get _estimatedTotal =>
       PricingHelper.calculateDailyCharge(
@@ -385,7 +438,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             ? 1
             : _selectedBeds.length.clamp(1, 999),
       ) *
-      _attendanceDays;
+      _billingDays;
 
   Future<void> _pickPatientPhoto() async {
     try {
@@ -521,18 +574,6 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     if (_selectedRoom != null && _selectedBeds.isEmpty) {
       _showError('Please select at least one bed');
       return;
-    }
-
-    final registrationNumber = _registrationNumberController.text.trim();
-    if (registrationNumber.isNotEmpty) {
-      final existing = await ServiceLocator().patientService
-          .getPatientByRegistrationNumber(registrationNumber);
-      if (existing != null && existing.id != _createdPatientId) {
-        _showError(
-          'Registration number $registrationNumber already belongs to ${existing.fullName}. Edit that patient instead.',
-        );
-        return;
-      }
     }
 
     debugPrint('[ADD PATIENT] SAVE START');
@@ -679,17 +720,87 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         );
       }
 
-      // Create patient
+      final attendantCount = structuredAttendants.length;
+      final attendantLabels = structuredAttendants
+          .map(
+            (a) => a.relation?.trim().isNotEmpty == true
+                ? '${a.name} (${a.relation})'
+                : a.name,
+          )
+          .toList();
+
+      // Create patient (and in PostgreSQL mode, atomically create stays + bed reservations)
       final patientWatch = Stopwatch()..start();
       String patientId;
+      String registrationNumber;
       if (_createdPatientId != null) {
         patientId = _createdPatientId!;
+        registrationNumber = _allocatedRegistrationNumber ?? '';
         debugPrint(
           '[ADD PATIENT] STEP patient-creation REUSED patientId=$patientId elapsed=${patientWatch.elapsedMilliseconds}ms',
         );
       } else {
         debugPrint('[ADD PATIENT] STEP patient-creation START path=/patients');
+        patientId = _pendingPatientId ??= PatientService.generatePatientId();
+        final regWatch = Stopwatch()..start();
+        registrationNumber = _allocatedRegistrationNumber ??=
+            await ServiceLocator().registrationNumberService
+                .allocateNextRegistrationNumber(idempotencyKey: patientId);
+        debugPrint(
+          '[ADD PATIENT] STEP registration-allocation SUCCESS regNo=$registrationNumber elapsed=${regWatch.elapsedMilliseconds}ms',
+        );
+
+        List<Map<String, dynamic>>? initialStaysPayload;
+        if (ServiceLocator().patientService.isPostgres) {
+          final bedIds = _selectedRoom == null
+              ? const <String>[]
+              : (_selectedRoom!.isPrivate
+                    ? [_selectedBeds.first.id]
+                    : _selectedBeds.map((b) => b.id).toList());
+          final patientSnapshot = <String, dynamic>{
+            'registrationNumber': registrationNumber,
+            'admissionDate': admissionDate.millisecondsSinceEpoch,
+            'attendants': [
+              for (final a in structuredAttendants)
+                {
+                  'name': a.name,
+                  'age': a.age,
+                  'relation': a.relation,
+                  'aadhaarNumber': a.aadhaarNumber,
+                  'mobileNumber': a.mobileNumber,
+                  'photoRef': a.photoRef,
+                  'isEmergencyContact': a.isEmergencyContact,
+                },
+            ],
+          };
+          final stayNotes = _selectedRoom == null
+              ? null
+              : [
+                  _selectedRoom!.isPrivate
+                      ? 'Private room admission with $attendantCount attendant(s)'
+                      : _selectedBeds.length > 1
+                      ? 'Multiple beds: ${_selectedBeds.map((b) => b.bedLabel).join(", ")}'
+                      : 'General ward admission',
+                  if (_selectedLobby != null) 'Lobby: $_selectedLobby',
+                ].join('\n');
+          initialStaysPayload = await roomService.buildRegistrationStaysPayload(
+            patientId: patientId,
+            patientName: _patientNameController.text.trim(),
+            admissionDate: admissionDate,
+            durationDays: _plannedStayDays,
+            attendantCount: attendantCount,
+            attendantLabels: attendantLabels,
+            createdBy: currentUser.uid,
+            patientSnapshot: patientSnapshot,
+            lobbyName: _selectedLobby,
+            room: _selectedRoom,
+            bedIds: bedIds,
+            notes: stayNotes,
+          );
+        }
+
         patientId = await ServiceLocator().patientService.addPatient(
+          id: patientId,
           fullName: _patientNameController.text.trim(),
           dateOfBirth: dateOfBirth,
           gender: _selectedGender!.toLowerCase(),
@@ -726,10 +837,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           lobby: _selectedLobby,
           exitDate: _selectedExitDate,
           createdBy: currentUser.uid,
-          registrationNumber:
-              _registrationNumberController.text.trim().isNotEmpty
-              ? _registrationNumberController.text.trim()
-              : null,
+          registrationNumber: registrationNumber,
           registrationDate: _selectedRegistrationDate ?? DateTime.now(),
           panCardNumber: _panCardController.text.trim().isNotEmpty
               ? _panCardController.text.trim()
@@ -749,21 +857,21 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
               ? structuredAttendants
               : null,
           initialTotalAmount: _estimatedTotal,
+          initialStays: initialStaysPayload,
         );
         _createdPatientId = patientId;
+        _allocatedRegistrationNumber = registrationNumber;
+        if (initialStaysPayload != null && initialStaysPayload.isNotEmpty) {
+          _createdStayIds = initialStaysPayload
+              .map((s) => s['id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList();
+        }
+        if (mounted) setState(() {});
         debugPrint(
           '[ADD PATIENT] STEP patient-creation SUCCESS patientId=$patientId elapsed=${patientWatch.elapsedMilliseconds}ms',
         );
       }
-
-      final attendantCount = structuredAttendants.length;
-      final attendantLabels = structuredAttendants
-          .map(
-            (a) => a.relation?.trim().isNotEmpty == true
-                ? '${a.name} (${a.relation})'
-                : a.name,
-          )
-          .toList();
 
       if (_createdStayIds.isEmpty) {
         final stayWatch = Stopwatch()..start();
@@ -795,10 +903,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
               ? [_selectedBeds.first.id]
               : _selectedBeds.map((b) => b.id).toList();
           final patientSnapshot = <String, dynamic>{
-            'registrationNumber':
-                _registrationNumberController.text.trim().isNotEmpty
-                ? _registrationNumberController.text.trim()
-                : null,
+            'registrationNumber': registrationNumber,
             'admissionDate': admissionDate.millisecondsSinceEpoch,
             'attendants': [
               for (final a in structuredAttendants)
@@ -845,7 +950,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         );
       } else {
         debugPrint(
-          '[ADD PATIENT] STEP stay-creation REUSED stays=${_createdStayIds.length}',
+          '[ADD PATIENT] STEP stay-creation ALREADY CONFIRMED patientId=$patientId stays=${_createdStayIds.length}',
         );
       }
 
@@ -854,7 +959,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
         debugPrint(
           '[ADD PATIENT] STEP patient-patch START path=/patients/$patientId',
         );
-        await ServiceLocator().rtdbService.patch('patients/$patientId', {
+        await ServiceLocator().patientService.updatePatient(patientId, {
           'roomId': _selectedRoom?.id,
           'roomNumber': _selectedRoom?.roomIdentifier,
           'lobby': _selectedLobby,
@@ -1053,10 +1158,12 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                                   hint: "e.g. F-2024-001",
                                   controller: _fileNoController,
                                 ),
-                                _NatureField(
-                                  label: "Registration number",
-                                  hint: "",
-                                  controller: _registrationNumberController,
+                                _AutoGeneratedRegField(
+                                  allocatedNumber: _allocatedRegistrationNumber,
+                                  liveNumber: _liveRegistrationNumber,
+                                  isLoading:
+                                      _isLoadingRegNumber &&
+                                      _allocatedRegistrationNumber == null,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -1537,7 +1644,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                           placementSelected:
                               _selectedRoom != null || _selectedLobby != null,
                           placementLabel: _selectedLobby,
-                          days: _attendanceDays,
+                          days: _billingDays,
                           pricing: _pricing,
                           pricingLoaded: _pricingLoaded,
                           isUsingFallbackPricing: _isUsingFallbackPricing,
@@ -1997,6 +2104,145 @@ class _Row3 extends StatelessWidget {
 }
 
 // ── Field ─────────────────────────────────────────────────────────────────────
+
+class _AutoGeneratedRegField extends StatelessWidget {
+  final String? registrationNumber;
+  final String? allocatedNumber;
+  final String? liveNumber;
+  final bool isLoading;
+
+  const _AutoGeneratedRegField({
+    this.registrationNumber,
+    this.allocatedNumber,
+    this.liveNumber,
+    this.isLoading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveAllocated = allocatedNumber ?? registrationNumber;
+    final hasAllocated =
+        effectiveAllocated != null && effectiveAllocated.trim().isNotEmpty;
+    final displayVal = hasAllocated
+        ? effectiveAllocated.trim()
+        : (liveNumber != null && liveNumber!.trim().isNotEmpty
+              ? liveNumber!.trim()
+              : null);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'REGISTRATION NO.',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF27500A),
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F9F0),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: hasAllocated
+                  ? const Color(0xFF639922)
+                  : const Color(0xFFC0DD97),
+              width: hasAllocated ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              if (isLoading && displayVal == null) ...[
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF639922),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Loading live number...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF6B8055),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ] else if (displayVal != null) ...[
+                Icon(
+                  hasAllocated
+                      ? Icons.check_circle_rounded
+                      : Icons.auto_awesome,
+                  size: 15,
+                  color: hasAllocated
+                      ? const Color(0xFF2E7D32)
+                      : const Color(0xFF639922),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    displayVal,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF27500A),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: hasAllocated
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFEAF3DE),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    hasAllocated ? 'Assigned' : 'Live',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: hasAllocated
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFF3B6D11),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const Icon(
+                  Icons.auto_awesome,
+                  size: 15,
+                  color: Color(0xFF639922),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Auto-generated on save',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF4A6B32)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class _NatureField extends StatelessWidget {
   final String label;

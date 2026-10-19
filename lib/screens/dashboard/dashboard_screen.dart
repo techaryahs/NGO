@@ -190,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             title: "Failed to load census data",
             message: snapshot.error.toString(),
             onRetry: () {
-              ServiceLocator().rtdbService.retryAll();
+              ServiceLocator().retryAllStreams();
               setState(() {});
             },
           );
@@ -408,7 +408,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     title: "Failed to load recent admissions",
                     message: snapshot.error.toString(),
                     onRetry: () {
-                      ServiceLocator().rtdbService.retryAll();
+                      ServiceLocator().retryAllStreams();
                       setState(() {});
                     },
                   ),
@@ -609,7 +609,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     title: "Failed to load room logistics",
                     message: snapshot.error.toString(),
                     onRetry: () {
-                      ServiceLocator().rtdbService.retryAll();
+                      ServiceLocator().retryAllStreams();
                       setState(() {});
                     },
                   ),

@@ -9,6 +9,24 @@ extension RoomServicePricing on RoomService {
 
   Future<Map<String, dynamic>> getPricing() async {
     try {
+      if (isPostgres) {
+        final data = await backendApi!.getSettingsCategory('pricing');
+        if (data.isNotEmpty) {
+          final pricing = Map<String, dynamic>.from(data);
+          final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble();
+          if (generalRate == null || generalRate == 150) {
+            pricing['generalRoomBedPrice'] = 200;
+            await backendApi!.updateSettingsKey('pricing', 'generalRoomBedPrice', 200);
+          }
+          return pricing;
+        }
+        await backendApi!.updateSettingsCategory(
+          'pricing',
+          Map<String, dynamic>.from(RoomService.defaultPricing),
+        );
+        return Map<String, dynamic>.from(RoomService.defaultPricing);
+      }
+
       final data = await rtdb.get(pricingPath);
       if (data != null && data is Map) {
         final pricing = Map<String, dynamic>.from(data);
@@ -33,6 +51,11 @@ extension RoomServicePricing on RoomService {
 
   Future<void> updatePricing(Map<String, dynamic> pricing) async {
     try {
+      if (isPostgres) {
+        await backendApi!.updateSettingsCategory('pricing', pricing);
+        return;
+      }
+
       await rtdb.patch(pricingPath, pricing);
       final privateMaxAttendants = parseIntSafe(
         pricing['privateRoomMaxAttendants'],
@@ -58,6 +81,15 @@ extension RoomServicePricing on RoomService {
   }
 
   Stream<Map<String, dynamic>> getPricingStream() {
+    if (isPostgres) {
+      return backendApi!.stream('settings/pricing').map((data) {
+        if (data != null && data is Map) {
+          return Map<String, dynamic>.from(data);
+        }
+        return Map<String, dynamic>.from(RoomService.defaultPricing);
+      });
+    }
+
     return rtdb.stream(pricingPath).map((data) {
       if (data != null && data is Map) {
         return Map<String, dynamic>.from(data);

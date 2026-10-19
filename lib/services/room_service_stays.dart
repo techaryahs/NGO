@@ -5,14 +5,12 @@ part of 'room_service.dart';
 /// Creating, extending, and completing patient stays.
 extension RoomServiceStays on RoomService {
   Future<Map<String, dynamic>> _patientSnapshot(String patientId) async {
-    final data = await rtdb.get('patients/$patientId');
+    final data = isPostgres
+        ? await backendApi!.get('patients/$patientId')
+        : await rtdb.get('patients/$patientId');
     if (data is! Map) return {};
     final snapshot = <String, dynamic>{
-      for (final key in [
-        'registrationNumber',
-        'photoRef',
-        'admissionDate',
-      ])
+      for (final key in ['registrationNumber', 'photoRef', 'admissionDate'])
         key: data[key],
     };
     final attendants = data['attendants'];
@@ -28,7 +26,10 @@ extension RoomServiceStays on RoomService {
   // --- Stays ---
 
   Stream<List<StayModel>> getStaysStream() {
-    return rtdb.stream(staysPath).map((data) {
+    final sourceStream = isPostgres
+        ? backendApi!.stream(staysPath)
+        : rtdb.stream(staysPath);
+    return sourceStream.map((data) {
       final stays = parseStaysFromData(data);
       stays.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
       return stays;
@@ -36,21 +37,59 @@ extension RoomServiceStays on RoomService {
   }
 
   Stream<List<StayModel>> getActiveStaysStream() {
-    return rtdb.queryStream(staysPath, orderBy: 'status', equalTo: 'active')
+    if (isPostgres) {
+      return _filteredPostgresStaysStream({
+        'status': 'active',
+      }).map((stays) => stays.where((s) => s.status == 'active').toList());
+    }
+    return rtdb
+        .queryStream(staysPath, orderBy: 'status', equalTo: 'active')
         .map(parseStaysFromData);
   }
 
   Stream<List<StayModel>> getStaysByRoomStream(String roomId) {
-    return rtdb.queryStream(staysPath, orderBy: 'roomId', equalTo: roomId)
-        .map((data) => parseStaysFromData(data)
-          .where((s) => s.roomId == roomId && s.status == 'active')
-          .toList(),
+    if (isPostgres) {
+      return _filteredPostgresStaysStream({
+        'roomId': roomId,
+        'status': 'active',
+      }).map(
+        (stays) => stays
+            .where((s) => s.roomId == roomId && s.status == 'active')
+            .toList(),
+      );
+    }
+    return rtdb
+        .queryStream(staysPath, orderBy: 'roomId', equalTo: roomId)
+        .map(
+          (data) => parseStaysFromData(
+            data,
+          ).where((s) => s.roomId == roomId && s.status == 'active').toList(),
         );
   }
 
   Stream<List<StayModel>> getStaysByPatientStream(String patientId) {
-    return rtdb.queryStream(staysPath, orderBy: 'patientId', equalTo: patientId)
+    if (isPostgres) {
+      return _filteredPostgresStaysStream({
+        'patientId': patientId,
+      }).map((stays) => stays.where((s) => s.patientId == patientId).toList());
+    }
+    return rtdb
+        .queryStream(staysPath, orderBy: 'patientId', equalTo: patientId)
         .map(parseStaysFromData);
+  }
+
+  Stream<List<StayModel>> _filteredPostgresStaysStream(
+    Map<String, String> filters,
+  ) {
+    final path = Uri(
+      path: staysPath,
+      queryParameters: {...filters, 'format': 'map'},
+    ).toString();
+    return backendApi!.stream(path).map((data) {
+      final stays = parseStaysFromData(data);
+      stays.sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
+      return stays;
+    });
   }
 
   /// Records a lobby admission in stay history without reserving a room bed.
@@ -68,9 +107,13 @@ extension RoomServiceStays on RoomService {
     String? deterministicStayId,
   }) async {
     if (status == 'active') {
-      final lobbyStays = await rtdb.getByChildValue(
-        staysPath, child: 'roomNumber', value: lobbyName,
-      );
+      final lobbyStays = isPostgres
+          ? await backendApi!.get('$staysPath?status=active&format=map')
+          : await rtdb.getByChildValue(
+              staysPath,
+              child: 'roomNumber',
+              value: lobbyName,
+            );
       final occupied = parseStaysFromData(lobbyStays).any(
         (stay) =>
             stay.roomType == 'lobby' &&
@@ -122,11 +165,16 @@ extension RoomServiceStays on RoomService {
       updatedAt: now,
       createdBy: createdBy,
     );
+    if (isPostgres) {
+      await backendApi!.createStay(stay.toMap());
+      return stayId;
+    }
     await rtdb.patch('$staysPath/$stayId', stay.toMap());
     return stayId;
   }
 
   Future<String> createStay({
+    String? id,
     required String patientId,
     required String patientName,
     required String roomId,
@@ -142,6 +190,66 @@ extension RoomServiceStays on RoomService {
     required String createdBy,
   }) async {
     try {
+      if (isPostgres) {
+        String? resolvedBedId = bedId;
+        String? resolvedBedLabel = bedLabel;
+        if (resolvedBedId == null) {
+          final room = await getRoomDirect(roomId);
+          final availableBed = room?.beds
+              .where((b) => b.status == 'available')
+              .firstOrNull;
+          if (availableBed != null) {
+            resolvedBedId = availableBed.id;
+            resolvedBedLabel ??= availableBed.bedLabel;
+          }
+        }
+        final pricing = await getPricing();
+        final costs = _calculateStayCosts(
+          roomType: roomType,
+          durationDays: durationDays,
+          attendantCount: attendantCount,
+          pricing: pricing,
+        );
+        final expectedDischargeDate = admissionDate.add(
+          Duration(days: durationDays),
+        );
+        final staySnapshot = await _patientSnapshot(patientId);
+        final stayId = id ?? generateStayId();
+        final stayData = {
+          'id': stayId,
+          'patientId': patientId,
+          'patientName': patientName,
+          'patientSnapshot': staySnapshot,
+          'cycleId': staySnapshot['admissionDate']?.toString(),
+          'roomId': roomId,
+          'roomNumber': roomNumber,
+          'roomType': roomType,
+          'admissionDate': admissionDate.millisecondsSinceEpoch,
+          'durationDays': durationDays,
+          'expectedDischargeDate': expectedDischargeDate.millisecondsSinceEpoch,
+          'expiryDate': expectedDischargeDate.millisecondsSinceEpoch,
+          'attendantCount': attendantCount,
+          'attendantLabels': attendantLabels,
+          'totalCost': costs.totalCost,
+          'baseCost': costs.baseCost,
+          'extraAttendantCost': costs.extraAttendantCost,
+          'status': 'active',
+          'bedId': resolvedBedId,
+          'bedLabel': resolvedBedLabel,
+          'notes': notes,
+          'createdBy': createdBy,
+        };
+        try {
+          final res = await backendApi!.createStay(stayData);
+          return res['id']?.toString() ?? stayId;
+        } on BackendApiException catch (e) {
+          if (e.statusCode == 409) {
+            throw bedConflict(e.message);
+          }
+          rethrow;
+        }
+      }
+
       // Direct room read — no full stays collection download.
       final room = await getRoomDirect(roomId);
       if (room == null) throw Exception('Room not found');
@@ -191,7 +299,7 @@ extension RoomServiceStays on RoomService {
         Duration(days: durationDays),
       );
       final now = DateTime.now();
-      final stayId = generateStayId();
+      final stayId = id ?? generateStayId();
 
       final staySnapshot = await _patientSnapshot(patientId);
       final stay = StayModel(
@@ -284,11 +392,13 @@ extension RoomServiceStays on RoomService {
       final pricing = await getPricing();
 
       if (bedIds.isEmpty) throw Exception('Select at least one bed');
-      final missing = bedIds
-          .where((id) => room.beds.every((bed) => bed.id != id))
-          .toList();
-      if (missing.isNotEmpty) {
-        throw Exception('Selected bed(s) no longer exist in this room');
+      if (!isPostgres) {
+        final missing = bedIds
+            .where((id) => room.beds.every((bed) => bed.id != id))
+            .toList();
+        if (missing.isNotEmpty) {
+          throw Exception('Selected bed(s) no longer exist in this room');
+        }
       }
       if (room.isPrivate) {
         final projectedAttendants = room.currentAttendants + attendantCount;
@@ -318,10 +428,12 @@ extension RoomServiceStays on RoomService {
       final stays = <String, StayModel>{};
       for (var i = 0; i < bedIds.length; i++) {
         final bedId = bedIds[i];
-        final bed = room.beds.where((b) => b.id == bedId).first;
-        final stayId = (deterministicStayIds != null && i < deterministicStayIds.length)
+        final bed = room.beds.where((b) => b.id == bedId).firstOrNull;
+        final stayId =
+            (deterministicStayIds != null && i < deterministicStayIds.length)
             ? deterministicStayIds[i]
             : generateStayId();
+        final resolvedLabel = bed?.bedLabel ?? bedId;
         stays[stayId] = StayModel(
           id: stayId,
           patientId: patientId,
@@ -342,9 +454,9 @@ extension RoomServiceStays on RoomService {
           baseCost: costs.baseCost,
           extraAttendantCost: costs.extraAttendantCost,
           status: 'active',
-          bedId: bed.id,
-          bedNumber: int.tryParse(bed.bedLabel),
-          bedLabel: bed.bedLabel,
+          bedId: bedId,
+          bedNumber: int.tryParse(resolvedLabel),
+          bedLabel: resolvedLabel,
           notes: notes,
           createdAt: now,
           updatedAt: now,
@@ -352,6 +464,19 @@ extension RoomServiceStays on RoomService {
         );
       }
       final stayIds = stays.keys.toList();
+
+      if (isPostgres) {
+        try {
+          return await backendApi!.createStaysBatch(
+            stays.values.map((s) => s.toMap()).toList(),
+          );
+        } on BackendApiException catch (e) {
+          if (e.statusCode == 409) {
+            throw bedConflict(e.message);
+          }
+          rethrow;
+        }
+      }
 
       // All-or-nothing reservation of every selected bed.
       await reserveBeds(
@@ -388,13 +513,53 @@ extension RoomServiceStays on RoomService {
     }
   }
 
+  /// Moves an admission between placements without changing its billing cycle.
+  Future<void> transferPatient({
+    required String patientId,
+    required List<String> expectedStayIds,
+    required String roomId,
+    required String roomNumber,
+    required String roomType,
+    String? bedId,
+    required DateTime shiftedAt,
+    DateTime? exitDate,
+    String? requestId,
+  }) async {
+    if (!isPostgres) {
+      throw UnsupportedError('Atomic transfer requires PostgreSQL');
+    }
+    await backendApi!.transferPatient(patientId, {
+      'requestId': requestId ?? generateStayId(),
+      'expectedStayIds': expectedStayIds,
+      'roomId': roomId,
+      'roomNumber': roomNumber,
+      'roomType': roomType,
+      'bedId': bedId,
+      'shiftedAt': shiftedAt.millisecondsSinceEpoch,
+      'exitDate': exitDate?.millisecondsSinceEpoch,
+    });
+  }
+
   Future<void> extendStay({
     required String stayId,
     required int additionalDays,
     String reason = '',
+    String? requestId,
   }) async {
     try {
-      final data = await rtdb.get('$staysPath/$stayId');
+      if (isPostgres) {
+        // Send the increment. The server applies it and the patient extension
+        // fields together while holding the current stay and patient locks.
+        await backendApi!.updateStay(stayId, {
+          'additionalDays': additionalDays,
+          'reason': reason,
+          'extensionRequestId': requestId ?? generateStayId(),
+        });
+        return;
+      }
+      final data = isPostgres
+          ? await backendApi!.get('$staysPath/$stayId')
+          : await rtdb.get('$staysPath/$stayId');
       if (data == null || data is! Map) throw Exception('Stay not found');
 
       final stay = StayModel.fromMap(stayId, Map<String, dynamic>.from(data));
@@ -416,11 +581,11 @@ extension RoomServiceStays on RoomService {
       final updatedExtensions = [...stay.extensions, extensionEntry];
       final newTotalExtended = stay.totalExtendedDays + additionalDays;
       final newExpiry = stay.expectedDischargeDate.add(
-        Duration(days: newTotalExtended),
+        Duration(days: additionalDays),
       );
       final newTotalCost = stay.totalCost + costs.totalCost;
-
-      await rtdb.patch('$staysPath/$stayId', {
+      final stayUpdates = {
+        'durationDays': stay.durationDays + additionalDays,
         'totalExtendedDays': newTotalExtended,
         // Make sure both legacy and new date formats are updated
         'expectedDischargeDate': newExpiry
@@ -429,11 +594,12 @@ extension RoomServiceStays on RoomService {
         'totalCost': newTotalCost,
         'extensions': updatedExtensions.map((e) => e.toMap()).toList(),
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
-      });
+      };
+
+      await rtdb.patch('$staysPath/$stayId', stayUpdates);
 
       await updateRoomStatus(stay.roomId);
 
-      // Sync extension with PatientModel
       // Sync extension with PatientModel
       try {
         final patientData = await rtdb.get('patients/${stay.patientId}');
@@ -465,6 +631,27 @@ extension RoomServiceStays on RoomService {
     double? pendingAmount,
   }) async {
     try {
+      final now = completedAt ?? DateTime.now();
+      if (isPostgres) {
+        final updates = <String, dynamic>{
+          'status': 'completed',
+          'completedAt': now.millisecondsSinceEpoch,
+          'updatedAt': now.millisecondsSinceEpoch,
+          if (billingAdmissionDate != null)
+            'admissionDate': billingAdmissionDate.millisecondsSinceEpoch,
+          if (billingAdmissionDate != null)
+            'durationDays': PricingHelper.calculateStayDays(
+              billingAdmissionDate,
+              now,
+            ),
+          if (totalCost != null) 'totalCost': totalCost,
+          if (paidAmount != null) 'paidAmount': paidAmount,
+          if (pendingAmount != null) 'pendingAmount': pendingAmount,
+        };
+        await backendApi!.updateStay(stayId, updates);
+        return;
+      }
+
       final data = await rtdb.get('$staysPath/$stayId');
       if (data == null || data is! Map) throw Exception('Stay not found');
 
@@ -475,7 +662,6 @@ extension RoomServiceStays on RoomService {
         });
       }
       final room = await getRoomDirect(stay.roomId);
-      final now = completedAt ?? DateTime.now();
       if (room == null) {
         // Legacy/imported stays can point to a room that was renamed or
         // removed. Completing the historical stay must not block discharge
@@ -504,7 +690,11 @@ extension RoomServiceStays on RoomService {
         room.id,
         (fresh) {
           var targetBed = stay.bedId != null
-              ? fresh.beds.where((b) => b.id == stay.bedId && b.currentStayId == stay.id).firstOrNull
+              ? fresh.beds
+                    .where(
+                      (b) => b.id == stay.bedId && b.currentStayId == stay.id,
+                    )
+                    .firstOrNull
               : fresh.beds.where((b) => b.currentStayId == stay.id).firstOrNull;
           targetBed ??= fresh.beds
               .where((b) => b.currentStayId == stay.id)
@@ -521,11 +711,13 @@ extension RoomServiceStays on RoomService {
             return b;
           }).toList();
         },
-        attendantDelta: room.isPrivate && room.currentAttendants >= stay.attendantCount
+        attendantDelta:
+            room.isPrivate && room.currentAttendants >= stay.attendantCount
             ? -stay.attendantCount
             : 0,
       );
-      if (!released) throw BedConflictException('Room changed while releasing the bed');
+      if (!released)
+        throw BedConflictException('Room changed while releasing the bed');
 
       await rtdb.patch('$staysPath/$stayId', {
         'status': 'completed',
@@ -549,7 +741,9 @@ extension RoomServiceStays on RoomService {
 
   Future<StayModel?> getStay(String stayId) async {
     try {
-      final data = await rtdb.get('$staysPath/$stayId');
+      final data = isPostgres
+          ? await backendApi!.get('$staysPath/$stayId')
+          : await rtdb.get('$staysPath/$stayId');
       if (data != null && data is Map) {
         return StayModel.fromMap(stayId, Map<String, dynamic>.from(data));
       }
@@ -569,13 +763,18 @@ extension RoomServiceStays on RoomService {
       exitDate,
     );
     final end = exitDate ?? admissionDate.add(Duration(days: durationDays));
-    await rtdb.patch('$staysPath/$stayId', {
+    final updates = {
       'admissionDate': admissionDate.millisecondsSinceEpoch,
       'durationDays': durationDays,
       'expectedDischargeDate': end.millisecondsSinceEpoch,
       'expiryDate': end.millisecondsSinceEpoch,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    });
+    };
+    if (isPostgres) {
+      await backendApi!.updateStay(stayId, updates);
+      return;
+    }
+    await rtdb.patch('$staysPath/$stayId', updates);
   }
 
   CostBreakdown _calculateStayCosts({
@@ -653,6 +852,10 @@ extension RoomServiceStays on RoomService {
       'totalCost': costs.totalCost,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
     };
+    if (isPostgres) {
+      await backendApi!.updateStay(stayId, updates);
+      return;
+    }
     if (stay.roomType == 'private') {
       if (room != null) {
         final projectedAttendants =
@@ -673,5 +876,138 @@ extension RoomServiceStays on RoomService {
       }
     }
     await rtdb.patch('$staysPath/$stayId', updates);
+  }
+
+  /// Updates a stay's historical patient snapshot via the active backend.
+  Future<void> updateStaySnapshot(
+    String stayId,
+    Map<String, dynamic> snapshot,
+  ) async {
+    if (isPostgres) {
+      await backendApi!.updateStay(stayId, {'patientSnapshot': snapshot});
+      return;
+    }
+    await rtdb.patch('$staysPath/$stayId', {'patientSnapshot': snapshot});
+  }
+
+  /// Builds the initial stay payloads for atomic registration (`POST /api/patients/register`).
+  Future<List<Map<String, dynamic>>> buildRegistrationStaysPayload({
+    required String patientId,
+    required String patientName,
+    required DateTime admissionDate,
+    required int durationDays,
+    required int attendantCount,
+    List<String> attendantLabels = const [],
+    required String createdBy,
+    Map<String, dynamic>? patientSnapshot,
+    String? lobbyName,
+    RoomModel? room,
+    List<String> bedIds = const [],
+    String? notes,
+  }) async {
+    final pricing = await getPricing();
+    final now = DateTime.now();
+    final expectedDischargeDate = admissionDate.add(
+      Duration(days: durationDays),
+    );
+    final snapshot = patientSnapshot ?? const <String, dynamic>{};
+    final payloads = <Map<String, dynamic>>[];
+
+    if (lobbyName != null && lobbyName.trim().isNotEmpty) {
+      final sanitizedLobby = lobbyName.replaceAll(
+        RegExp(r'[^a-zA-Z0-9_-]'),
+        '_',
+      );
+      final stayId = 'stay_${patientId}_lobby_$sanitizedLobby';
+      final costs = _calculateStayCosts(
+        roomType: 'general',
+        durationDays: durationDays,
+        attendantCount: attendantCount,
+        pricing: pricing,
+      );
+      final stay = StayModel(
+        id: stayId,
+        patientId: patientId,
+        patientName: patientName,
+        patientSnapshot: snapshot,
+        cycleId: snapshot['admissionDate']?.toString(),
+        dailyRate: null,
+        roomId: 'lobby:$lobbyName',
+        roomNumber: lobbyName,
+        roomType: 'lobby',
+        admissionDate: admissionDate,
+        durationDays: durationDays,
+        expectedDischargeDate: expectedDischargeDate,
+        expiryDate: expectedDischargeDate,
+        attendantCount: attendantCount,
+        attendantLabels: attendantLabels,
+        totalCost: costs.totalCost,
+        baseCost: costs.baseCost,
+        extraAttendantCost: costs.extraAttendantCost,
+        status: 'active',
+        notes: 'Lobby admission',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: createdBy,
+      );
+      payloads.add(stay.toMap());
+    }
+
+    if (room != null && bedIds.isNotEmpty) {
+      if (room.isPrivate) {
+        final projectedAttendants = room.currentAttendants + attendantCount;
+        if (projectedAttendants > room.maxAttendants) {
+          throw Exception(
+            'Private room attendant limit exceeded (${room.maxAttendants})',
+          );
+        }
+      } else if (attendantCount > room.maxAttendants) {
+        throw Exception(
+          'General room attendant limit exceeded (${room.maxAttendants})',
+        );
+      }
+      final costs = _calculateStayCosts(
+        roomType: room.roomType,
+        durationDays: durationDays,
+        attendantCount: attendantCount,
+        pricing: pricing,
+      );
+      for (final bedId in bedIds) {
+        final bed = room.beds.where((b) => b.id == bedId).firstOrNull;
+        final resolvedLabel = bed?.bedLabel ?? bedId;
+        final stayId = 'stay_${patientId}_$bedId';
+        final stay = StayModel(
+          id: stayId,
+          patientId: patientId,
+          patientName: patientName,
+          patientSnapshot: snapshot,
+          cycleId: snapshot['admissionDate']?.toString(),
+          dailyRate: null,
+          roomId: room.id,
+          roomNumber: room.roomIdentifier,
+          roomType: room.roomType,
+          admissionDate: admissionDate,
+          durationDays: durationDays,
+          expectedDischargeDate: expectedDischargeDate,
+          expiryDate: expectedDischargeDate,
+          attendantCount: attendantCount,
+          attendantLabels: attendantLabels,
+          totalCost: costs.totalCost,
+          baseCost: costs.baseCost,
+          extraAttendantCost: costs.extraAttendantCost,
+          status: 'active',
+          bedId: bedId,
+          bedNumber: int.tryParse(resolvedLabel),
+          bedLabel: resolvedLabel,
+          notes: notes,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy,
+        );
+        payloads.add(stay.toMap());
+      }
+    }
+
+    return payloads;
   }
 }

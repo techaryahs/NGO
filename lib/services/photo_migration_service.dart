@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 
+import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'photo_rtdb_service.dart';
 
@@ -20,22 +21,31 @@ class PhotoMigrationReport {
 }
 
 /// Restartable migration. Legacy bytes are removed only after a targeted
-/// RTDB write has been read back and verified.
+/// RTDB/PostgreSQL write has been read back and verified.
 class PhotoMigrationService {
   PhotoMigrationService({
-    required FirebaseRTDBRestService rtdb,
+    FirebaseRTDBRestService? rtdb,
+    BackendApiService? backendApi,
     required PhotoRtdbService photos,
-  }) : _rtdb = rtdb,
+  }) : assert(
+         rtdb != null || backendApi != null,
+         'Provide either rtdb or backendApi',
+       ),
+       _rtdb = rtdb,
+       _backendApi = backendApi,
        _photos = photos;
 
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _rtdb;
+  final BackendApiService? _backendApi;
   final PhotoRtdbService _photos;
 
   Future<PhotoMigrationReport> migrate() async {
     var scanned = 0, patientCount = 0, attendantCount = 0;
     var already = 0, skipped = 0, failed = 0;
     final errors = <String>[];
-    final rawPatients = await _rtdb.get('patients');
+    final rawPatients = _backendApi != null
+        ? await _backendApi.get('patients')
+        : await _rtdb!.get('patients');
     if (rawPatients is! Map) {
       return const PhotoMigrationReport(
         scannedPatients: 0,
@@ -54,11 +64,15 @@ class PhotoMigrationService {
       scanned++;
       final updates = <String, dynamic>{};
       try {
-        final rawStays = await _rtdb.getByChildValue(
-          'stays',
-          child: 'patientId',
-          value: id,
-        );
+        final rawStays = _backendApi != null
+            ? await _backendApi.get(
+                'stays?patientId=${Uri.encodeComponent(id)}&format=map',
+              )
+            : await _rtdb!.getByChildValue(
+                'stays',
+                child: 'patientId',
+                value: id,
+              );
         final stays = rawStays is Map ? rawStays : <String, dynamic>{};
         final target = PhotoRtdbService.patientPath(id);
         var verified = await _photos.photoExists(target);
@@ -247,7 +261,34 @@ class PhotoMigrationService {
             }
           }
         }
-        if (updates.isNotEmpty) await _rtdb.patch('', updates);
+        if (updates.isNotEmpty) {
+          if (_backendApi != null) {
+            final patientPatch = <String, dynamic>{};
+            if (updates.containsKey('patients/$id/photoRef')) {
+              patientPatch['photoRef'] = updates['patients/$id/photoRef'];
+              patientPatch['photoDataUrl'] = null;
+            }
+            if (rawAttendants is List) {
+              final updatedAttendants = <Map<String, dynamic>>[];
+              for (var i = 0; i < rawAttendants.length; i++) {
+                if (rawAttendants[i] is! Map) continue;
+                final att = Map<String, dynamic>.from(rawAttendants[i] as Map);
+                if (updates.containsKey('patients/$id/attendants/$i/photoRef')) {
+                  att['photoRef'] =
+                      updates['patients/$id/attendants/$i/photoRef'];
+                  att['photoDataUrl'] = null;
+                }
+                updatedAttendants.add(att);
+              }
+              patientPatch['attendants'] = updatedAttendants;
+            }
+            if (patientPatch.isNotEmpty) {
+              await _backendApi.updatePatient(id, patientPatch);
+            }
+          } else {
+            await _rtdb!.patch('', updates);
+          }
+        }
       } catch (e) {
         failed++;
         errors.add('$id: $e');

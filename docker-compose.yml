@@ -1,0 +1,71 @@
+services:
+  # ── PostgreSQL 16 Database ────────────────────────────────────────────────
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: ${POSTGRES_CONTAINER_NAME:-ngo-postgres}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ngo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ngo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ngo-pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - ngo-network
+    # Note: Port 5432 is deliberately NOT published to the host or public internet.
+    # Access is restricted exclusively to the private 'ngo-network' bridge.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ngo_user} -d $${POSTGRES_DB:-ngo_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Node.js Fastify API Backend ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ${BACKEND_CONTAINER_NAME:-ngo-backend}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8808}:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-ngo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ngo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?Set the Firebase Auth project ID in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["*"]}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_IDLE_TIMEOUT_MS: ${DB_POOL_IDLE_TIMEOUT_MS:-30000}
+      DB_POOL_CONNECTION_TIMEOUT_MS: ${DB_POOL_CONNECTION_TIMEOUT_MS:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ngo-network
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:8080/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+networks:
+  ngo-network:
+    driver: bridge
+    name: ${DOCKER_NETWORK_NAME:-ngo-network}
+
+volumes:
+  ngo-pgdata:
+    name: ${POSTGRES_VOLUME_NAME:-ngo-pgdata}

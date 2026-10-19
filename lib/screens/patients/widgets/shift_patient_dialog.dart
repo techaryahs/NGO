@@ -211,9 +211,6 @@ Future<bool> showShiftPatientDialog(
   final activeStays = stays
       .where((stay) => stay.patientId == patient.id && stay.isActive)
       .toList();
-  for (final stay in activeStays) {
-    await roomService.completeStay(stay.id, completedAt: shiftTime);
-  }
   final labels = (patient.attendants ?? const <AttendantModel>[])
       .map(
         (a) => a.relation?.trim().isNotEmpty == true
@@ -222,6 +219,24 @@ Future<bool> showShiftPatientDialog(
       )
       .toList();
   final from = patient.lobby ?? patient.roomNumber ?? 'Unassigned';
+  if (roomService.isPostgres) {
+    await roomService.transferPatient(
+      patientId: patient.id,
+      expectedStayIds: activeStays.map((stay) => stay.id).toList(),
+      roomId: choice.room?.id ?? 'lobby:${choice.lobby}',
+      roomNumber: choice.room?.roomIdentifier ?? choice.lobby!,
+      roomType: choice.room?.roomType ?? 'lobby',
+      bedId: choice.bed?.id,
+      shiftedAt: shiftTime,
+      exitDate: noExitDate ? null : shiftExitDate,
+    );
+    await ServiceLocator().paymentService
+        .recalculatePatientAttendanceAndBilling(patient.id);
+    return true;
+  }
+  for (final stay in activeStays) {
+    await roomService.completeStay(stay.id, completedAt: shiftTime);
+  }
   if (choice.room != null) {
     await roomService.createStay(
       patientId: patient.id,

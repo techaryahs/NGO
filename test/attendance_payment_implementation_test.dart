@@ -187,40 +187,38 @@ void main() {
         );
       },
     );
-    test(
-      'initial admission includes attendants before the first payment recalculation',
-      () async {
-        final p = fixtures.patient(
-          status: 'active',
-          exit: 8,
-          payments: [fixtures.payment(3200)],
-        );
-        final db = BatchDatabase({
-          'patients': {'p': p.toMap()},
-          'stays': {
-            's': fixtures.segment('s', 'general', 1, 8, status: 'active')
-              ..['attendantCount'] = 1,
-          },
-        });
-        final initial = PatientService.initialAdmissionAttendance(
-          patientId: 'p',
-          patientName: 'Patient',
-          start: day,
-          exit: DateTime(2026, 1, 8, 9),
-          cycleId: fixtures.cycle,
-          attendants: [AttendantModel(name: 'A')],
-        );
-        await db.patch('', initial);
-        final updates = await PaymentService(db).billingUpdates('p');
-        // Eight eligible dates include both patient and attendant attendance,
-        // matching the admission quote without a false balance mismatch.
-        expect(updates['patients/p/advanceBilledAmount'], 3200);
-        expect(updates['patients/p/refundDueAmount'], 0);
-        expect(updates['patients/p/currentDueAmount'], 0);
-        expect(updates['patients/p/paymentStatus'], 'Paid');
-        db.dispose();
-      },
-    );
+    test('unmarked attendants are not billed as actual attendance', () async {
+      final p = fixtures.patient(
+        status: 'active',
+        exit: 8,
+        payments: [fixtures.payment(3200)],
+      );
+      final db = BatchDatabase({
+        'patients': {'p': p.toMap()},
+        'stays': {
+          's': fixtures.segment('s', 'general', 1, 8, status: 'active')
+            ..['attendantCount'] = 1,
+        },
+      });
+      final initial = PatientService.initialAdmissionAttendance(
+        patientId: 'p',
+        patientName: 'Patient',
+        start: day,
+        exit: DateTime(2026, 1, 8, 9),
+        cycleId: fixtures.cycle,
+        attendants: [AttendantModel(name: 'A')],
+      );
+      await db.patch('', initial);
+      final updates = await PaymentService(db).billingUpdates('p');
+      // Patient physical-stay estimate remains; no attendant presence is invented.
+      expect(initial, isEmpty);
+      expect(updates['patients/p/totalPresentDays'], 0);
+      expect(updates['patients/p/advanceBilledAmount'], 1400);
+      expect(updates['patients/p/refundDueAmount'], 1800);
+      expect(updates['patients/p/currentDueAmount'], 0);
+      expect(updates['patients/p/paymentStatus'], 'Payment Exceeded');
+      db.dispose();
+    });
   });
 
   group('Monthly attendance buffer', () {

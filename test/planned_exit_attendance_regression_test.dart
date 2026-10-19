@@ -336,7 +336,7 @@ void main() {
       );
       expect(
         initial.containsKey('attendance/daily/2026-10-17/$patientId'),
-        true,
+        false,
       );
     },
   );

@@ -1,0 +1,40 @@
+{
+  "name": "ngo-backend",
+  "version": "1.0.0",
+  "description": "Backend API for NGO Management System (PostgreSQL + Fastify + TypeScript)",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "migrate:up": "tsx src/db/migrate.ts up",
+    "migrate:down": "tsx src/db/migrate.ts down",
+    "migrate:status": "tsx src/db/migrate.ts status",
+    "migrate:prod:up": "node dist/db/migrate.js up",
+    "migrate:prod:status": "node dist/db/migrate.js status",
+    "migrate:create": "node-pg-migrate create",
+    "import:firebase": "tsx src/importer/cli.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "jsonwebtoken": "^9.0.3",
+    "node-pg-migrate": "^7.7.1",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.7.5",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

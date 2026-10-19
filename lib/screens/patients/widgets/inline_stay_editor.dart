@@ -164,13 +164,7 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
       if (widget.loadRooms != null) {
         rooms = await widget.loadRooms!();
       } else {
-        final data = await ServiceLocator().rtdbService.get('rooms');
-        if (data is Map)
-          rooms = [
-            for (final entry in data.entries)
-              if (entry.value is Map)
-                RoomModel.fromMap(entry.key.toString(), entry.value),
-          ];
+        rooms = await ServiceLocator().roomService.getRoomsStream().first;
       }
       final stays = await ServiceLocator().roomService.getActiveStaysStream().first;
       occupiedLobbies = {
@@ -592,7 +586,7 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
       if (widget.saveChanges != null) {
         await widget.saveChanges!(changes);
       } else {
-        await StayHistoryService(ServiceLocator().rtdbService).updateStay(
+        await StayHistoryService.fromLocator().updateStay(
           widget.stay.id,
           changes,
           expectedUpdatedAt: widget.stay.updatedAt,

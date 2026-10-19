@@ -1,0 +1,8 @@
+   entity   | rows |              digest              
+------------+------+----------------------------------
+ patients   |    2 | afd2c6e44950cd5b49336126e22e2b5c
+ stays      |    2 | 9f01b6ac9ed74c7e6dacd9a820aea4ac
+ payments   |    4 | b974508511a6792195fd6765d1ce85b9
+ attendance |   13 | 08a7b2f41779f394c236d94dba4aaa64
+(4 rows)
+

@@ -1,0 +1,20 @@
+{
+  "startupResult": "Volunteer Portal despite authoritative admin role",
+  "workspaceExe": "build/windows/x64/runner/Release/ngo.exe",
+  "desktopOpened": true,
+  "unverifiedWorkflows": [
+    "registration",
+    "rooms",
+    "attendance",
+    "billing",
+    "payment",
+    "discharge"
+  ],
+  "health": {
+    "readyStatus": 200,
+    "healthStatus": 200,
+    "readyBackendLatencyMs": 2
+  },
+  "authentication": "Restored existing Firebase session; no manual login submitted",
+  "databaseMutated": false
+}

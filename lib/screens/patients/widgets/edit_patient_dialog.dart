@@ -752,22 +752,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
-      final registrationNumber = _registrationNumberController.text.trim();
-      final originalRegistration =
-          widget.patient.registrationNumber?.trim() ?? '';
-      if (registrationNumber.isNotEmpty &&
-          registrationNumber.toLowerCase() !=
-              originalRegistration.toLowerCase()) {
-        final existing = await patientService.getPatientByRegistrationNumber(
-          registrationNumber,
-          excludingPatientId: widget.patient.id,
-        );
-        if (existing != null) {
-          throw Exception(
-            'Registration number $registrationNumber already belongs to ${existing.fullName}.',
-          );
-        }
-      }
+
 
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
@@ -861,9 +846,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'address': _addressController.text.trim().isEmpty
             ? null
             : _addressController.text.trim(),
-        'registrationNumber': _registrationNumberController.text.trim().isEmpty
-            ? null
-            : _registrationNumberController.text.trim(),
+        'registrationNumber': widget.patient.registrationNumber,
         'notes': _updatedNotesWithFileNumber(),
         'registrationDate': _selectedRegistrationDate?.millisecondsSinceEpoch,
         'exitDate': _selectedExitDate?.millisecondsSinceEpoch,
@@ -1336,8 +1319,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 ),
                               ),
                               PatientFormField(
-                                label: "Registration number",
-                                hint: "e.g. REG-2024-001",
+                                label: "Registration number (Immutable)",
+                                hint: "Not assigned",
+                                enabled: false,
                                 controller: _registrationNumberController,
                               ),
                             ),

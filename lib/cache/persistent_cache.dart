@@ -56,6 +56,60 @@ class PersistentCache {
   DateTime? _lastPrune;
 
   String? get accountId => _accountId;
+
+  /// Identity of the authoritative server (e.g. `postgres:http://host/api`).
+  /// Cached server data written for a different identity is discarded when
+  /// an account is activated, so a snapshot from another backend/database is
+  /// never rendered as current data.
+  String? dataSource;
+
+  static const _dataSourceEntity = '__data_source__';
+
+  Future<void> _invalidateForeignDataSource(String account) async {
+    final source = dataSource;
+    if (source == null || source.isEmpty) return;
+    final marker =
+        await (database.select(database.syncStates)..where(
+              (row) =>
+                  row.accountId.equals(account) &
+                  row.entity.equals(_dataSourceEntity),
+            ))
+            .getSingleOrNull();
+    if (marker?.error == source) return;
+    // Server-owned entity data only. Profiles (auth/role state) and photo
+    // metadata are intentionally preserved.
+    await (database.delete(database.cachedPatients)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.cachedStays)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.cachedRooms)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.cachedAttendance)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.cachedPayments)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.cachedSettings)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await (database.delete(database.syncStates)
+          ..where((r) => r.accountId.equals(account)))
+        .go();
+    await database
+        .into(database.syncStates)
+        .insertOnConflictUpdate(
+          SyncStatesCompanion.insert(
+            accountId: account,
+            entity: _dataSourceEntity,
+            status: const Value('bound'),
+            error: Value(source),
+          ),
+        );
+  }
   int get accountGeneration => _accountGeneration;
   Stream<int> get accountChanges => _accountChanges.stream;
   CacheStatus get status => _status;
@@ -137,6 +191,7 @@ class PersistentCache {
         await (database.delete(
           database.syncStates,
         )..where((row) => row.accountId.isNotValue(accountId))).go();
+        await _invalidateForeignDataSource(accountId);
       });
     }();
     _activationFuture = activation;
@@ -263,6 +318,7 @@ class PersistentCache {
     String path, {
     required String startKey,
     required String endKey,
+    String? patientId,
   }) async {
     if (!_available) return null;
     final account = _accountId;
@@ -274,13 +330,16 @@ class PersistentCache {
     }
     final kind = clean.split('/').first;
     final rows =
-        await (database.select(database.cachedAttendance)..where(
-              (row) =>
+        await (database.select(database.cachedAttendance)..where((row) {
+              final window =
                   row.accountId.equals(account) &
                   row.kind.equals(kind) &
                   row.date.isBiggerOrEqualValue(startKey) &
-                  row.date.isSmallerOrEqualValue(endKey),
-            ))
+                  row.date.isSmallerOrEqualValue(endKey);
+              return patientId == null
+                  ? window
+                  : window & row.patientId.equals(patientId);
+            }))
             .get();
     final result = <String, dynamic>{};
     for (final row in rows) {
@@ -378,7 +437,57 @@ class PersistentCache {
     try {
       await database.transaction(() async {
         if (!current()) throw _ObsoleteCacheSnapshot();
-        if (parts.length == 1 &&
+        if (clean.startsWith('stays/') &&
+            value is Map &&
+            value['id'] is String &&
+            Uri.decodeComponent(clean.substring(6)) == value['id']) {
+          // A stay ID may contain a slash (bed label 1/2). A complete server
+          // row is one entity, not a nested field. Amend persisted query
+          // snapshots even when no stream currently observes that query.
+          final stayId = value['id'] as String;
+          final row = Map<String, dynamic>.from(value);
+          await _upsertEntity(
+            account,
+            'stays',
+            stayId,
+            _sanitize(row, 'stays'),
+          );
+          final snapshots = await (database.select(
+            database.cachedSettings,
+          )..where((r) => r.accountId.equals(account))).get();
+          for (final snapshot in snapshots) {
+            final uri = Uri.tryParse(snapshot.id);
+            if (uri?.path != 'stays' || !(uri?.hasQuery ?? false)) continue;
+            final filters = uri!.queryParameters;
+            if (filters.keys.any(
+              (key) => !const {
+                'patientId',
+                'roomId',
+                'status',
+                'format',
+              }.contains(key),
+            )) {
+              continue;
+            }
+            final decoded = jsonDecode(snapshot.payload);
+            if (decoded is! Map) continue;
+            final updated = Map<String, dynamic>.from(decoded);
+            final matches = const ['patientId', 'roomId', 'status'].every(
+              (key) =>
+                  filters[key] == null ||
+                  filters[key]!.isEmpty ||
+                  row[key] == filters[key],
+            );
+            if (matches) {
+              updated[stayId] = row;
+            } else {
+              updated.remove(stayId);
+            }
+            await _upsertSetting(account, snapshot.id, updated);
+          }
+        } else if (clean.contains('?')) {
+          await _applySetting(account, clean, value, isPatch: false);
+        } else if (parts.length == 1 &&
             (value is Map || clean == 'patients' && value == null)) {
           await _replaceCollection(
             account,
@@ -545,9 +654,7 @@ class PersistentCache {
     if (existing != null && value is Map) {
       final existingUpdatedAt = _asInt(existing['updatedAt']);
       final incomingUpdatedAt = _asInt(value['updatedAt']);
-      if (existingUpdatedAt != null &&
-          incomingUpdatedAt != null &&
-          incomingUpdatedAt < existingUpdatedAt) {
+      if (incomingUpdatedAt < existingUpdatedAt) {
         // BUG #9 FIX: Stale snapshot / race protection.
         // A stale REST/SSE snapshot must not overwrite a newer state.
         return;
@@ -678,6 +785,79 @@ class PersistentCache {
               (row) => row.accountId.equals(account) & row.id.equals(id),
             ))
             .go();
+        await (database.delete(database.cachedStays)..where(
+              (row) => row.accountId.equals(account) & row.patientId.equals(id),
+            ))
+            .go();
+        await (database.delete(database.cachedAttendance)..where(
+              (row) => row.accountId.equals(account) & row.patientId.equals(id),
+            ))
+            .go();
+        await (database.delete(database.cachedPayments)..where(
+              (row) => row.accountId.equals(account) & row.patientId.equals(id),
+            ))
+            .go();
+        final roomRows = await (database.select(
+          database.cachedRooms,
+        )..where((row) => row.accountId.equals(account))).get();
+        for (final roomRow in roomRows) {
+          try {
+            final decoded = json.decode(roomRow.payload);
+            if (decoded is! Map) continue;
+            final roomMap = Map<String, dynamic>.from(decoded);
+            final bedsRaw = roomMap['beds'];
+            if (bedsRaw is! List) continue;
+            bool modified = false;
+            final updatedBeds = <Map<String, dynamic>>[];
+            int occupiedCount = 0;
+            for (final bedRaw in bedsRaw) {
+              if (bedRaw is Map) {
+                final bedMap = Map<String, dynamic>.from(bedRaw);
+                if (bedMap['currentPatientId'] == id) {
+                  bedMap['currentPatientId'] = null;
+                  bedMap['currentStayId'] = null;
+                  bedMap['status'] = 'available';
+                  modified = true;
+                }
+                if (bedMap['status'] == 'occupied') {
+                  occupiedCount++;
+                }
+                updatedBeds.add(bedMap);
+              }
+            }
+            if (modified) {
+              roomMap['beds'] = updatedBeds;
+              roomMap['occupiedBeds'] = occupiedCount;
+              final currentStatus = roomMap['status']?.toString();
+              if (currentStatus != 'maintenance' &&
+                  currentStatus != 'cleaning' &&
+                  currentStatus != 'unavailable') {
+                if (occupiedCount == 0) {
+                  roomMap['status'] = 'available';
+                } else if (occupiedCount < updatedBeds.length) {
+                  roomMap['status'] = 'partially_occupied';
+                } else {
+                  roomMap['status'] = 'occupied';
+                }
+              }
+              final encoded = json.encode(roomMap);
+              final now = DateTime.now().millisecondsSinceEpoch;
+              await database
+                  .into(database.cachedRooms)
+                  .insertOnConflictUpdate(
+                    CachedRoomsCompanion.insert(
+                      accountId: account,
+                      id: roomRow.id,
+                      status: Value(_asString(roomMap['status'])),
+                      floor: Value(roomRow.floor),
+                      roomType: Value(roomRow.roomType),
+                      updatedAt: Value(now),
+                      payload: encoded,
+                    ),
+                  );
+            }
+          } catch (_) {}
+        }
         break;
       case 'stays':
         await (database.delete(database.cachedStays)..where(
@@ -943,6 +1123,14 @@ class PersistentCache {
     for (final row in rows) {
       final suffix = row.id.split('/').skip(2).toList();
       _setNested(result, suffix, jsonDecode(row.payload));
+    }
+    if (parts.length > 3) {
+      dynamic targeted = result;
+      for (final key in parts.skip(3)) {
+        if (targeted is! Map) return null;
+        targeted = targeted[key];
+      }
+      return targeted;
     }
     return result;
   }

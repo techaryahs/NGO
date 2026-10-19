@@ -16,6 +16,7 @@ import 'widgets/shift_patient_dialog.dart';
 import 'widgets/photo_preview_dialog.dart';
 import '../../utils/bed_helper.dart';
 import '../../utils/stay_billing.dart';
+import '../attendance/attendance_service.dart';
 import 'utils/patient_info_download.dart';
 import '../../widgets/patient_photo.dart';
 
@@ -2468,34 +2469,14 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     try {
       final range = _attendanceDateRange;
-      final data = await ServiceLocator().rtdbService.getByKeyRange(
-        'attendance/daily',
-        startKey: range.start,
-        endKey: range.end,
-      );
+      final data = await ServiceLocator().patientService
+          .getAttendanceRangeForProfile(
+            kind: 'attendance',
+            startKey: range.start,
+            endKey: range.end,
+          );
 
-      if (data != null && data is Map) {
-        data.forEach((dateStr, records) {
-          if (records is Map) {
-            records.forEach((patientId, record) {
-              if (patientId == widget.patient.id && record is Map) {
-                final normalizedRecord = Map<String, dynamic>.from(record);
-                if (!{
-                  'Present',
-                  'Absent',
-                }.contains(normalizedRecord['status'])) {
-                  return;
-                }
-                // Prefer the stored ISO date when present; this also supports
-                // older records whose parent RTDB key used another format.
-                final recordDate = normalizedRecord['date']?.toString();
-                result[recordDate?.isNotEmpty == true ? recordDate! : dateStr] =
-                    normalizedRecord;
-              }
-            });
-          }
-        });
-      }
+      result.addAll(AttendanceService.patientRecords(data, widget.patient.id));
     } catch (e) {
       debugPrint("Attendance error: $e");
     }
@@ -2508,11 +2489,12 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     try {
       final range = _attendanceDateRange;
-      final data = await ServiceLocator().rtdbService.getByKeyRange(
-        'attendant_attendance/daily',
-        startKey: range.start,
-        endKey: range.end,
-      );
+      final data = await ServiceLocator().patientService
+          .getAttendanceRangeForProfile(
+            kind: 'attendant_attendance',
+            startKey: range.start,
+            endKey: range.end,
+          );
 
       if (data != null && data is Map) {
         data.forEach((dateStr, records) {
@@ -2543,7 +2525,8 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     attendanceMap.forEach((dateStr, record) {
       final status = record['status']?.toString() ?? '';
-      final isPresent = status.toLowerCase() == 'present';
+      if (status != 'Present' && status != 'Absent') return;
+      final isPresent = status == 'Present';
 
       if (isPresent) {
         totalPresent++;

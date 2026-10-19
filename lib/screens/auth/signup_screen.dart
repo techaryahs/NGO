@@ -30,6 +30,7 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> signUp() async {
+    if (_isLoading) return;
     if (nameController.text.isEmpty ||
         emailController.text.isEmpty ||
         phoneController.text.isEmpty ||

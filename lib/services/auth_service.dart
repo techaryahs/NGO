@@ -2,19 +2,36 @@ import 'package:flutter/foundation.dart';
 import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'firebase_auth_rest_service.dart';
+import 'backend_api_service.dart';
 
 class AuthService {
   final FirebaseAuthRestService _auth;
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _rtdb;
+  final BackendApiService? _backendApi;
   final PersistentCache? _persistentCache;
 
   AuthService({
     required FirebaseAuthRestService authService,
-    required FirebaseRTDBRestService rtdbService,
+    FirebaseRTDBRestService? rtdbService,
+    BackendApiService? backendApiService,
     PersistentCache? persistentCache,
   }) : _auth = authService,
        _rtdb = rtdbService,
+       _backendApi = backendApiService,
        _persistentCache = persistentCache;
+
+  bool get isPostgres => _backendApi != null;
+
+  FirebaseRTDBRestService get _safeRtdb {
+    final rtdb = _rtdb;
+    if (rtdb == null) {
+      throw StateError(
+        'Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true. '
+        'All database operations must route through BackendApiService.',
+      );
+    }
+    return rtdb;
+  }
 
   AuthUser? get currentUser => _auth.currentUser;
   Stream<AuthUser?> get authStateChanges =>
@@ -27,9 +44,32 @@ class AuthService {
         return user;
       });
 
+  final Map<String, Future<Map<String, dynamic>>> _inFlightSignIn = {};
+  final Map<String, Future<Map<String, dynamic>>> _inFlightSignUp = {};
+  final Map<String, Future<String?>> _inFlightRoleLookups = {};
+
   // New accounts are unprivileged. Staff/admin roles are assigned by a
   // trusted operator through the Firebase Admin SDK.
   Future<Map<String, dynamic>> signUp({
+    required String email,
+    required String password,
+    required String name,
+    required String phone,
+  }) {
+    final key = email.trim().toLowerCase();
+    final existing = _inFlightSignUp[key];
+    if (existing != null) return existing;
+    final future = _performSignUp(
+      email: email,
+      password: password,
+      name: name,
+      phone: phone,
+    );
+    _inFlightSignUp[key] = future;
+    return future.whenComplete(() => _inFlightSignUp.remove(key));
+  }
+
+  Future<Map<String, dynamic>> _performSignUp({
     required String email,
     required String password,
     required String name,
@@ -70,14 +110,20 @@ class AuthService {
         '[AUTH FLOW] STEP 4 PROFILE WRITE START: path=users/${result.user!.uid}',
       );
       try {
-        await _rtdb.put('users/${result.user!.uid}', {
+        final profileData = {
           'uid': result.user!.uid,
           'email': email,
           'name': name,
           'phone': phone,
           'role': 'volunteer',
           'createdAt': DateTime.now().millisecondsSinceEpoch,
-        });
+        };
+        final backendApi = _backendApi;
+        if (backendApi != null) {
+          await backendApi.put('users/${result.user!.uid}', profileData);
+        } else {
+          await _safeRtdb.put('users/${result.user!.uid}', profileData);
+        }
         debugPrint(
           '[AUTH FLOW] STEP 5 PROFILE WRITE COMPLETE: path=users/${result.user!.uid}',
         );
@@ -111,6 +157,18 @@ class AuthService {
 
   // Sign in with email and password
   Future<Map<String, dynamic>> signIn({
+    required String email,
+    required String password,
+  }) {
+    final key = email.trim().toLowerCase();
+    final existing = _inFlightSignIn[key];
+    if (existing != null) return existing;
+    final future = _performSignIn(email: email, password: password);
+    _inFlightSignIn[key] = future;
+    return future.whenComplete(() => _inFlightSignIn.remove(key));
+  }
+
+  Future<Map<String, dynamic>> _performSignIn({
     required String email,
     required String password,
   }) async {
@@ -190,24 +248,49 @@ class AuthService {
     }
   }
 
-  // Get user role from Realtime Database
-  Future<String?> getUserRole(String uid) async {
-    try {
-      final data = await _rtdb.get('users/$uid');
-      if (data != null && data is Map) {
-        final userData = Map<String, dynamic>.from(data);
-        return userData['role'] as String?;
-      }
-      return null;
-    } catch (e) {
-      return null;
+  // Get user role from Realtime Database / Backend API
+  Future<String?> getUserRole(String uid) {
+    final existing = _inFlightRoleLookups[uid];
+    if (existing != null) return existing;
+    final future = _fetchUserRole(uid);
+    _inFlightRoleLookups[uid] = future;
+    return future.whenComplete(() => _inFlightRoleLookups.remove(uid));
+  }
+
+  Future<String?> _fetchUserRole(String uid) async {
+    // Restored currentUser can be read before the cache-aware auth stream
+    // finishes. Bind this account before BackendApiService captures its
+    // generation; otherwise a successful profile response becomes obsolete.
+    final user = currentUser;
+    if (user != null && user.uid == uid) {
+      await _persistentCache?.activateAccount(user.uid);
     }
+    final backendApi = _backendApi;
+    final dynamic data;
+    if (backendApi != null) {
+      data = await backendApi.get('users/$uid');
+    } else {
+      data = await _safeRtdb.get('users/$uid');
+    }
+    if (data != null && data is Map) {
+      final userData = Map<String, dynamic>.from(data);
+      return userData['role'] as String?;
+    }
+    // A missing profile is distinct from a failed request. Let transport and
+    // authentication errors reach the retry UI instead of caching volunteer.
+    return null;
   }
 
   // Get user data
   Future<Map<String, dynamic>?> getUserData(String uid) async {
     try {
-      final data = await _rtdb.get('users/$uid');
+      final backendApi = _backendApi;
+      final dynamic data;
+      if (backendApi != null) {
+        data = await backendApi.get('users/$uid');
+      } else {
+        data = await _safeRtdb.get('users/$uid');
+      }
       if (data != null && data is Map) {
         return Map<String, dynamic>.from(data);
       }
@@ -219,7 +302,13 @@ class AuthService {
 
   Future<List<Map<String, dynamic>>> getAllAdmins() async {
     try {
-      final data = await _rtdb.get('users');
+      final backendApi = _backendApi;
+      final dynamic data;
+      if (backendApi != null) {
+        data = await backendApi.get('users');
+      } else {
+        data = await _safeRtdb.get('users');
+      }
 
       if (data == null || data is! Map) {
         return [];
@@ -230,16 +319,17 @@ class AuthService {
       Map<String, dynamic> users = Map<String, dynamic>.from(data);
 
       users.forEach((uid, userData) {
-        final user = Map<String, dynamic>.from(userData);
-
-        if (user['role'] == 'admin') {
-          admins.add({'uid': uid, ...user});
+        if (userData is Map) {
+          final user = Map<String, dynamic>.from(userData);
+          if (user['role'] == 'admin') {
+            admins.add({'uid': uid, ...user});
+          }
         }
       });
 
       return admins;
     } catch (e) {
-      print("Error fetching admins: $e");
+      debugPrint("Error fetching admins: $e");
       return [];
     }
   }

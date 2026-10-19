@@ -83,9 +83,7 @@ class _AttendanceState extends State<Attendance>
       _error = null;
     });
     try {
-      final data = await AttendanceService(
-        ServiceLocator().rtdbService,
-      ).loadMonth(_month);
+      final data = await AttendanceService().loadMonth(_month);
       if (!mounted || version != _loadVersion) return;
       setState(() {
         _editor = MonthlyAttendanceEditor(data);
@@ -141,12 +139,16 @@ class _AttendanceState extends State<Attendance>
       _error = null;
     });
     try {
-      _billingRetry.addAll(await _editor!.save(ServiceLocator().rtdbService));
-      // Each distinct patient is scheduled once after the entire atomic batch.
+      _billingRetry.addAll(await _editor!.save());
+      // The entire batch is saved; start its billing now instead of waiting
+      // for the debounce used by background changes.
       final ids = _billingRetry.toList();
       await Future.wait(
         ids.map((id) async {
-          await ServiceLocator().paymentService.schedulePatientBilling(id);
+          await ServiceLocator().paymentService.schedulePatientBilling(
+            id,
+            immediate: true,
+          );
           _billingRetry.remove(id);
         }),
       );
@@ -185,7 +187,7 @@ class _AttendanceState extends State<Attendance>
       height: _rowHeight,
       child: Tooltip(
         message: enabled
-            ? '${row.name} • ${DateFormat('dd MMM').format(date)} • $status${dirty ? ' (unsaved)' : ''}'
+            ? '${row.displayName} • ${DateFormat('dd MMM').format(date)} • $status${dirty ? ' (unsaved)' : ''}'
             : 'Outside stay dates',
         child: InkWell(
           onTap: !enabled || _saving
@@ -241,7 +243,8 @@ class _AttendanceState extends State<Attendance>
               (_room == null || row.room == _room) &&
               (query.isEmpty ||
                   row.patientName.toLowerCase().contains(query) ||
-                  row.name.toLowerCase().contains(query)),
+                  row.displayName.toLowerCase().contains(query) ||
+                  (row.registrationNumber?.toLowerCase().contains(query) ?? false)),
         )
         .map((row) => row.patientId)
         .toSet();
@@ -289,8 +292,9 @@ class _AttendanceState extends State<Attendance>
                           firstDate: DateTime(1900),
                           lastDate: DateTime(DateTime.now().year + 10, 12, 31),
                         );
-                        if (picked != null && mounted)
+                        if (picked != null && mounted) {
                           await _changeMonth(0, selected: picked);
+                        }
                       },
                 child: Text(
                   DateFormat('MMMM yyyy').format(_month),
@@ -393,9 +397,9 @@ class _AttendanceState extends State<Attendance>
                             ? Colors.white
                             : const Color(0xFFF1F8E9),
                         child: Tooltip(
-                          message: '${row.name} • ${row.room}',
+                          message: '${row.displayName} • ${row.room}',
                           child: Text(
-                            '${row.isAttendant ? '↳ ' : ''}${row.name}',
+                            '${row.isAttendant ? '↳ ' : ''}${row.displayName}',
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontWeight: row.isAttendant

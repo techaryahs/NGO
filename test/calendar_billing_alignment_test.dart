@@ -104,10 +104,10 @@ RangeDatabase database({
 
 void main() {
   test(
-    '13-day admission baseline settles eight Present and five Absent dates',
+    'planned estimate remains separate from eight Present and five Absent dates',
     () async {
       final period = PricingHelper.attendancePeriod(admission, plannedExit);
-      // The admission quote uses this inclusive period, not physical duration.
+      // The legacy quote uses the inclusive attendance period.
       final quote =
           period.days *
           PricingHelper.calculateDailyCharge(false, 0, pricing: pricing(200));
@@ -131,9 +131,10 @@ void main() {
       );
       final service = PaymentService(db);
       final baseline = await service.billingUpdates(id);
-      expect(baseline['patients/$id/advanceBilledAmount'], quote);
-      expect(baseline['stays/stay/billableDays'], 13);
-      expect(baseline['patients/$id/refundDueAmount'], 0);
+      expect(baseline['patients/$id/advanceBilledAmount'], 2400);
+      expect(baseline['stays/stay/billableDays'], 12);
+      expect(baseline['patients/$id/totalPresentDays'], 0);
+      expect(baseline['patients/$id/refundDueAmount'], 200);
 
       final settled = await service.billingUpdates(
         id,
@@ -292,7 +293,7 @@ void main() {
   );
 
   test(
-    'admission seeds patient and attendant over the same inclusive period',
+    'admission leaves patient and attendant unmarked; estimate is separate',
     () async {
       final db = database(attendance: {}, model: patient(paid: 5200));
       addTearDown(db.dispose);
@@ -306,18 +307,18 @@ void main() {
       );
       expect(
         initial.keys.where((key) => key.startsWith('attendance/')),
-        hasLength(13),
+        isEmpty,
       );
       expect(
         initial.keys.where((key) => key.startsWith('attendant_attendance/')),
-        hasLength(13),
+        isEmpty,
       );
       await db.patch('', initial);
       final updates = await PaymentService(db).billingUpdates(id);
-      expect(updates['patients/$id/advanceBilledAmount'], 5200);
-      expect(updates['patients/$id/refundDueAmount'], 0);
+      expect(updates['patients/$id/advanceBilledAmount'], 2400);
+      expect(updates['patients/$id/refundDueAmount'], 2800);
       expect(updates['patients/$id/currentDueAmount'], 0);
-      expect(updates['patients/$id/paymentStatus'], 'Paid');
+      expect(updates['patients/$id/paymentStatus'], 'Payment Exceeded');
     },
   );
 

@@ -30,6 +30,18 @@ class MemoryPhotoDb extends FirebaseRTDBRestService {
   }
 
   @override
+  Future<RtdbValue> getWithEtag(String path) async {
+    reads[path] = (reads[path] ?? 0) + 1;
+    return RtdbValue(records[path], 'etag_1');
+  }
+
+  @override
+  Future<bool> putValueIfMatch(String path, dynamic value, String etag) async {
+    records[path] = value;
+    return true;
+  }
+
+  @override
   Future<void> put(String path, Map<String, dynamic> data) async {
     if (failPhotoWrite && path.startsWith('patientPhotos/')) {
       throw StateError('simulated write failure');

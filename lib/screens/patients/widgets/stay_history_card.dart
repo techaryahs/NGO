@@ -70,9 +70,10 @@ class _StayHistoryCardState extends State<StayHistoryCard> {
     if (confirmed != true || !mounted) return;
     setState(() => _deleting = true);
     try {
-      await StayHistoryService(
-        ServiceLocator().rtdbService,
-      ).deleteAdmission(widget.patient.id, widget.admissionSegments);
+      await StayHistoryService.fromLocator().deleteAdmission(
+        widget.patient.id,
+        widget.admissionSegments,
+      );
       if (mounted) {
         ScaffoldMessenger.of(
           context,

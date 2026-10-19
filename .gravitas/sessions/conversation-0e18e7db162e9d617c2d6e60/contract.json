@@ -1,0 +1,22 @@
+{
+  "mode": "implement",
+  "objective": "Tasks C, D, and E: Backend Foundation, Flutter Integration, and Firebase Migration for NGO Management System",
+  "acceptance_criteria": [
+    "AC1: Fastify TypeScript backend with configuration, health and readiness endpoints",
+    "AC2: PostgreSQL pg connection pool integration",
+    "AC3: node-pg-migrate migration infrastructure with domain schema",
+    "AC4: Root-level Docker Compose with PostgreSQL 16 and private networking",
+    "AC5: Environment configuration and verified gitignore",
+    "AC6: Deployment documentation",
+    "AC7: Automated backend tests",
+    "AC8: Fastify domain endpoints covering patients, stays, rooms, attendance, payments, counters, settings, photos, and ERP with parameterized SQL, transactions, and pagination",
+    "AC9: Firebase token verification middleware and role authorization for Fastify backend",
+    "AC10: Flutter API client and service layer integrated with backend while preserving Drift/SQLite caching",
+    "AC11: Repeatable Firebase RTDB JSON export importer into PostgreSQL with validation, reconciliation, and foreign key integrity",
+    "AC12: Verification via automated backend tests, Flutter analysis, and importer test execution"
+  ],
+  "allowed_write_scope": [
+    "c:/Users/sahil/OneDrive/Desktop/NGO"
+  ],
+  "session_key": "conversation-0e18e7db162e9d617c2d6e60"
+}

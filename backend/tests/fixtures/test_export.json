@@ -1,0 +1,47 @@
+{
+  "rooms": {
+    "r_1": {
+      "id": "r_1",
+      "roomNumber": "101",
+      "floor": 1,
+      "roomType": "general",
+      "beds": {
+        "b_1": {
+          "id": "b_1",
+          "bedLabel": "1",
+          "status": "available"
+        }
+      }
+    }
+  },
+  "patients": {
+    "p_1": {
+      "fullName": "Test Patient",
+      "status": "active",
+      "totalPaidAmount": 5000,
+      "currentDueAmount": 1000,
+      "attendants": [
+        {
+          "name": "Attendant 1"
+        }
+      ]
+    }
+  },
+  "stays": {
+    "s_1": {
+      "id": "s_1",
+      "patientId": "p_1",
+      "roomId": "r_1",
+      "durationDays": 10,
+      "totalCost": 5000
+    }
+  },
+  "payments": {
+    "pay_1": {
+      "id": "pay_1",
+      "patientId": "p_1",
+      "amount": 5000,
+      "method": "cash"
+    }
+  }
+}

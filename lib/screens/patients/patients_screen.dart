@@ -437,13 +437,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
               patient.admissionDate,
             ),
       )) {
-        await ServiceLocator().rtdbService.patch('stays/${stay.id}', {
-          'patientSnapshot': {
-            'registrationNumber': patient.registrationNumber,
-            'photoRef': patient.photoRef,
-            'attendants': patient.attendants?.map((a) => a.toMap()).toList(),
-            'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
-          },
+        await ServiceLocator().roomService.updateStaySnapshot(stay.id, {
+          'registrationNumber': patient.registrationNumber,
+          'photoRef': patient.photoRef,
+          'attendants': patient.attendants?.map((a) => a.toMap()).toList(),
+          'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
         });
       }
       final pricing = await ServiceLocator().roomService.getPricing();

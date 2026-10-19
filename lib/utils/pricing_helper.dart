@@ -13,7 +13,13 @@ class PricingHelper {
     return days.clamp(1, 3650);
   }
 
-  /// Calendar dates eligible for attendance and its admission estimate.
+  /// Billable calendar days include both admission and checkout, at any time.
+  /// Physical bed-allocation duration remains separate from this invoice rule.
+  static int calculateBillingDays(DateTime start, DateTime? exit) =>
+      attendancePeriod(start, exit).days.clamp(1, 3650);
+
+  /// Calendar dates eligible for attendance and a separate admission estimate.
+  /// This range must never be used to generate actual attendance.
   /// A planned exit is inclusive regardless of its physical checkout time.
   /// Without a planned exit, preserve the existing advance estimate.
   static ({DateTime start, DateTime end, int days}) attendancePeriod(

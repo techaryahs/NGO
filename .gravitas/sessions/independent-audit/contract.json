@@ -1,0 +1,10 @@
+{
+  "mode": "implement",
+  "objective": "Independently audit and correct the PostgreSQL migration, backend workflows, importer and Flutter integration using automated tooling only",
+  "risk": "high",
+  "budget": "deep",
+  "allowed_write_scope": ["backend/", "lib/", "test/", "audit/", ".gravitas/sessions/independent-audit/", "docker-compose.yml", ".env.example", ".gitignore", "DEPLOYMENT.md"],
+  "acceptance_criteria": ["Record baseline and endpoint inventory", "Exercise migrations and workflows on a verified disposable PostgreSQL 16 database or document runtime limitation", "Add regression tests and targeted fixes for confirmed defects", "Verify authentication and importer safety", "Run Flutter automated checks and document integration gaps", "Deliver consolidated evidence and remaining cutover blockers without production cutover"],
+  "non_goals": ["No production operations", "No GUI automation", "No live Flutter feature flag changes", "No unrelated UI or billing redesign"],
+  "planning_policy": {"planning": "deep", "context_depth": "dependency", "verification_depth": "full", "delegation": "team", "reason_codes": ["security", "migration", "cross-service-workflows", "independent-verification"]}
+}

@@ -112,6 +112,9 @@ class StayBilling {
     Map<String, Map<String, String>> attendantAttendance = const {},
     DateTime? now,
     bool onlyPresent = false,
+    // PostgreSQL uses the explicitly agreed calendar-day policy. Keep legacy
+    // RTDB/offline historical tooling unchanged unless it opts into that policy.
+    bool calendarDayBilling = false,
   }) {
     final groups = <String, List<StayModel>>{};
     for (final stay in stays.where((s) => s.status != 'cancelled')) {
@@ -136,11 +139,19 @@ class StayBilling {
             end = patient.exitDate!;
           } else {
             final estimateEnd = start.add(
-              const Duration(days: PricingHelper.advanceDays),
+              Duration(
+                days: PricingHelper.advanceDays - (calendarDayBilling ? 1 : 0),
+              ),
             );
             final activeSegmentEnds = segments
                 .where((segment) => segment.isActive)
-                .map((segment) => segment.expectedDischargeDate)
+                .map(
+                  (segment) => calendarDayBilling
+                      ? segment.expectedDischargeDate.subtract(
+                          const Duration(days: 1),
+                        )
+                      : segment.expectedDischargeDate,
+                )
                 .where((date) => date.millisecondsSinceEpoch > 0);
             end = activeSegmentEnds.fold<DateTime>(
               estimateEnd,
@@ -148,7 +159,7 @@ class StayBilling {
             );
             final todayEnd = day(
               now ?? DateTime.now(),
-            ).add(const Duration(days: 1));
+            ).add(Duration(days: calendarDayBilling ? 0 : 1));
             if (todayEnd.isAfter(end)) end = todayEnd;
             for (final key in {
               ...attendance.keys,
@@ -156,7 +167,9 @@ class StayBilling {
             }) {
               final recorded = DateTime.tryParse(key);
               if (recorded == null) continue;
-              final recordedEnd = day(recorded).add(const Duration(days: 1));
+              final recordedEnd = day(
+                recorded,
+              ).add(Duration(days: calendarDayBilling ? 0 : 1));
               if (recordedEnd.isAfter(end)) end = recordedEnd;
             }
           }
@@ -166,17 +179,18 @@ class StayBilling {
               .reduce((a, b) => a.isAfter(b) ? a : b);
         }
         var exclusiveEnd = day(end);
-        if (end.hour > 9 || (end.hour == 9 && end.minute > 0)) {
+        if (calendarDayBilling ||
+            end.hour > 9 ||
+            (end.hour == 9 && end.minute > 0)) {
           exclusiveEnd = exclusiveEnd.add(const Duration(days: 1));
         }
-        if (!exclusiveEnd.isAfter(start))
+        if (!exclusiveEnd.isAfter(start)) {
           exclusiveEnd = start.add(const Duration(days: 1));
+        }
         final checkoutExclusiveEnd = exclusiveEnd;
-        // Attendance settlement shares the admission estimate's inclusive
-        // calendar range. Presence adds a charge and absence reduces that
-        // estimate, including the planned exit. Unmarked checkout dates keep
-        // their established treatment below; actual checkout remains separate.
-        if (active && patient.exitDate != null) {
+        // Legacy RTDB attendance settlement retains its previous behavior.
+        // PostgreSQL always includes both calendar endpoints, active or closed.
+        if (!calendarDayBilling && active && patient.exitDate != null) {
           final period = PricingHelper.attendancePeriod(
             start,
             patient.exitDate,
@@ -211,7 +225,8 @@ class StayBilling {
             if (s.isActive && active) return true;
             final checkout = s.completedAt ?? s.updatedAt;
             var checkoutEnd = day(checkout);
-            if (checkout.hour > 9 ||
+            if (calendarDayBilling ||
+                checkout.hour > 9 ||
                 (checkout.hour == 9 && checkout.minute > 0)) {
               checkoutEnd = checkoutEnd.add(const Duration(days: 1));
             }

@@ -44,6 +44,21 @@ class AppConfig {
   static String get razorpayBackendUrl =>
       dotenv.isInitialized ? (dotenv.env['RAZORPAY_BACKEND_URL']?.trim() ?? '') : '';
 
+  /// Authoritative backend API URL (e.g. http://localhost:8080/api).
+  static String get backendApiUrl {
+    final configured = dotenv.isInitialized
+        ? dotenv.env['BACKEND_API_URL']?.trim()
+        : null;
+    return configured == null || configured.isEmpty
+        ? 'http://localhost:8080/api'
+        : configured;
+  }
+
+  /// Whether to route data access to PostgreSQL backend API instead of Firebase RTDB.
+  static bool get usePostgresBackend => dotenv.isInitialized
+      ? (dotenv.env['USE_POSTGRES_BACKEND']?.trim().toLowerCase() == 'true')
+      : false;
+
   /// Whether a trusted payment backend URL is configured.
   static bool get isPaymentBackendConfigured => razorpayBackendUrl.isNotEmpty;
 

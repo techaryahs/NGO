@@ -141,7 +141,7 @@ class TestDatabase extends FirebaseRTDBRestService {
 }
 
 void main() {
-  test('automatic attendance keeps a manually cleared day unmarked', () async {
+  test('legacy automatic sync leaves all marks unchanged', () async {
     final db = TestDatabase(
       jsonDecode(
             jsonEncode({
@@ -172,10 +172,7 @@ void main() {
       (await db.get('attendance/daily/2026-01-01/p'))['status'],
       'Unmarked',
     );
-    expect(
-      (await db.get('attendance/daily/2026-01-02/p'))['status'],
-      'Present',
-    );
+    expect(await db.get('attendance/daily/2026-01-02/p'), isNull);
   });
 
   test('recorded exit date stops billing for an active patient', () {

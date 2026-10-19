@@ -1,0 +1,12 @@
+{
+  "verdict": "PASS",
+  "database": { "host": "127.0.0.1", "port": 55439, "database": "ngo_audit_payment_accuracy", "user": "ngo_audit", "postgresVersion": 160015, "nodeEnv": "test" },
+  "baseline": { "testsSelected": 3, "failed": 3, "log": "payment-backend-baseline.log", "note": "Baseline exercised original mutation handlers after signed refund validation had been introduced; original positive-only refund rejection is established from source." },
+  "checks": [
+    { "command": "npx vitest run tests/payment_financial.integration.test.ts", "passed": 35, "failed": 0, "log": "payment-backend-fixed.log" },
+    { "command": "npx vitest run tests/domain_routes.test.ts", "passed": 5, "failed": 0, "log": "payment-backend-domain-regression.log" },
+    { "command": "npx tsc --noEmit", "exitCode": 0, "log": "payment-backend-typecheck.log" }
+  ],
+  "coverage": ["signed refunds", "exact decimal receipts", "refund retry canonicalization", "concurrent excess refund rejection", "PATCH/DELETE balance and version invalidation", "no-op version and timestamp preservation", "metadata preservation", "historical cycle deltas", "legacy missing cycle mapping", "cycle reassignment", "immutable ownership and payment type", "malformed signed amounts and dates", "transaction reference uniqueness", "create/update/delete transaction rollback", "simultaneous financial mutations", "deterministic locked receipt deletion/recreation owner race"],
+  "limits": ["Uses stored locked admission balances; unknown historical financial snapshots reject409 until recalculated instead of inventing historical totals.", "Fastify.inject and real PostgreSQL integration; desktop UI and WAN transport are outside this verification.", "No existing NGO database, volumes, credentials or auth behavior was changed."]
+}

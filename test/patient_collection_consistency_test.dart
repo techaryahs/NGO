@@ -99,6 +99,9 @@ class Harness {
       httpClient: MockClient((request) async {
         requests.add(request);
         if (request.method == 'GET') {
+          if (request.url.path.contains('registrationNumber')) {
+            return http.Response('5000', 200, headers: {'etag': 'etag_1'});
+          }
           if (allowBillingReads && request.url.path == '/patients/p1.json') {
             return http.Response(jsonEncode(memory!['p1']), 200);
           }
@@ -628,6 +631,7 @@ void main() {
             medicalCondition: 'Condition',
             admissionDate: DateTime(2026, 10, 3),
             createdBy: 'account-A',
+            registrationNumber: '520$addition',
           );
           added.add(id);
           await h.rest.patch('', {

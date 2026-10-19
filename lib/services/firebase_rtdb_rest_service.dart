@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
+import 'package:flutter/foundation.dart';
 import '../cache/persistent_cache.dart';
 import 'patient_collection_state.dart';
 
@@ -146,6 +146,14 @@ class FirebaseRTDBRestService {
     if (!current()) return;
     if (_patients.publish(data, ticket, complete: true)) _publishPatients();
     await _cacheAction(() => persistentCache?.markSynced('patients'));
+  }
+
+  /// Returns the in-memory cached patient collection if already available.
+  Map<String, dynamic>? get cachedPatientsData {
+    if (_patients.value != null) return _patients.value;
+    final latest = _latestValues['patients'];
+    if (latest is Map<String, dynamic>) return latest;
+    return null;
   }
 
   @visibleForTesting
@@ -523,13 +531,27 @@ class FirebaseRTDBRestService {
     String path,
     Map<String, dynamic> data,
     String etag,
+  ) => putValueIfMatch(path, data, etag);
+
+  /// Conditional replacement of a primitive or structured value under [path].
+  /// Applies only while the node matches [etag].
+  ///
+  /// Returns `false` when the server rejects the write because the node was
+  /// changed by another terminal (HTTP 412 Precondition Failed). Used for
+  /// concurrency-safe counter allocation and bed allocation.
+  Future<bool> putValueIfMatch(
+    String path,
+    dynamic value,
+    String etag,
   ) async {
     final account = _bindAccount();
     try {
       final token = await _getIdToken();
       final url = _buildUrl(path, auth: token);
 
-      final prepared = _prepareWrite(path, data, isPatch: false);
+      final dynamic prepared = (value is Map<String, dynamic>)
+          ? _prepareWrite(path, value, isPatch: false)
+          : value;
       final response = await _client.put(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json', 'if-match': etag},
@@ -537,15 +559,22 @@ class FirebaseRTDBRestService {
       );
 
       if (response.statusCode == 200) {
-        final resolved = _decodeWriteResponse(response.body, prepared);
+        final dynamic resolved;
+        if (prepared is Map<String, dynamic>) {
+          resolved = _decodeWriteResponse(response.body, prepared);
+        } else {
+          resolved = _decodePrimitiveWriteResponse(response.body, prepared);
+        }
         if (_bindAccount() != account) return true;
         if (path != 'patients') _latestValues[path] = resolved;
-        _beginMutation({path: resolved}, isPatch: false);
-        await _cacheAction(
-          () => persistentCache?.applyServerMutation({
-            path: resolved,
-          }, isPatch: false),
-        );
+        if (resolved is Map<String, dynamic>) {
+          _beginMutation({path: resolved}, isPatch: false);
+          await _cacheAction(
+            () => persistentCache?.applyServerMutation({
+              path: resolved,
+            }, isPatch: false),
+          );
+        }
         if (_bindAccount() != account) return true;
         _notifyWritten(
           [path],
@@ -853,6 +882,15 @@ class FirebaseRTDBRestService {
         return {...fallback, ...Map<String, dynamic>.from(value)};
       }
       return fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  dynamic _decodePrimitiveWriteResponse(String body, dynamic fallback) {
+    if (body.isEmpty || body == 'null') return fallback;
+    try {
+      return json.decode(body) ?? fallback;
     } catch (_) {
       return fallback;
     }

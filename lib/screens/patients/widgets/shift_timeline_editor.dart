@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/patient_model.dart';
 import '../../../models/stay_model.dart';
-import '../../../services/service_locator.dart';
 import '../../../services/stay_history_service.dart';
 
 class ShiftTimelineEditor extends StatefulWidget {
@@ -401,12 +400,15 @@ class _ShiftTimelineEditorState extends State<ShiftTimelineEditor> {
         saving = true;
         error = null;
       });
-      await StayHistoryService(
-        ServiceLocator().rtdbService,
-      ).updateShiftTimeline(widget.patient.id, [
-        for (var i = 0; i < segments.length; i++)
-          (stay: segments[i], start: starts[i], end: ends[i]),
-      ], costOverrides: overrides, noPlannedExitDate: noPlannedExitDate);
+      await StayHistoryService.fromLocator().updateShiftTimeline(
+        widget.patient.id,
+        [
+          for (var i = 0; i < segments.length; i++)
+            (stay: segments[i], start: starts[i], end: ends[i]),
+        ],
+        costOverrides: overrides,
+        noPlannedExitDate: noPlannedExitDate,
+      );
       if (mounted) widget.onSaved();
     } catch (e) {
       if (mounted) {
