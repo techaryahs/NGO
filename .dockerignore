@@ -1,0 +1,41 @@
+# ==============================================================================
+# Root Docker Ignore — Excludes secrets, dumps, local data, and client artifacts
+# ==============================================================================
+.git
+.gitignore
+.gravitas
+.dart_tool
+.idea
+.vscode
+.env
+.env.*
+!.env.example
+**/service-account*.json
+**/*service-account*.json
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*firebase*export*.json
+*rtdb*export*.json
+migration_reports
+pgdata
+ngo-pgdata
+node_modules
+**/node_modules
+backend/dist
+backend/build
+backend/tests
+backend/coverage
+build
+coverage
+installer
+windows
+linux
+macos
+android
+ios
+web
+test
+audit
+*.log

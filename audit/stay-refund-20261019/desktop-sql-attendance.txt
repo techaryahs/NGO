@@ -1,0 +1,11 @@
+ attendance_date | status  
+-----------------+---------
+ 2026-10-19      | Present
+ 2026-10-20      | Absent
+(2 rows)
+
+ advance_billed_amount | total_present_days | total_absent_days | total_paid_amount | current_due_amount | refund_due_amount 
+-----------------------+--------------------+-------------------+-------------------+--------------------+-------------------
+               2400.00 |                  1 |                 1 |              0.00 |            2400.00 |              0.00
+(1 row)
+

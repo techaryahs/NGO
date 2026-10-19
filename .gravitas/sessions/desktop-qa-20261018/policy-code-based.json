@@ -1,0 +1,11 @@
+{
+  "context_depth": "dependency",
+  "reason_codes": [
+    "user-code-based-only",
+    "unfinished-payment-patch",
+    "high-volume-verification"
+  ],
+  "planning": "replan",
+  "delegation": "bounded-workflow-and-scale-workers",
+  "verification_depth": "impact"
+}

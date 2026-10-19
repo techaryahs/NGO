@@ -50,6 +50,21 @@ class StayBilling {
       DateTime(value.year, value.month, value.day);
   static String dateKey(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+
+  /// Attendance ranges include the planned exit's calendar date. Actual
+  /// discharge takes precedence for completed admissions.
+  static ({String start, String end}) attendanceDateRange(
+    PatientModel patient, {
+    DateTime? now,
+  }) {
+    final start = patient.registrationDate ?? patient.admissionDate;
+    final end = patient.status.toLowerCase() == 'discharged'
+        ? patient.dischargeDate ?? patient.exitDate ?? now ?? DateTime.now()
+        : patient.exitDate ?? now ?? DateTime.now();
+    final period = PricingHelper.attendancePeriod(start, end);
+    return (start: dateKey(period.start), end: dateKey(period.end));
+  }
+
   static String currentCycle(PatientModel patient) =>
       patient.admissionDate.millisecondsSinceEpoch.toString();
   static String cycleFor(StayModel stay, PatientModel patient) {
@@ -97,6 +112,9 @@ class StayBilling {
     Map<String, Map<String, String>> attendantAttendance = const {},
     DateTime? now,
     bool onlyPresent = false,
+    // PostgreSQL uses the explicitly agreed calendar-day policy. Keep legacy
+    // RTDB/offline historical tooling unchanged unless it opts into that policy.
+    bool calendarDayBilling = false,
   }) {
     final groups = <String, List<StayModel>>{};
     for (final stay in stays.where((s) => s.status != 'cancelled')) {
@@ -115,24 +133,45 @@ class StayBilling {
         final start = day(segments.first.admissionDate);
         DateTime end;
         if (active) {
-          // A recorded exit date is the billing boundary even while the
-          // patient is still awaiting formal discharge. Without an exit date,
-          // bill only the initial seven-day estimate. An open stay must not
-          // silently grow its bill just because the current date advances.
+          // Keep the admission advance estimate, but never cap an open stay
+          // at it. Recorded attendance and elapsed days extend that window.
           if (patient.exitDate != null) {
             end = patient.exitDate!;
           } else {
             final estimateEnd = start.add(
-              const Duration(days: PricingHelper.advanceDays),
+              Duration(
+                days: PricingHelper.advanceDays - (calendarDayBilling ? 1 : 0),
+              ),
             );
             final activeSegmentEnds = segments
                 .where((segment) => segment.isActive)
-                .map((segment) => segment.expectedDischargeDate)
+                .map(
+                  (segment) => calendarDayBilling
+                      ? segment.expectedDischargeDate.subtract(
+                          const Duration(days: 1),
+                        )
+                      : segment.expectedDischargeDate,
+                )
                 .where((date) => date.millisecondsSinceEpoch > 0);
             end = activeSegmentEnds.fold<DateTime>(
               estimateEnd,
               (latest, date) => date.isAfter(latest) ? date : latest,
             );
+            final todayEnd = day(
+              now ?? DateTime.now(),
+            ).add(Duration(days: calendarDayBilling ? 0 : 1));
+            if (todayEnd.isAfter(end)) end = todayEnd;
+            for (final key in {
+              ...attendance.keys,
+              ...attendantAttendance.keys,
+            }) {
+              final recorded = DateTime.tryParse(key);
+              if (recorded == null) continue;
+              final recordedEnd = day(
+                recorded,
+              ).add(Duration(days: calendarDayBilling ? 0 : 1));
+              if (recordedEnd.isAfter(end)) end = recordedEnd;
+            }
           }
         } else {
           end = segments
@@ -140,20 +179,28 @@ class StayBilling {
               .reduce((a, b) => a.isAfter(b) ? a : b);
         }
         var exclusiveEnd = day(end);
-        if (end.hour > 9 || (end.hour == 9 && end.minute > 0)) {
+        if (calendarDayBilling ||
+            end.hour > 9 ||
+            (end.hour == 9 && end.minute > 0)) {
           exclusiveEnd = exclusiveEnd.add(const Duration(days: 1));
         }
-        if (!exclusiveEnd.isAfter(start))
+        if (!exclusiveEnd.isAfter(start)) {
           exclusiveEnd = start.add(const Duration(days: 1));
-        var hasPresentAttendance = false;
-        for (
-          var date = start;
-          date.isBefore(exclusiveEnd);
-          date = DateTime(date.year, date.month, date.day + 1)
-        ) {
-          if (attendance[dateKey(date)] == 'Present') {
-            hasPresentAttendance = true;
-            break;
+        }
+        final checkoutExclusiveEnd = exclusiveEnd;
+        // Legacy RTDB attendance settlement retains its previous behavior.
+        // PostgreSQL always includes both calendar endpoints, active or closed.
+        if (!calendarDayBilling && active && patient.exitDate != null) {
+          final period = PricingHelper.attendancePeriod(
+            start,
+            patient.exitDate,
+          );
+          if (period.days > 0) {
+            exclusiveEnd = DateTime(
+              period.end.year,
+              period.end.month,
+              period.end.day + 1,
+            );
           }
         }
         var billableDays = 0;
@@ -163,15 +210,23 @@ class StayBilling {
           date = DateTime(date.year, date.month, date.day + 1)
         ) {
           final status = attendance[dateKey(date)];
-          if (status == 'Absent' ||
-              ((onlyPresent || hasPresentAttendance) && status != 'Present'))
-            continue;
+          final patientBillable =
+              status != 'Absent' &&
+              (!onlyPresent || status == 'Present') &&
+              (date.isBefore(checkoutExclusiveEnd) || status == 'Present');
+          final dailyAttendants =
+              attendantAttendance[dateKey(date)]?.values
+                  .where((status) => status == 'Present')
+                  .length ??
+              0;
+          if (!patientBillable && dailyAttendants == 0) continue;
           final candidates = segments.where((s) {
             if (day(s.admissionDate).isAfter(date)) return false;
             if (s.isActive && active) return true;
             final checkout = s.completedAt ?? s.updatedAt;
             var checkoutEnd = day(checkout);
-            if (checkout.hour > 9 ||
+            if (calendarDayBilling ||
+                checkout.hour > 9 ||
                 (checkout.hour == 9 && checkout.minute > 0)) {
               checkoutEnd = checkoutEnd.add(const Duration(days: 1));
             }
@@ -181,20 +236,14 @@ class StayBilling {
           }).toList();
           if (candidates.isEmpty) continue;
           billableDays++;
-          int attendantsFor(StayModel segment) {
-            final daily = attendantAttendance[dateKey(date)];
-            if (daily == null) return 0;
-            return daily.values.where((status) => status == 'Present').length;
-          }
-
           double rateFor(StayModel segment) {
-            final dailyAttendants = attendantsFor(segment);
             final base =
                 (segment.dailyRateIsManual ? segment.dailyRate : null) ??
                 PricingHelper.calculateDailyCharge(
                   segment.roomType == 'private',
                   dailyAttendants,
                   pricing: pricing,
+                  patientBillable: patientBillable,
                 );
             final extra = segment.roomType == 'private'
                 ? 200.0 +
@@ -205,7 +254,7 @@ class StayBilling {
                                       1))
                               .clamp(0, 100) *
                           100.0
-                : (1 + dailyAttendants) * 50.0;
+                : ((patientBillable ? 1 : 0) + dailyAttendants) * 50.0;
             final rate = billableDays <= 60
                 ? base
                 : segment.longStayDailyRate ?? (base + extra);

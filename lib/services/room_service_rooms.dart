@@ -7,13 +7,65 @@ extension RoomServiceRooms on RoomService {
   // --- Rooms ---
 
   Stream<List<RoomModel>> streamRooms() {
-    return RoomService.combineLatest2(
-      rtdb.stream(roomsPath),
-      rtdb.stream(staysPath),
-      (roomsData, staysData) {
-        return _processRoomsData(roomsData, staysData);
-      },
-    );
+    if (isPostgres) {
+      final roomsStream = backendApi!.stream(roomsPath);
+      final staysStream = backendApi!.stream(
+        '$staysPath?status=active&format=map',
+      );
+      return RoomService.combineLatest2<dynamic, dynamic, List<RoomModel>>(
+        roomsStream,
+        staysStream,
+        (roomsData, staysData) => _processRoomsData(roomsData, staysData),
+      );
+    }
+
+    return Stream<List<RoomModel>>.multi((controller) {
+      dynamic latestRooms;
+      dynamic latestStays;
+      bool hasRooms = false;
+
+      void emit() {
+        if (!hasRooms) return;
+        try {
+          final enriched = _processRoomsData(latestRooms, latestStays);
+          controller.add(enriched);
+        } catch (e, st) {
+          controller.addError(e, st);
+        }
+      }
+
+      final roomsSub = rtdb
+          .stream(roomsPath)
+          .listen(
+            (data) {
+              latestRooms = data;
+              hasRooms = true;
+              emit();
+            },
+            onError: (Object e, StackTrace st) {
+              controller.addError(e, st);
+            },
+          );
+
+      final staysSub = rtdb
+          .queryStream(staysPath, orderBy: 'status', equalTo: 'active')
+          .listen(
+            (data) {
+              latestStays = data;
+              emit();
+            },
+            onError: (Object _, StackTrace __) {
+              // Stays query failed (e.g. missing .indexOn in RTDB).
+              // Emit with whatever room data we have rather than stalling the UI.
+              emit();
+            },
+          );
+
+      controller.onCancel = () {
+        roomsSub.cancel();
+        staysSub.cancel();
+      };
+    });
   }
 
   Stream<List<RoomModel>> getRoomsStream() {
@@ -72,11 +124,21 @@ extension RoomServiceRooms on RoomService {
 
   Future<RoomModel?> getRoom(String roomId) async {
     try {
-      final data = await rtdb.get('$roomsPath/$roomId');
+      final data = isPostgres
+          ? await backendApi!.get('$roomsPath/$roomId')
+          : await rtdb.get('$roomsPath/$roomId');
       if (data == null || data is! Map) return null;
 
       final room = RoomModel.fromMap(roomId, Map<String, dynamic>.from(data));
-      final staysData = await rtdb.get(staysPath);
+      final staysData = isPostgres
+          ? await backendApi!.get(
+              '$staysPath?roomId=$roomId&status=active&format=map',
+            )
+          : await rtdb.getByChildValue(
+              staysPath,
+              child: 'roomId',
+              value: roomId,
+            );
       final roomStays = parseStaysFromData(
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
@@ -93,6 +155,7 @@ extension RoomServiceRooms on RoomService {
   }
 
   Future<String> addRoom({
+    String? id,
     required String roomNumber,
     required String roomIdentifier,
     required int floor,
@@ -143,7 +206,9 @@ extension RoomServiceRooms on RoomService {
         }
       }
 
-      final roomId = await rtdb.push(roomsPath, {'id': 'temp'});
+      final roomId = isPostgres
+          ? (id ?? 'r_${now.microsecondsSinceEpoch}')
+          : await rtdb.push(roomsPath, {'id': 'temp'});
       final updatedBeds = beds
           .map((b) => b.copyWith(id: BedModel.generateId(roomId, b.bedLabel)))
           .toList();
@@ -168,12 +233,20 @@ extension RoomServiceRooms on RoomService {
         createdAt: now,
         updatedAt: now,
         lastUpdated: now,
+        version: 1,
       );
+
+      if (isPostgres) {
+        return await backendApi!.push(roomsPath, room.toMap());
+      }
 
       final roomData = room.toMap();
       roomData['beds'] = bedsToRtdbMap(updatedBeds);
       roomData['expectedVacancyDate'] = null;
       roomData['lastUpdated'] = now.millisecondsSinceEpoch;
+      // New rooms start at version 1 so the bed-change CAS rule applies to
+      // every subsequent mutation.
+      roomData['version'] = 1;
 
       await rtdb.patch('$roomsPath/$roomId', roomData);
       return roomId;
@@ -187,6 +260,10 @@ extension RoomServiceRooms on RoomService {
       final now = DateTime.now().millisecondsSinceEpoch;
       updates['updatedAt'] = now;
       updates['lastUpdated'] = now;
+      if (isPostgres) {
+        await backendApi!.patch('$roomsPath/$roomId', updates);
+        return;
+      }
       await rtdb.patch('$roomsPath/$roomId', updates);
     } catch (e) {
       throw Exception('Failed to update room: $e');
@@ -195,7 +272,9 @@ extension RoomServiceRooms on RoomService {
 
   Future<String> updateRoomStatus(String roomId) async {
     try {
-      final roomData = await rtdb.get('$roomsPath/$roomId');
+      final roomData = isPostgres
+          ? await backendApi!.get('$roomsPath/$roomId')
+          : await rtdb.get('$roomsPath/$roomId');
       if (roomData == null || roomData is! Map)
         throw Exception('Room not found');
 
@@ -203,20 +282,33 @@ extension RoomServiceRooms on RoomService {
         roomId,
         Map<String, dynamic>.from(roomData),
       );
-      final staysData = await rtdb.get(staysPath);
+      final staysData = isPostgres
+          ? await backendApi!.get(
+              '$staysPath?roomId=$roomId&status=active&format=map',
+            )
+          : await rtdb.getByChildValue(
+              staysPath,
+              child: 'roomId',
+              value: roomId,
+            );
       final activeStays = parseStaysFromData(
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
 
       final computed = computeStatusMeta(room, activeStays, DateTime.now());
-      await rtdb.patch('$roomsPath/$roomId', {
+      final patchData = {
         'status': computed.dbStatus,
         'occupiedBeds': room.actualOccupiedBeds,
         'expectedVacancyDate':
             computed.expectedVacancyDate?.millisecondsSinceEpoch,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
         'lastUpdated': DateTime.now().millisecondsSinceEpoch,
-      });
+      };
+      if (isPostgres) {
+        await backendApi!.patch('$roomsPath/$roomId', patchData);
+      } else {
+        await rtdb.patch('$roomsPath/$roomId', patchData);
+      }
 
       return computed.uiStatus;
     } catch (e) {
@@ -233,13 +325,25 @@ extension RoomServiceRooms on RoomService {
           'Cannot delete room while one or more beds are occupied',
         );
 
-      final staysData = await rtdb.get(staysPath);
+      final staysData = isPostgres
+          ? await backendApi!.get(
+              '$staysPath?roomId=$roomId&status=active&format=map',
+            )
+          : await rtdb.getByChildValue(
+              staysPath,
+              child: 'roomId',
+              value: roomId,
+            );
       final hasActiveStay = parseStaysFromData(
         staysData,
       ).any((s) => s.roomId == roomId && s.status == 'active');
       if (hasActiveStay)
         throw Exception('Cannot delete room with active stays');
 
+      if (isPostgres) {
+        await backendApi!.delete('$roomsPath/$roomId');
+        return;
+      }
       await rtdb.delete('$roomsPath/$roomId');
     } catch (e) {
       throw Exception('Failed to delete room: $e');

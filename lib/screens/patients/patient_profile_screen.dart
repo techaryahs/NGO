@@ -16,7 +16,9 @@ import 'widgets/shift_patient_dialog.dart';
 import 'widgets/photo_preview_dialog.dart';
 import '../../utils/bed_helper.dart';
 import '../../utils/stay_billing.dart';
+import '../attendance/attendance_service.dart';
 import 'utils/patient_info_download.dart';
+import '../../widgets/patient_photo.dart';
 
 double _patientPaymentTotal(
   PatientModel patient, {
@@ -57,19 +59,13 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   late TabController _tabController;
   late final Stream<List<PatientModel>> _patientsStream;
   bool _isPreparingDischarge = false;
+  bool _paymentDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
     _tabController = TabController(length: 4, vsync: this);
-    // Refresh legacy admission balances when the profile opens. This also
-    // repairs same-day receipts saved before the recorded registration time.
-    unawaited(
-      ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(widget.patient.id)
-          .catchError((_) {}),
-    );
   }
 
   @override
@@ -113,49 +109,37 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     BuildContext context,
     PatientModel currentPatient,
   ) async {
-    final result = await showPatientPaymentDialog(
-      context: context,
-      patientName: currentPatient.fullName,
-      contactNumber: currentPatient.contactNumber,
-      bedsCount: currentPatient.bedIds?.length ?? 1,
-      attendantsCount: currentPatient.attendants?.length ?? 0,
-      roomIdentifier: currentPatient.roomNumber,
-      alreadyPaid: _patientPaymentTotal(
-        currentPatient,
-        from: currentPatient.admissionDate,
-      ),
-      showPayLater: false,
-      totalBillOverride:
-          currentPatient.advanceBilledAmount + currentPatient.attendanceCharges,
-    );
-
-    if (result != null && result.payment != null) {
-      await ServiceLocator().patientService.recordPayment(
-        currentPatient.id,
-        result.payment!,
+    if (_paymentDialogOpen) return;
+    _paymentDialogOpen = true;
+    try {
+      final result = await showPatientPaymentDialog(
+        context: context,
+        patientName: currentPatient.fullName,
+        contactNumber: currentPatient.contactNumber,
+        bedsCount: currentPatient.bedIds?.length ?? 1,
+        attendantsCount: currentPatient.attendants?.length ?? 0,
+        roomIdentifier: currentPatient.roomNumber,
+        alreadyPaid: _patientPaymentTotal(
+          currentPatient,
+          from: currentPatient.admissionDate,
+        ),
+        showPayLater: false,
+        totalBillOverride:
+            currentPatient.advanceBilledAmount +
+            currentPatient.attendanceCharges,
+        patientId: currentPatient.id,
       );
-      await ServiceLocator().patientService.updatePatient(currentPatient.id, {
-        'advanceBilledAmount': result.payment!.totalAmount,
-        'attendanceCharges': 0.0,
-        'billingAmountOverride': result.totalAmountEdited
-            ? result.payment!.totalAmount
-            : currentPatient.billingAmountOverride,
-        'paymentPending': result.payment!.pendingAmount > 0,
-        'paymentStatus': result.payment!.paymentStatus,
-        'totalPaidAmount': result.payment!.paidAmount,
-        'currentDueAmount': result.payment!.pendingAmount,
-      });
-      await ServiceLocator().paymentService
-          .recalculatePatientAttendanceAndBilling(currentPatient.id);
 
-      if (context.mounted) {
+      if (result?.recordedPaymentId != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Payment successfully processed!'),
+            content: Text('Online payment recorded.'),
             backgroundColor: Color(0xFF3B6D11),
           ),
         );
       }
+    } finally {
+      _paymentDialogOpen = false;
     }
   }
 
@@ -835,13 +819,24 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         // Avatar
                         InkWell(
                           borderRadius: BorderRadius.circular(40),
-                          onTap: photoBytes == null
+                          onTap:
+                              photoBytes == null &&
+                                  currentPatient.photoRef == null
                               ? null
-                              : () => showPhotoPreview(
-                                  context,
-                                  photoBytes: photoBytes,
-                                  title: currentPatient.fullName,
-                                ),
+                              : () async {
+                                  final bytes =
+                                      photoBytes ??
+                                      await ServiceLocator().photoRtdbService
+                                          .downloadPhotoCached(
+                                            currentPatient.photoRef!,
+                                          );
+                                  if (!context.mounted || bytes == null) return;
+                                  showPhotoPreview(
+                                    context,
+                                    photoBytes: bytes,
+                                    title: currentPatient.fullName,
+                                  );
+                                },
                           child: Container(
                             width: 64,
                             height: 64,
@@ -858,20 +853,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                               ),
                             ),
                             child: ClipOval(
-                              child: photoBytes != null
-                                  ? Image.memory(photoBytes, fit: BoxFit.cover)
-                                  : Center(
-                                      child: Text(
-                                        _getInitials(currentPatient.fullName),
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: isActive
-                                              ? const Color(0xFF3B6D11)
-                                              : const Color(0xFF757575),
-                                        ),
-                                      ),
-                                    ),
+                              child: PatientPhoto(
+                                patient: currentPatient,
+                                size: 64,
+                              ),
                             ),
                           ),
                         ),
@@ -1049,6 +1034,10 @@ class _StatusBadge extends StatelessWidget {
 }
 
 // ── 1. Overview Tab ──
+@visibleForTesting
+Widget buildPatientOverviewForTesting(PatientModel patient) =>
+    _OverviewTab(patient: patient);
+
 class _OverviewTab extends StatelessWidget {
   final PatientModel patient;
 
@@ -1263,6 +1252,7 @@ class _OverviewTab extends StatelessWidget {
   }
 
   Widget _buildPersonalInfo() {
+    final gender = patient.gender.trim();
     final dobStr =
         '${patient.dateOfBirth.day}/${patient.dateOfBirth.month}/${patient.dateOfBirth.year}';
     return _Section(
@@ -1277,8 +1267,9 @@ class _OverviewTab extends StatelessWidget {
             ),
             _InfoField(
               label: "Gender",
-              value:
-                  patient.gender[0].toUpperCase() + patient.gender.substring(1),
+              value: gender.isEmpty
+                  ? 'Not provided'
+                  : gender[0].toUpperCase() + gender.substring(1),
               icon: Icons.person_outline_rounded,
             ),
           ),
@@ -1792,20 +1783,23 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
       payment['id']?.toString() ?? '',
       payment,
     );
-    final cycle = payment['cycleId']?.toString() ??
+    final cycle =
+        payment['cycleId']?.toString() ??
         StayBilling.paymentCycle(model, widget.patient, _stays);
-    final segments = _stays
-        .where(
-          (stay) => StayBilling.cycleFor(stay, widget.patient) == cycle,
-        )
-        .toList()
-      ..sort((a, b) => a.admissionDate.compareTo(b.admissionDate));
+    final segments =
+        _stays
+            .where(
+              (stay) => StayBilling.cycleFor(stay, widget.patient) == cycle,
+            )
+            .toList()
+          ..sort((a, b) => a.admissionDate.compareTo(b.admissionDate));
     if (segments.isEmpty) return 'Placement not recorded';
     String label(StayModel stay) {
       if (stay.roomType == 'lobby') return 'Lobby · ${stay.roomNumber}';
       final bed = stay.bedLabel?.trim();
       return 'Room ${stay.roomNumber} · ${bed?.isNotEmpty == true ? BedHelper.getBedDisplayName(bed!, roomIdentifier: stay.roomNumber) : 'Bed not recorded'}';
     }
+
     return segments.map(label).toSet().join('  →  ');
   }
 
@@ -1862,11 +1856,13 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
         : DateTime.now();
     final currentCycle = widget.patient.admissionDate.millisecondsSinceEpoch
         .toString();
-    final admissionCycles = <String>{
-      ...widget.patient.admissionBalances.keys,
-      currentCycle,
-    }.toList()
-      ..sort((a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0));
+    final admissionCycles =
+        <String>{
+          ...widget.patient.admissionBalances.keys,
+          currentCycle,
+        }.toList()..sort(
+          (a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0),
+        );
     var selectedCycle = payment['cycleId']?.toString();
     if (!admissionCycles.contains(selectedCycle)) {
       selectedCycle = admissionCycles.first;
@@ -1876,11 +1872,14 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
       final date = stamp == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(stamp);
-      final prefix = cycle == currentCycle ? 'Current admission' : 'Previous admission';
+      final prefix = cycle == currentCycle
+          ? 'Current admission'
+          : 'Previous admission';
       return date == null
           ? prefix
           : '$prefix · ${DateFormat('dd MMM yyyy, hh:mm a').format(date)}';
     }
+
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -2462,46 +2461,22 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     }
   }
 
-  ({String start, String end}) get _attendanceDateRange {
-    final startDate =
-        widget.patient.registrationDate ?? widget.patient.admissionDate;
-    final endDate = widget.patient.dischargeDate ?? DateTime.now();
-    final format = DateFormat('yyyy-MM-dd');
-    return (start: format.format(startDate), end: format.format(endDate));
-  }
+  ({String start, String end}) get _attendanceDateRange =>
+      StayBilling.attendanceDateRange(widget.patient);
 
   Future<Map<String, Map<String, dynamic>>> _loadAttendanceData() async {
     final result = <String, Map<String, dynamic>>{};
 
     try {
       final range = _attendanceDateRange;
-      final data = await ServiceLocator().rtdbService.getByKeyRange(
-        'attendance/daily',
-        startKey: range.start,
-        endKey: range.end,
-      );
+      final data = await ServiceLocator().patientService
+          .getAttendanceRangeForProfile(
+            kind: 'attendance',
+            startKey: range.start,
+            endKey: range.end,
+          );
 
-      if (data != null && data is Map) {
-        data.forEach((dateStr, records) {
-          if (records is Map) {
-            records.forEach((patientId, record) {
-              if (patientId == widget.patient.id && record is Map) {
-                final normalizedRecord = Map<String, dynamic>.from(record);
-                if (!{'Present', 'Absent'}.contains(
-                  normalizedRecord['status'],
-                )) {
-                  return;
-                }
-                // Prefer the stored ISO date when present; this also supports
-                // older records whose parent RTDB key used another format.
-                final recordDate = normalizedRecord['date']?.toString();
-                result[recordDate?.isNotEmpty == true ? recordDate! : dateStr] =
-                    normalizedRecord;
-              }
-            });
-          }
-        });
-      }
+      result.addAll(AttendanceService.patientRecords(data, widget.patient.id));
     } catch (e) {
       debugPrint("Attendance error: $e");
     }
@@ -2514,11 +2489,12 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     try {
       final range = _attendanceDateRange;
-      final data = await ServiceLocator().rtdbService.getByKeyRange(
-        'attendant_attendance/daily',
-        startKey: range.start,
-        endKey: range.end,
-      );
+      final data = await ServiceLocator().patientService
+          .getAttendanceRangeForProfile(
+            kind: 'attendant_attendance',
+            startKey: range.start,
+            endKey: range.end,
+          );
 
       if (data != null && data is Map) {
         data.forEach((dateStr, records) {
@@ -2549,7 +2525,8 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     attendanceMap.forEach((dateStr, record) {
       final status = record['status']?.toString() ?? '';
-      final isPresent = status.toLowerCase() == 'present';
+      if (status != 'Present' && status != 'Absent') return;
+      final isPresent = status == 'Present';
 
       if (isPresent) {
         totalPresent++;
@@ -2849,7 +2826,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                   Text(
                                     'Overall Summary',
                                     style: TextStyle(
-                                    fontSize: 16,
+                                      fontSize: 16,
                                       fontWeight: FontWeight.w800,
                                       color: Color(0xFF27500A),
                                     ),
@@ -2935,10 +2912,12 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                     role: 'ATTENDANT ${index + 1}',
                                     name: counts.entries.elementAt(index).key,
                                     icon: Icons.support_agent_rounded,
-                                    present:
-                                        counts.entries.elementAt(index).value[0],
-                                    absent:
-                                        counts.entries.elementAt(index).value[1],
+                                    present: counts.entries
+                                        .elementAt(index)
+                                        .value[0],
+                                    absent: counts.entries
+                                        .elementAt(index)
+                                        .value[1],
                                     embedded: true,
                                   ),
                                   if (index < counts.entries.length - 1)
@@ -3017,9 +2996,7 @@ class _AttendanceSummaryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: embedded ? Colors.transparent : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: embedded
-            ? null
-            : Border.all(color: const Color(0xFFD5E7C6)),
+        border: embedded ? null : Border.all(color: const Color(0xFFD5E7C6)),
         boxShadow: embedded
             ? null
             : const [
@@ -3281,32 +3258,26 @@ class _AttendantCard extends StatelessWidget {
           // ── Right: photo ──
           InkWell(
             borderRadius: BorderRadius.circular(32),
-            onTap: photoBytes == null
+            onTap: photoBytes == null && attendant.photoRef == null
                 ? null
-                : () => showPhotoPreview(
-                    context,
-                    photoBytes: photoBytes,
-                    title: attendant.name,
-                  ),
+                : () async {
+                    final bytes =
+                        photoBytes ??
+                        await ServiceLocator().photoRtdbService
+                            .downloadPhotoCached(attendant.photoRef!);
+                    if (!context.mounted || bytes == null) return;
+                    showPhotoPreview(
+                      context,
+                      photoBytes: bytes,
+                      title: attendant.name,
+                    );
+                  },
             child: ClipOval(
               child: Container(
                 width: 56,
                 height: 56,
                 color: const Color(0xFFE3F2FD),
-                child: photoBytes != null
-                    ? Image.memory(photoBytes, fit: BoxFit.cover)
-                    : Center(
-                        child: Text(
-                          attendant.name.isNotEmpty
-                              ? attendant.name[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1565C0),
-                          ),
-                        ),
-                      ),
+                child: PatientPhoto(attendant: attendant, size: 56),
               ),
             ),
           ),

@@ -1,28 +1,151 @@
+import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
+import '../config/app_config.dart';
+import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
+import 'service_locator.dart';
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import '../utils/upi_payment.dart';
 
 class PaymentService {
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _injectedRtdb;
+  final BackendApiService? _injectedBackendApi;
   final String _path = 'payments';
-  PaymentService(this._rtdb);
+
+  // ── Debounced background billing ───────────────────────────────────────────
+  // Rapid attendance clicks are coalesced into one recalculation that runs
+  // after the writes have landed, so a checkbox never blocks on the billing
+  // waterfall and duplicate recalculation passes are avoided.
+  final Map<String, Timer> _scheduledBilling = {};
+  final Map<String, Future<void>> _runningBilling = {};
+  final Map<String, List<Completer<void>>> _scheduledCompleters = {};
+  int _schedulerGeneration = 0;
+
+  PaymentService([FirebaseRTDBRestService? rtdb, BackendApiService? backendApi])
+    : _injectedRtdb = rtdb,
+      _injectedBackendApi = backendApi;
+
+  BackendApiService? get _backendApi {
+    if (_injectedBackendApi != null) return _injectedBackendApi;
+    try {
+      if (AppConfig.usePostgresBackend) {
+        return ServiceLocator().backendApiService;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isPostgres => _backendApi != null || AppConfig.usePostgresBackend;
+
+  FirebaseRTDBRestService get _safeRtdb {
+    if (_injectedRtdb != null) return _injectedRtdb;
+    return ServiceLocator().rtdbService;
+  }
+
+  /// Schedules a debounced billing recalculation for one patient.
+  ///
+  /// The returned future completes when the recalculation finishes (or
+  /// fails). Callers that do not care may ignore it, but MUST attach an error
+  /// handler when using `unawaited`.
+  /// Explicit saves use [immediate] after their complete attendance batch has
+  /// been acknowledged; background changes retain the debounce.
+  Future<void> schedulePatientBilling(
+    String patientId, {
+    bool immediate = false,
+  }) {
+    _scheduledBilling[patientId]?.cancel();
+    final completer = Completer<void>();
+    final generation = _schedulerGeneration;
+    _scheduledCompleters.putIfAbsent(patientId, () => []).add(completer);
+    _scheduledBilling[patientId] = Timer(
+      immediate ? Duration.zero : const Duration(milliseconds: 1200),
+      () async {
+        _scheduledBilling.remove(patientId);
+        final completers =
+            _scheduledCompleters.remove(patientId) ?? <Completer<void>>[];
+        final running = _runningBilling[patientId];
+        if (running != null) {
+          try {
+            await running;
+          } catch (_) {
+            // A previously failed pass must not block the fresh one.
+          }
+        }
+        if (generation != _schedulerGeneration) {
+          for (final pending in completers) {
+            if (!pending.isCompleted) pending.complete();
+          }
+          return;
+        }
+        final task = recalculatePatientAttendanceAndBilling(patientId);
+        _runningBilling[patientId] = task;
+        try {
+          await task;
+          for (final pending in completers) {
+            if (!pending.isCompleted) pending.complete();
+          }
+        } catch (e, s) {
+          for (final pending in completers) {
+            if (!pending.isCompleted) pending.completeError(e, s);
+          }
+        } finally {
+          if (identical(_runningBilling[patientId], task)) {
+            _runningBilling.remove(patientId);
+          }
+        }
+      },
+    );
+    return completer.future;
+  }
+
+  /// Cancels any pending scheduled recalculation for a patient.
+  void cancelScheduledBilling(String patientId) {
+    _scheduledBilling.remove(patientId)?.cancel();
+    final completers =
+        _scheduledCompleters.remove(patientId) ?? <Completer<void>>[];
+    for (final completer in completers) {
+      if (!completer.isCompleted) completer.complete();
+    }
+  }
+
+  void disposeScheduler() {
+    _schedulerGeneration++;
+    for (final timer in _scheduledBilling.values) {
+      timer.cancel();
+    }
+    _scheduledBilling.clear();
+    for (final completers in _scheduledCompleters.values) {
+      for (final completer in completers) {
+        if (!completer.isCompleted) completer.complete();
+      }
+    }
+    _scheduledCompleters.clear();
+  }
 
   Future<List<StayModel>> loadStays(String patientId) async {
-    dynamic data;
-    try {
-      data = await _rtdb.getByChildValue(
-        'stays',
-        child: 'patientId',
-        value: patientId,
+    if (isPostgres) {
+      final dynamic data = await _backendApi!.get(
+        'stays?patientId=$patientId&format=map',
       );
-    } catch (_) {
-      // A patient update has already succeeded by the time billing runs.
-      // Avoid reporting a false failure when an older RTDB deployment has not
-      // yet received the patientId index defined in database.rules.json.
-      data = await _rtdb.get('stays');
+      return [
+        if (data is Map)
+          for (final entry in data.entries)
+            if (entry.value is Map && entry.value['patientId'] == patientId)
+              StayModel.fromMap(entry.key.toString(), entry.value),
+      ];
     }
+    final data = await _safeRtdb.getByChildValue(
+      'stays',
+      child: 'patientId',
+      value: patientId,
+    );
     return [
       if (data is Map)
         for (final entry in data.entries)
@@ -38,7 +161,23 @@ class PaymentService {
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
-    final raw = patientData ?? await _rtdb.get('patients/$patientId');
+    if (isPostgres &&
+        patientData == null &&
+        patientAttendanceOverrides.isEmpty &&
+        attendantAttendanceOverrides.isEmpty) {
+      final snapshot = await _backendApi!.financialSnapshot(patientId);
+      final patient = Map<String, dynamic>.from(snapshot['patient'] as Map);
+      return {
+        'financialSnapshot/stays': snapshot['stays'],
+        for (final entry in patient.entries)
+          'patients/$patientId/${entry.key}': entry.value,
+      };
+    }
+    final raw =
+        patientData ??
+        (isPostgres
+            ? await _backendApi!.get('patients/$patientId')
+            : await _safeRtdb.get('patients/$patientId'));
     if (raw is! Map) throw StateError('Patient not found');
     final patient = PatientModel.fromMap(patientId, raw);
     stays ??= await loadStays(patientId);
@@ -57,12 +196,13 @@ class PaymentService {
       final data = stay.toMap()..['dailyRate'] = null;
       return StayModel.fromMap(stay.id, data);
     }).toList();
+    final patientRange = StayBilling.attendanceDateRange(patient);
     final rangeStarts = <DateTime>[
-      patient.registrationDate ?? patient.admissionDate,
+      DateTime.parse(patientRange.start),
       ...stays.map((stay) => stay.admissionDate),
     ];
     final rangeEnds = <DateTime>[
-      patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
+      DateTime.parse(patientRange.end),
       ...stays.map((stay) => stay.completedAt ?? stay.expectedDischargeDate),
     ];
     rangeStarts.sort();
@@ -70,36 +210,50 @@ class PaymentService {
     final startKey = StayBilling.dateKey(rangeStarts.first);
     final endKey = StayBilling.dateKey(rangeEnds.last);
     final reads = await Future.wait<dynamic>([
-      _rtdb.get('admin_settings/pricing'),
-      _rtdb.getByKeyRange(
-        'attendance/daily',
-        startKey: startKey,
-        endKey: endKey,
-      ),
-      _rtdb.getByKeyRange(
-        'attendant_attendance/daily',
-        startKey: startKey,
-        endKey: endKey,
-      ),
+      isPostgres
+          ? _backendApi!.getSettingsCategory('pricing')
+          : _safeRtdb.get('admin_settings/pricing'),
+      isPostgres
+          ? _backendApi!.getAttendanceRange(
+              kind: 'attendance',
+              startKey: startKey,
+              endKey: endKey,
+              patientId: patientId,
+              allowCacheFallback: false,
+            )
+          : _safeRtdb.getByKeyRange(
+              'attendance/daily',
+              startKey: startKey,
+              endKey: endKey,
+            ),
+      isPostgres
+          ? _backendApi!.getAttendanceRange(
+              kind: 'attendant_attendance',
+              startKey: startKey,
+              endKey: endKey,
+              patientId: patientId,
+              allowCacheFallback: false,
+            )
+          : _safeRtdb.getByKeyRange(
+              'attendant_attendance/daily',
+              startKey: startKey,
+              endKey: endKey,
+            ),
     ]);
     final rawPricing = reads[0];
     final pricing = rawPricing is Map
         ? Map<String, dynamic>.from(rawPricing)
         : <String, dynamic>{};
-    final savedGeneralRate = (pricing['generalRoomBedPrice'] as num?)
-        ?.toDouble();
-    final migrateGeneralRate =
-        savedGeneralRate == null || savedGeneralRate == 150;
-    if (migrateGeneralRate) pricing['generalRoomBedPrice'] = 200;
     final records = reads[1];
     final attendance = <String, String>{};
-    if (records is Map)
+    if (records is Map) {
       for (final entry in records.entries) {
         if (entry.value is Map && entry.value[patientId] is Map) {
           attendance[entry.key.toString()] =
               entry.value[patientId]['status']?.toString() ?? '';
         }
       }
+    }
     for (final entry in patientAttendanceOverrides.entries) {
       if (entry.value == null) {
         attendance.remove(entry.key);
@@ -137,6 +291,7 @@ class PaymentService {
       }
     }
     final balances = StayBilling.calculate(
+      calendarDayBilling: isPostgres,
       patient: patient,
       stays: stays,
       pricing: pricing,
@@ -146,12 +301,8 @@ class PaymentService {
     final current = balances.firstWhere(
       (b) => b.id == StayBilling.currentCycle(patient),
     );
-    final start = StayBilling.day(
-      patient.registrationDate ?? patient.admissionDate,
-    );
-    final end = StayBilling.day(
-      patient.exitDate ?? patient.dischargeDate ?? DateTime.now(),
-    );
+    final start = DateTime.parse(patientRange.start);
+    final end = DateTime.parse(patientRange.end);
     final cycleAttendance = attendance.entries.where((entry) {
       final date = DateTime.tryParse(entry.key);
       return date != null && !date.isBefore(start) && !date.isAfter(end);
@@ -188,17 +339,22 @@ class PaymentService {
       'patients/$patientId/updatedAt': DateTime.now().millisecondsSinceEpoch,
       for (final stayId in migratedDynamicRateIds)
         'stays/$stayId/dailyRate': null,
-      if (migrateGeneralRate) 'admin_settings/pricing/generalRoomBedPrice': 200,
+      // Note: the legacy ₹150 → ₹200 pricing migration is applied in-memory
+      // (above) for the calculation. The persisted value is updated by an
+      // admin through Pricing Settings — writing admin_settings from a staff
+      // billing pass would be rejected by the security rules.
     };
-    for (final balance in balances)
+    for (final balance in balances) {
       for (final stay in balance.stays) {
         updates.addAll({
           if (stay.patientSnapshot.isEmpty &&
               balance.id == StayBilling.currentCycle(patient))
             'stays/${stay.id}/patientSnapshot': {
               'registrationNumber': patient.registrationNumber,
-              'photoDataUrl': patient.photoDataUrl,
-              'attendants': patient.attendants?.map((a) => a.toMap()).toList(),
+              'photoRef': patient.photoRef,
+              'attendants': patient.attendants
+                  ?.map((a) => a.toMap()..remove('photoDataUrl'))
+                  .toList(),
               'admissionDate': patient.admissionDate.millisecondsSinceEpoch,
             },
           'stays/${stay.id}/cycleId': balance.id,
@@ -210,6 +366,7 @@ class PaymentService {
                 (stay.completedAt ?? stay.updatedAt).millisecondsSinceEpoch,
         });
       }
+    }
     return updates;
   }
 
@@ -218,26 +375,235 @@ class PaymentService {
     bool updateBilling = true,
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
+  }) {
+    final running = _runningBilling[patientId];
+    if (running != null &&
+        patientAttendanceOverrides.isEmpty &&
+        attendantAttendanceOverrides.isEmpty) {
+      return running;
+    }
+    late final Future<void> task;
+    task =
+        () async {
+          if (running != null) {
+            try {
+              await running;
+            } catch (_) {
+              /* Allow a fresh pass after failure. */
+            }
+          }
+          await _recalculatePatientAttendanceAndBilling(
+            patientId,
+            updateBilling: updateBilling,
+            patientAttendanceOverrides: patientAttendanceOverrides,
+            attendantAttendanceOverrides: attendantAttendanceOverrides,
+          );
+        }().whenComplete(() {
+          if (identical(_runningBilling[patientId], task)) {
+            _runningBilling.remove(patientId);
+          }
+        });
+    _runningBilling[patientId] = task;
+    return task;
+  }
+
+  Future<void> _recalculatePatientAttendanceAndBilling(
+    String patientId, {
+    bool updateBilling = true,
+    Map<String, String?> patientAttendanceOverrides = const {},
+    Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
+    bool waitForPaymentSubmission = true,
+    int conflictRetries = 1,
   }) async {
-    await _rtdb.patch(
-      '',
-      await billingUpdates(
-        patientId,
-        patientAttendanceOverrides: patientAttendanceOverrides,
-        attendantAttendanceOverrides: attendantAttendanceOverrides,
-      ),
+    if (!updateBilling) return;
+    final paymentSubmission = _paymentSubmissions[patientId];
+    if (waitForPaymentSubmission && paymentSubmission != null) {
+      try {
+        await paymentSubmission;
+      } catch (_) {
+        /* Recalculate after a failed receipt too. */
+      }
+    }
+    if (isPostgres) {
+      // Attendance has already been acknowledged before billing is scheduled.
+      // The server reads charges and receipts under the patient's lock.
+      await _backendApi!.recalculateBilling(patientId);
+      return;
+    }
+    final snapshots = await Future.wait<dynamic>([
+      isPostgres
+          ? _backendApi!.get('patients/$patientId', allowCacheFallback: false)
+          : _safeRtdb.get('patients/$patientId'),
+      isPostgres
+          ? _backendApi!.get(
+              'stays?patientId=$patientId&format=map',
+              allowCacheFallback: false,
+            )
+          : _safeRtdb.getByChildValue(
+              'stays',
+              child: 'patientId',
+              value: patientId,
+            ),
+    ]);
+    if (snapshots[0] is! Map) throw StateError('Patient not found');
+    final patientData = Map<String, dynamic>.from(snapshots[0] as Map);
+    final stayData = snapshots[1] is Map ? snapshots[1] as Map : const {};
+    final updates = await billingUpdates(
+      patientId,
+      patientData: patientData,
+      stays: [
+        for (final entry in stayData.entries)
+          if (entry.value is Map)
+            StayModel.fromMap(entry.key.toString(), entry.value),
+      ],
+      patientAttendanceOverrides: patientAttendanceOverrides,
+      attendantAttendanceOverrides: attendantAttendanceOverrides,
     );
+    updates.removeWhere((path, value) {
+      if (path.endsWith('/updatedAt')) return true;
+      final parts = path.split('/');
+      dynamic previous = parts.first == 'patients'
+          ? patientData
+          : stayData[parts[1]];
+      for (final key in parts.skip(2)) {
+        previous = previous is Map ? previous[key] : null;
+      }
+      return valuesEqual(previous, value);
+    });
+    if (updates.isNotEmpty) {
+      if (isPostgres) {
+        try {
+          await _applyBillingUpdatesToPostgres(
+            patientId,
+            updates,
+            expectedVersion: (patientData['version'] as num?)?.toInt(),
+          );
+        } on BackendApiException catch (error) {
+          if (error.statusCode != 409 || conflictRetries == 0) rethrow;
+          // Rebuild from a fresh server snapshot; never attach a newer version
+          // to amounts calculated before another financial mutation.
+          await _recalculatePatientAttendanceAndBilling(
+            patientId,
+            updateBilling: updateBilling,
+            patientAttendanceOverrides: patientAttendanceOverrides,
+            attendantAttendanceOverrides: attendantAttendanceOverrides,
+            waitForPaymentSubmission: waitForPaymentSubmission,
+            conflictRetries: conflictRetries - 1,
+          );
+        }
+      } else {
+        await _safeRtdb.patch('', updates);
+      }
+    }
+  }
+
+  Future<void> _reconcileAcknowledgedPayment(String patientId) async {
+    try {
+      // The backend committed the receipt and resulting balances together.
+      // Refresh that acknowledged state; do not restate historical invoices.
+      await _backendApi!.refresh('patients/$patientId');
+      await _backendApi!.refresh('stays?patientId=$patientId&format=map');
+    } catch (_) {
+      // A reconciliation failure must not invite a duplicate ledger write.
+      // Publish authoritative server balances if the targeted read succeeds.
+      try {
+        await _backendApi!.refresh('patients/$patientId');
+      } catch (_) {}
+      debugPrint('[PaymentService] Receipt saved; billing refresh needs retry');
+    }
+  }
+
+  Future<void> _applyBillingUpdatesToPostgres(
+    String patientId,
+    Map<String, dynamic> updates, {
+    required int? expectedVersion,
+  }) async {
+    final api = _backendApi;
+    if (api == null || updates.isEmpty) return;
+    final patientUpdates = <String, dynamic>{};
+    final stayUpdates = <String, Map<String, dynamic>>{};
+
+    for (final entry in updates.entries) {
+      final parts = entry.key.split('/');
+      if (parts.length == 3 &&
+          parts[0] == 'patients' &&
+          parts[1] == patientId) {
+        final field = parts[2];
+        if (field != 'updatedAt' && field != 'payments') {
+          patientUpdates[field] = entry.value;
+        }
+      } else if (parts.length == 3 && parts[0] == 'stays') {
+        final stayId = parts[1];
+        final field = parts[2];
+        if (field != 'updatedAt' && field != 'patientSnapshot') {
+          stayUpdates.putIfAbsent(stayId, () => <String, dynamic>{})[field] =
+              entry.value;
+        }
+      }
+    }
+
+    if (patientUpdates.isNotEmpty || stayUpdates.isNotEmpty) {
+      // Protect the financial calculation with the version of the patient
+      // snapshot it used. A newer payment must reject this stale update.
+      if (expectedVersion != null) {
+        patientUpdates['expectedVersion'] = expectedVersion;
+      }
+      if (stayUpdates.isNotEmpty) {
+        patientUpdates['stayBillingUpdates'] = stayUpdates;
+      }
+      await api.updatePatient(patientId, patientUpdates);
+    }
+    for (final stayId in stayUpdates.keys) {
+      try {
+        await api.refresh('stays/$stayId');
+      } catch (_) {
+        debugPrint('[PaymentService] Billing saved; stay refresh needs retry');
+      }
+    }
+  }
+
+  static bool valuesEqual(dynamic a, dynamic b) {
+    // Firebase omits empty collections and null fields; legacy arrays may
+    // also be returned as objects once a keyed receipt is appended.
+    if (a is List) {
+      a = <String, dynamic>{
+        for (final entry in a.asMap().entries)
+          entry.key.toString(): entry.value,
+      };
+    }
+    if (b is List) {
+      b = <String, dynamic>{
+        for (final entry in b.asMap().entries)
+          entry.key.toString(): entry.value,
+      };
+    }
+    if (a == null && b is Map) {
+      return b.values.every((value) => valuesEqual(null, value));
+    }
+    if (b == null && a is Map) {
+      return a.values.every((value) => valuesEqual(value, null));
+    }
+    if (a is Map && b is Map) {
+      final keys = {...a.keys, ...b.keys};
+      return keys.every((key) => valuesEqual(a[key], b[key]));
+    }
+    return a == b;
   }
 
   Future<void> recalculateAllActivePatientsBilling({String? patientId}) async {
-    if (patientId != null)
+    if (patientId != null) {
       return recalculatePatientAttendanceAndBilling(patientId);
-    final patients = await _rtdb.get('patients');
-    if (patients is Map)
+    }
+    final patients = isPostgres
+        ? await _backendApi!.get('patients')
+        : await _safeRtdb.get('patients');
+    if (patients is Map) {
       for (final entry in patients.entries) {
-        if (entry.value is Map)
+        if (entry.value is Map) {
           await recalculatePatientAttendanceAndBilling(entry.key.toString());
+        }
       }
+    }
   }
 
   Future<void> recalculateAllPatientsAttendanceAndBilling() =>
@@ -248,14 +614,124 @@ class PaymentService {
     required bool isPresent,
     required bool? wasPresent,
   }) => recalculatePatientAttendanceAndBilling(patientId);
+  final Map<String, Future<String>> _paymentSubmissions = {};
+
   Future<String> recordPayment({
     required String patientId,
     required String patientName,
     required PaymentModel payment,
+  }) {
+    final running = _paymentSubmissions[patientId];
+    if (running != null) {
+      return Future.error(StateError('A payment is already being recorded.'));
+    }
+    final billing = _runningBilling[patientId];
+    late final Future<String> task;
+    task =
+        (() async {
+          if (billing != null) {
+            try {
+              await billing;
+            } catch (_) {
+              /* The receipt recalculates billing. */
+            }
+          }
+          return _recordPayment(
+            patientId: patientId,
+            patientName: patientName,
+            payment: payment,
+          );
+        })().whenComplete(() {
+          if (identical(_paymentSubmissions[patientId], task)) {
+            _paymentSubmissions.remove(patientId);
+          }
+        });
+    _paymentSubmissions[patientId] = task;
+    return task;
+  }
+
+  Future<String> _recordPayment({
+    required String patientId,
+    required String patientName,
+    required PaymentModel payment,
   }) async {
-    if (!payment.amount.isFinite || payment.amount <= 0)
+    if (!payment.amount.isFinite || payment.amount <= 0) {
       throw ArgumentError('Enter a positive payment amount');
-    return _record(patientId, payment.toMap(), refund: false);
+    }
+    final raw = isPostgres
+        ? await _backendApi!.refresh('patients/$patientId')
+        : await _safeRtdb.get('patients/$patientId');
+    if (raw is! Map) throw StateError('Patient not found');
+    final data = Map<String, dynamic>.from(raw);
+    final currentPatient = PatientModel.fromMap(patientId, data);
+    final online = payment.method.toUpperCase() == 'ONLINE';
+    final reference = payment.transactionId?.trim().toUpperCase() ?? '';
+    if (online && UpiPayment.validateReference(reference) != null) {
+      throw ArgumentError(UpiPayment.validateReference(reference));
+    }
+    final id = online
+        ? 'upi_${sha256.convert(utf8.encode('$patientId:$reference')).toString().substring(0, 60)}'
+        : payment.id;
+    if (id.isEmpty || RegExp(r'[.#$\[\]/]').hasMatch(id)) {
+      throw ArgumentError('Invalid payment ID');
+    }
+    final existing = (currentPatient.payments ?? [])
+        .where(
+          (p) =>
+              p.id == id ||
+              (online &&
+                  p.method.toUpperCase() == 'ONLINE' &&
+                  (p.transactionId?.trim().toUpperCase() ?? '') == reference),
+        )
+        .firstOrNull;
+    if (existing != null) {
+      if (existing.amount != payment.amount ||
+          (existing.transactionId?.trim().toUpperCase() ?? '') != reference ||
+          existing.method.toUpperCase() != payment.method.toUpperCase() ||
+          (payment.cycleId != null && existing.cycleId != payment.cycleId)) {
+        throw StateError(
+          'This reference is already recorded with a different amount.',
+        );
+      }
+      // A retry may have a new UI timestamp. The server's existing receipt
+      // owns that timestamp and all original financial metadata.
+      return existing.id;
+    }
+    final pMap = payment.toMap()
+      ..addAll({
+        'id': id,
+        'method': online ? 'ONLINE' : payment.method,
+        if (online) 'transactionId': reference,
+        'cycleId': payment.cycleId ?? StayBilling.currentCycle(currentPatient),
+        'patientId': patientId,
+        'patientName': patientName,
+        'type': 'payment',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+    if (isPostgres) {
+      final res = await _backendApi!.createPayment(pMap);
+      await _reconcileAcknowledgedPayment(patientId);
+      return res['id']?.toString() ?? id;
+    }
+
+    final stays = await loadStays(patientId);
+    final payments =
+        (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+          ..add(pMap);
+    data['payments'] = payments;
+    final updates = await billingUpdates(
+      patientId,
+      patientData: data,
+      stays: stays,
+    );
+    updates.addAll({
+      'payments/$id': pMap,
+      'paymentHistory/$id': pMap,
+      'patients/$patientId/payments/$id': pMap,
+    });
+    await _safeRtdb.patch('', updates);
+    return id;
   }
 
   Future<String> recordRefund({
@@ -266,10 +742,15 @@ class PaymentService {
     required String method,
     String receiptNumber = '',
     String transactionId = '',
+    String? requestId,
   }) async {
-    if (!amount.isFinite || amount <= 0)
+    if (!amount.isFinite || amount <= 0) {
       throw ArgumentError('Enter a positive refund amount');
-    return _record(patientId, {
+    }
+    final payment = {
+      'id':
+          requestId ??
+          'refund_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32)}',
       'amount': -amount,
       'date': date.millisecondsSinceEpoch,
       'method': method,
@@ -278,46 +759,58 @@ class PaymentService {
       'cycleId': cycleId,
       'type': 'refund',
       'notes': 'Refund recorded',
-    }, refund: true);
-  }
-
-  Future<String> _record(
-    String patientId,
-    Map<String, dynamic> payment, {
-    required bool refund,
-  }) async {
-    final raw = await _rtdb.get('patients/$patientId');
+    };
+    final raw = isPostgres
+        ? await _backendApi!.refresh('patients/$patientId')
+        : await _safeRtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
     final data = Map<String, dynamic>.from(raw);
-    final patient = PatientModel.fromMap(patientId, data);
-    final stays = await loadStays(patientId);
-    payment['cycleId'] ??= StayBilling.currentCycle(patient);
-    if (refund) {
-      final before = await billingUpdates(
-        patientId,
-        patientData: data,
-        stays: stays,
-      );
-      final balance =
-          (before['patients/$patientId/admissionBalances']
-              as Map)[payment['cycleId']];
-      if (balance is! Map ||
-          -(payment['amount'] as num) > (balance['refundDue'] as num) + 0.005) {
-        throw StateError('Refund exceeds the remaining excess payment');
+    final currentPatient = PatientModel.fromMap(patientId, data);
+    final priorRefund = requestId == null
+        ? null
+        : currentPatient.payments
+              ?.where((entry) => entry.id == requestId)
+              .firstOrNull;
+    if (priorRefund != null) {
+      if (priorRefund.amount != -amount ||
+          priorRefund.cycleId != cycleId ||
+          priorRefund.method.toUpperCase() != method.toUpperCase() ||
+          (priorRefund.transactionId ?? '').trim() != transactionId.trim()) {
+        throw StateError('This refund ID is already recorded differently.');
       }
+      return priorRefund.id;
+    }
+    final stays = await loadStays(patientId);
+    final before = await billingUpdates(
+      patientId,
+      patientData: isPostgres ? null : Map<String, dynamic>.from(raw),
+      stays: stays,
+    );
+    final balance =
+        (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
+    if (balance is! Map ||
+        amount > ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005) {
+      throw StateError('Refund exceeds the remaining excess payment');
     }
     final id =
-        '${refund ? 'refund' : 'payment'}_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
+        requestId ??
+        'refund_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     payment.addAll({
       'id': id,
       'patientId': patientId,
-      'patientName': patient.fullName,
-      'type': refund ? 'refund' : 'payment',
+      'patientName': currentPatient.fullName,
+      'type': 'refund',
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
-    final payments = (patient.payments ?? []).map((p) => p.toMap()).toList()
-      ..add(payment);
+    final payments =
+        (currentPatient.payments ?? []).map((p) => p.toMap()).toList()
+          ..add(payment);
     data['payments'] = payments;
+    if (isPostgres) {
+      final res = await _backendApi!.createPayment(payment);
+      await _reconcileAcknowledgedPayment(patientId);
+      return res['id']?.toString() ?? id;
+    }
     final updates = await billingUpdates(
       patientId,
       patientData: data,
@@ -328,7 +821,7 @@ class PaymentService {
       'paymentHistory/$id': payment,
       'patients/$patientId/payments': payments,
     });
-    await _rtdb.patch('', updates);
+    await _safeRtdb.patch('', updates);
     return id;
   }
 
@@ -342,8 +835,9 @@ class PaymentService {
     String? receiptNumber,
     String? cycleId,
   }) async {
-    if (amount != null && (!amount.isFinite || amount <= 0))
+    if (amount != null && (!amount.isFinite || amount <= 0)) {
       throw ArgumentError('Amount must be greater than zero');
+    }
     await _mutatePayment(patientId, paymentId, embeddedPaymentId, {
       'transactionId': transactionNumber.trim(),
       'date': paymentDate.millisecondsSinceEpoch,
@@ -364,20 +858,31 @@ class PaymentService {
     String? embeddedPaymentId,
     Map<String, dynamic>? changes,
   ) async {
-    final raw = await _rtdb.get('patients/$patientId');
+    final raw = isPostgres
+        ? await _backendApi!.refresh('patients/$patientId')
+        : await _safeRtdb.get('patients/$patientId');
     if (raw is! Map) throw StateError('Patient not found');
     final data = Map<String, dynamic>.from(raw);
     final patient = PatientModel.fromMap(patientId, data);
-    final global = await _rtdb.get('payments/$paymentId');
-    if (global is Map && global['patientId'] != patientId)
+    final global = isPostgres
+        ? await _backendApi!.get(
+            'payments/$paymentId',
+            allowCacheFallback: false,
+          )
+        : await _safeRtdb.get('payments/$paymentId');
+    if (global is Map && global['patientId'] != patientId) {
       throw StateError('Payment belongs to another patient');
+    }
     final payments = (patient.payments ?? []).map((p) => p.toMap()).toList();
     final index = payments.indexWhere(
       (p) =>
           p['id'] == paymentId ||
           (embeddedPaymentId != null && p['id'] == embeddedPaymentId),
     );
-    if (index < 0 && global is! Map) throw StateError('Payment not found');
+    if (index < 0 && global is! Map) {
+      if (changes == null) return; // An acknowledged deletion is safe to retry.
+      throw StateError('Payment not found');
+    }
     final original = global is Map
         ? Map<String, dynamic>.from(global)
         : payments[index];
@@ -405,11 +910,6 @@ class PaymentService {
     if (index >= 0) payments.removeAt(index);
     if (updated != null) payments.add(updated);
     data['payments'] = payments;
-    final updates = await billingUpdates(
-      patientId,
-      patientData: data,
-      stays: stays,
-    );
     if (refund && updated != null) {
       final before = await billingUpdates(
         patientId,
@@ -417,21 +917,35 @@ class PaymentService {
         stays: stays,
       );
       final previous =
-          (before['patients/$patientId/admissionBalances'] as Map)[cycleId];
+          (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
       if (previous is! Map ||
           (updated['amount'] as num).abs() >
               (original['amount'] as num).abs() +
-                  (previous['refundDue'] as num) +
+                  ((previous['refundDue'] as num?)?.toDouble() ?? 0) +
                   0.005) {
         throw StateError('Refund exceeds the available excess');
       }
     }
+    if (isPostgres) {
+      if (updated == null) {
+        await _backendApi!.delete('payments/$paymentId');
+      } else {
+        await _backendApi!.patch('payments/$paymentId', updated);
+      }
+      await _reconcileAcknowledgedPayment(patientId);
+      return;
+    }
+    final updates = await billingUpdates(
+      patientId,
+      patientData: data,
+      stays: stays,
+    );
     updates.addAll({
       'payments/$paymentId': updated,
       'paymentHistory/$paymentId': updated,
       'patients/$patientId/payments': payments,
     });
-    await _rtdb.patch('', updates);
+    await _safeRtdb.patch('', updates);
   }
 
   Future<void> updateTransactionNumber(
@@ -439,7 +953,9 @@ class PaymentService {
     String paymentId,
     String transactionNumber,
   ) async {
-    final data = await _rtdb.get('payments/$paymentId');
+    final data = isPostgres
+        ? await _backendApi!.get('payments/$paymentId')
+        : await _safeRtdb.get('payments/$paymentId');
     final date = data is Map
         ? DateTime.fromMillisecondsSinceEpoch(data['date'] as int)
         : DateTime.now();
@@ -447,7 +963,9 @@ class PaymentService {
   }
 
   Future<Map<String, double>> getPaymentStats() async {
-    final data = await _rtdb.get(_path);
+    final data = isPostgres
+        ? await _backendApi!.get(_path)
+        : await _safeRtdb.get(_path);
     final totals = <String, double>{
       'total': 0,
       'cash': 0,
@@ -461,7 +979,7 @@ class PaymentService {
             : data is List
             ? data
             : []) {
-      if (row is! Map) continue;
+      if (row is! Map || row['status'] == 'void') continue;
       final amount = (row['amount'] as num?)?.toDouble() ?? 0;
       totals['total'] = totals['total']! + amount;
       if (amount < 0) totals['refunded'] = totals['refunded']! - amount;
@@ -472,13 +990,16 @@ class PaymentService {
   }
 
   Stream<List<Map<String, dynamic>>> getAllPaymentsStream() {
-    return _rtdb.stream(_path).map<List<Map<String, dynamic>>>((snapshot) {
+    final sourceStream = isPostgres
+        ? _backendApi!.stream(_path)
+        : _safeRtdb.stream(_path);
+    return sourceStream.map<List<Map<String, dynamic>>>((snapshot) {
       if (snapshot == null) return <Map<String, dynamic>>[];
       final List<Map<String, dynamic>> payments = [];
 
       if (snapshot is Map) {
         snapshot.forEach((key, value) {
-          if (value is Map) {
+          if (value is Map && value['status'] != 'void') {
             final data = Map<String, dynamic>.from(value);
             payments.add({
               ...data,
@@ -492,7 +1013,7 @@ class PaymentService {
       } else if (snapshot is List) {
         for (int i = 0; i < snapshot.length; i++) {
           final value = snapshot[i];
-          if (value is Map) {
+          if (value is Map && value['status'] != 'void') {
             final data = Map<String, dynamic>.from(value);
             payments.add({
               ...data,
@@ -506,6 +1027,6 @@ class PaymentService {
       // Sort by date descending (newest first)
       payments.sort((a, b) => (b['date'] ?? 0).compareTo(a['date'] ?? 0));
       return payments;
-    }).asBroadcastStream();
+    });
   }
 }

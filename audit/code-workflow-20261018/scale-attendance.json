@@ -1,0 +1,304 @@
+{
+  "capturedAt": "2026-10-18T18:07:55.162Z",
+  "counts": {
+    "patients": 10000,
+    "attendants": 10000,
+    "payments": 50000,
+    "stays": 20000,
+    "attendance": 300000
+  },
+  "seedMs": 28467.66,
+  "before": [
+    {
+      "Plan": {
+        "Node Type": "Gather Merge",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 33244.75,
+        "Total Cost": 62413.46,
+        "Plan Rows": 250000,
+        "Plan Width": 187,
+        "Actual Startup Time": 140.247,
+        "Actual Total Time": 250.022,
+        "Actual Rows": 300000,
+        "Actual Loops": 1,
+        "Workers Planned": 2,
+        "Workers Launched": 2,
+        "Shared Hit Blocks": 7387,
+        "Shared Read Blocks": 1,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 1,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 6802,
+        "Temp Written Blocks": 6818,
+        "Plans": [
+          {
+            "Node Type": "Sort",
+            "Parent Relationship": "Outer",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 32244.73,
+            "Total Cost": 32557.23,
+            "Plan Rows": 125000,
+            "Plan Width": 187,
+            "Actual Startup Time": 134.927,
+            "Actual Total Time": 155.139,
+            "Actual Rows": 100000,
+            "Actual Loops": 3,
+            "Sort Key": [
+              "((attendance_date)::text) DESC"
+            ],
+            "Sort Method": "external merge",
+            "Sort Space Used": 19904,
+            "Sort Space Type": "Disk",
+            "Shared Hit Blocks": 7387,
+            "Shared Read Blocks": 1,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 1,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 6802,
+            "Temp Written Blocks": 6818,
+            "Workers": [
+              {
+                "Worker Number": 0,
+                "Sort Method": "external merge",
+                "Sort Space Used": 17456,
+                "Sort Space Type": "Disk"
+              },
+              {
+                "Worker Number": 1,
+                "Sort Method": "external merge",
+                "Sort Space Used": 17056,
+                "Sort Space Type": "Disk"
+              }
+            ],
+            "Plans": [
+              {
+                "Node Type": "Seq Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": true,
+                "Async Capable": false,
+                "Relation Name": "attendance_records",
+                "Alias": "attendance_records",
+                "Startup Cost": 0,
+                "Total Cost": 10126.5,
+                "Plan Rows": 125000,
+                "Plan Width": 187,
+                "Actual Startup Time": 0.018,
+                "Actual Total Time": 44.58,
+                "Actual Rows": 100000,
+                "Actual Loops": 3,
+                "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
+                "Rows Removed by Filter": 0,
+                "Shared Hit Blocks": 7314,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Workers": []
+              }
+            ]
+          }
+        ]
+      },
+      "Planning": {
+        "Shared Hit Blocks": 31,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.316,
+      "Triggers": [],
+      "Execution Time": 262.864
+    }
+  ],
+  "after": [
+    {
+      "Plan": {
+        "Node Type": "Index Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Backward",
+        "Index Name": "ux_attendance_identity",
+        "Relation Name": "attendance_records",
+        "Alias": "attendance_records",
+        "Startup Cost": 0.42,
+        "Total Cost": 37749.74,
+        "Plan Rows": 300000,
+        "Plan Width": 191,
+        "Actual Startup Time": 0.02,
+        "Actual Total Time": 127.358,
+        "Actual Rows": 300000,
+        "Actual Loops": 1,
+        "Index Cond": "(((kind)::text = 'attendance'::text) AND (attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date))",
+        "Rows Removed by Index Recheck": 0,
+        "Shared Hit Blocks": 67382,
+        "Shared Read Blocks": 1730,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 1273,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning": {
+        "Shared Hit Blocks": 5,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.11,
+      "Triggers": [],
+      "Execution Time": 141.6
+    }
+  ],
+  "patientPlan": [
+    {
+      "Plan": {
+        "Node Type": "Sort",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 120.38,
+        "Total Cost": 120.45,
+        "Plan Rows": 30,
+        "Plan Width": 191,
+        "Actual Startup Time": 0.085,
+        "Actual Total Time": 0.086,
+        "Actual Rows": 30,
+        "Actual Loops": 1,
+        "Sort Key": [
+          "attendance_date DESC"
+        ],
+        "Sort Method": "quicksort",
+        "Sort Space Used": 30,
+        "Sort Space Type": "Memory",
+        "Shared Hit Blocks": 33,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Bitmap Heap Scan",
+            "Parent Relationship": "Outer",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Relation Name": "attendance_records",
+            "Alias": "attendance_records",
+            "Startup Cost": 4.66,
+            "Total Cost": 119.64,
+            "Plan Rows": 30,
+            "Plan Width": 191,
+            "Actual Startup Time": 0.033,
+            "Actual Total Time": 0.067,
+            "Actual Rows": 30,
+            "Actual Loops": 1,
+            "Recheck Cond": "((patient_id)::text = 'scale-p-1'::text)",
+            "Rows Removed by Index Recheck": 0,
+            "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
+            "Rows Removed by Filter": 0,
+            "Exact Heap Blocks": 30,
+            "Lossy Heap Blocks": 0,
+            "Shared Hit Blocks": 33,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Bitmap Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Index Name": "ix_attendance_patient_id",
+                "Startup Cost": 0,
+                "Total Cost": 4.65,
+                "Plan Rows": 30,
+                "Plan Width": 0,
+                "Actual Startup Time": 0.02,
+                "Actual Total Time": 0.02,
+                "Actual Rows": 30,
+                "Actual Loops": 1,
+                "Index Cond": "((patient_id)::text = 'scale-p-1'::text)",
+                "Shared Hit Blocks": 3,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          }
+        ]
+      },
+      "Planning": {
+        "Shared Hit Blocks": 0,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.093,
+      "Triggers": [],
+      "Execution Time": 0.136
+    }
+  ],
+  "patientRequest": {
+    "durationMs": 26.53,
+    "bytes": 5641,
+    "records": 30
+  },
+  "monthRequest": {
+    "durationMs": 2900.23,
+    "bytes": 27234091,
+    "records": 300000
+  },
+  "patientPlanIndexes": [
+    "ix_attendance_patient_id"
+  ],
+  "note": "Native DATE sorting preserves date strings while avoiding the output text expression; broad reads still return all requested rows."
+}

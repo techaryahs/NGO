@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-16",
+  "baseline": {"backend_mocked_tests": 15, "flutter_tests": 258},
+  "final": {
+    "backend_mocked_tests": {"successful": 70, "failed": 0},
+    "postgresql16_tests": {"workflows": 18, "modules": 27, "importer": 21, "authentication_database": 3, "migrations": 1, "restart_persistence": 1, "failed": 0},
+    "typescript_build": "exit 0",
+    "flutter_tests": {"successful": 305, "failed": 0},
+    "changed_dart_analysis": "exit 0; no issues",
+    "full_flutter_analysis": {"exit_code": 1, "errors": 0, "warnings": 56, "infos": 255},
+    "compose_config": "exit 0; static only",
+    "production_dependency_high_findings": 4
+  },
+  "limitations": ["Docker daemon unavailable; container runtime/persistence not executed", "No live Firebase or Flutter/PostgreSQL runtime integration", "Incomplete Flutter domain adapters and ERP/import coverage", "Observed source inconsistencies require reviewed reconciliation"],
+  "audit_result": "Corrections and automated audit complete for review; production cutover blocked",
+  "report": "audit/independent-backend-audit.md"
+}

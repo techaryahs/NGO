@@ -1,0 +1,16 @@
+{
+  "planning": "compact",
+  "context_depth": "dependency",
+  "verification_depth": "impact",
+  "delegation": "none",
+  "reason_codes": ["disposable-database-benchmark", "large-fixture", "existing-api-callers-read"],
+  "scope": ["backend/tests/scalability.integration.test.ts", "audit/code-workflow-20261018/scale*", "backend/src/pagination.ts", "backend/src/routes/patients.ts GET collection only", "backend/src/routes/payments.ts GET collection only", "backend/src/routes/attendance.ts GET native date ordering only"],
+  "scopeAmendment": "Parent authorized cursor helper, patients/payments GET cursor pagination, stable date/id ordering, measured patients formatting optimization, then demonstrated attendance native date sort fix and patient-filter query plan measurement.",
+  "decision": {
+    "action": "Replace repeated payment filtering with one grouping pass; add exact-timestamp cursor pagination to patient/payment collection GET routes; measure at 1000 and 10000 synthetic patients",
+    "reason": "Eliminate measured collection formatting cost and let clients load complete collections beyond default 500 safely across equal timestamps or deleted boundary rows",
+    "evidence": ["scale-baseline.json: patients limit5000 median3923.39ms, limit500 median133.66ms at10kpatients", "patients.ts filters all returned payments per patient", "backend_api_service.dart requests collection maps without pagination", "attendance.ts and stays.ts have unbounded filtered collection responses"],
+    "risk": "low: exact localhost, port, database, user and PostgreSQL version assertions before schema/data changes",
+    "allowed_by_contract": true
+  }
+}

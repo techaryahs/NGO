@@ -6,35 +6,57 @@ import 'package:ngo/screens/layout/main_layout.dart';
 import 'package:ngo/screens/layout/staff_layout.dart';
 import 'package:ngo/screens/layout/volunteer_layout.dart';
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  late final Stream<AuthUser?> _authStateChanges;
+  String? _cachedUid;
+  Future<String?>? _roleFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStateChanges = ServiceLocator().authService.authStateChanges;
+  }
+
+  Future<String?> _roleForUser(String uid) {
+    if (_cachedUid != uid || _roleFuture == null) {
+      _cachedUid = uid;
+      _roleFuture = ServiceLocator().authService.getUserRole(uid);
+    }
+    return _roleFuture!;
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthUser?>(
-      stream: ServiceLocator().authRestService.authStateChanges,
-      initialData: null, // Add initial data to prevent waiting
+      // Only the cache-aware stream may release authenticated UI. Seeding
+      // currentUser here bypasses account activation during restored login.
+      stream: _authStateChanges,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            snapshot.data == null) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFF3B6D11),
-              ),
+              child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
             ),
           );
         }
 
         if (snapshot.hasData && snapshot.data != null) {
+          final uid = snapshot.data!.uid;
           return FutureBuilder<String?>(
-            future: ServiceLocator().authService.getUserRole(snapshot.data!.uid),
+            future: _roleForUser(uid),
             builder: (context, roleSnapshot) {
               if (roleSnapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(
                   body: Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF3B6D11),
-                    ),
+                    child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
                   ),
                 );
               }
@@ -69,6 +91,10 @@ class AuthWrapper extends StatelessWidget {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 24),
+                        TextButton(
+                          onPressed: () => setState(() => _roleFuture = null),
+                          child: const Text('Retry'),
+                        ),
                         ElevatedButton(
                           onPressed: () async {
                             await ServiceLocator().authService.signOut();
@@ -84,11 +110,9 @@ class AuthWrapper extends StatelessWidget {
                 );
               }
 
-              // Role-based routing - default to admin if role not found
-              final role = roleSnapshot.data ?? 'admin';
-              
-              print('User role: $role'); // Debug print
-              
+              // An unknown or temporarily unavailable role has no admin UI.
+              final role = roleSnapshot.data ?? 'volunteer';
+
               switch (role) {
                 case 'admin':
                   return const MainLayout();
@@ -97,13 +121,14 @@ class AuthWrapper extends StatelessWidget {
                 case 'volunteer':
                   return const VolunteerLayout();
                 default:
-                  // If role is not recognized, default to admin
-                  return const MainLayout();
+                  return const VolunteerLayout();
               }
             },
           );
         }
 
+        _cachedUid = null;
+        _roleFuture = null;
         return const LoginScreen();
       },
     );

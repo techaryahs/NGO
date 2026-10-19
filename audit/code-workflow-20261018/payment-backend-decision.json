@@ -1,0 +1,18 @@
+{
+  "planning": "compact",
+  "context_depth": "dependency",
+  "verification_depth": "impact",
+  "delegation": "none",
+  "reason_codes": ["financial-mutations", "shared-patient-version", "parent-delegated-ownership"],
+  "action": "Update signed payment validation and transactional payment POST/PATCH/PUT/DELETE financial deltas",
+  "evidence": [
+    "Existing POST validation accepted only positive type=payment although Flutter recordRefund sends negative type=refund",
+    "Schema NUMERIC(12,2) already permits signed payment amounts; no schema migration is necessary",
+    "Executable baseline: PATCH 3.00 to 1.00 retained paid=3.00 due=7.00 and unchanged patient version",
+    "Executable baseline: DELETE retained paid=3.00 due=7.00 and unchanged patient version",
+    "Executable baseline after signed validation: refund increased current due and left refund aggregates/admission snapshot unchanged"
+  ],
+  "policy": "Use integer cents and patient-before-payment row locks; change affected admission only, preserve its charged total and existing excess-only refund rule; reject unavailable historical balance rather than restating historical billing",
+  "allowed_write_scope": ["backend/src/routes/payments.ts mutation handlers and helper functions", "backend/src/validation.ts payment-specific validation", "backend/tests/payment_financial.integration.test.ts", "audit/code-workflow-20261018/payment-backend*"],
+  "verification_database": "127.0.0.1:55439/ngo_audit_payment_accuracy as ngo_audit, NODE_ENV=test, PostgreSQL major 16"
+}

@@ -1,0 +1,28 @@
+{
+  "allowed_write_scope": [
+    "lib/",
+    "backend/",
+    "test/",
+    ".gravitas/sessions/conversation-39891953/"
+  ],
+  "objective": "Fix refund HTTP 400 rejection and add refund management to Payments sidebar with complete financial integrity",
+  "verification": "backend-vitest-and-flutter-test-against-postgres-docker",
+  "non_goals": [
+    "No VPS deployment",
+    "No production data import or cutover",
+    "No payment gateway or real money transfer implementation",
+    "No removal or deletion of historical payments"
+  ],
+  "risk": "medium",
+  "mode": "implement",
+  "acceptance_criteria": [
+    "Identify and fix exact cause of HTTP 400 rejection on refunds",
+    "Support cash and UPI QR refund methods with clear UI labels and consistent backend values",
+    "Add refund management to Payments sidebar with patient search, cycle breakdown, balances and transaction history",
+    "Preserve transactional integrity and concurrency protection for refunds in PostgreSQL",
+    "Comprehensive automated tests covering valid refunds, HTTP 400 payloads, over-refunding, duplicate idempotency keys, conflicting transaction references, concurrent requests, and rollback on failure",
+    "Verify Flutter analysis passes without warnings on affected files",
+    "Report clearly whether desktop GUI interaction was available"
+  ],
+  "budget": "balanced"
+}

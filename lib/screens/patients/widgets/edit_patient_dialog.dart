@@ -6,6 +6,8 @@ import '../../../models/stay_model.dart';
 import '../../../models/room_model.dart';
 import '../../../models/bed_model.dart';
 import '../../../services/service_locator.dart';
+import '../../../services/photo_rtdb_service.dart';
+import '../../../widgets/patient_photo.dart';
 import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'dart:convert';
@@ -60,6 +62,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
   String? _selectedGender;
   String? _patientPhotoDataUrl;
+  String? _patientPhotoRef;
   late DateTime _selectedDateOfBirth;
   DateTime? _selectedRegistrationDate;
   DateTime? _selectedExitDate;
@@ -138,6 +141,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
     // Load existing patient photo
     _patientPhotoDataUrl = widget.patient.photoDataUrl;
+    _patientPhotoRef = widget.patient.photoRef;
 
     // Initialize attendants (with photo + aadhaar)
     if (widget.patient.attendants != null &&
@@ -151,6 +155,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         entry.mobileController.text = att.mobileNumber ?? '';
         entry.isEmergencyContact = att.isEmergencyContact;
         entry.photoDataUrl = att.photoDataUrl;
+        entry.photoRef = att.photoRef;
         _attendants.add(entry);
       }
     } else {
@@ -233,31 +238,68 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     _loadRoomsAndCurrentStay();
   }
 
-  /// Load all rooms and current patient stay
-  Future<void> _loadRoomsAndCurrentStay() async {
+  /// Load pricing independently with bounded timeout and fallback
+  Future<void> _loadPricing() async {
     try {
       final roomService = ServiceLocator().roomService;
+      final pricingData = await roomService
+          .getPricing()
+          .timeout(const Duration(seconds: 6));
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(pricingData);
+      });
+    } catch (e) {
+      debugPrint('[EDIT PATIENT] pricing load failed: $e');
+      debugPrint('[EDIT PATIENT] using fallback pricing');
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(RoomService.defaultPricing);
+      });
+    }
+  }
+
+  /// Load all rooms and current patient stay
+  Future<void> _loadRoomsAndCurrentStay() async {
+    _loadPricing();
+
+    try {
+      final roomService = ServiceLocator().roomService;
+
+      // Load active stays for lobby occupancy independently so an index error doesn't abort room loading
+      roomService
+          .getActiveStaysStream()
+          .first
+          .timeout(const Duration(seconds: 8))
+          .then((activeStays) {
+        if (mounted) {
+          setState(() {
+            _occupiedLobbies = {
+              for (final stay in activeStays)
+                if (stay.roomType == 'lobby' &&
+                    stay.status == 'active' &&
+                    stay.patientId != widget.patient.id)
+                  stay.roomNumber,
+            };
+          });
+        }
+      }).catchError((e) {
+        debugPrint('[EDIT PATIENT] active stays load failed: $e');
+      });
+
       final results = await Future.wait<dynamic>([
-        roomService.getRoomsStream().first,
-        roomService.getPricing(),
-        roomService.getStaysStream().first,
+        roomService.getRoomsStream().first.timeout(const Duration(seconds: 8)),
+        roomService
+            .getStaysByPatientStream(widget.patient.id)
+            .first
+            .timeout(const Duration(seconds: 8)),
       ]);
       final rooms = results[0] as List<RoomModel>;
-      _pricing = Map<String, dynamic>.from(results[1] as Map);
-      _occupiedLobbies = {
-        for (final stay in results[2] as List<StayModel>)
-          if (stay.roomType == 'lobby' &&
-              stay.status == 'active' &&
-              stay.patientId != widget.patient.id)
-            stay.roomNumber,
-      };
+      final stays = results[1] as List<StayModel>;
 
       // Load stays even after discharge, when roomId has already been cleared.
       // The latest stay preserves the room type needed for a correct edit-time
       // estimate.
-      final stays = await roomService
-          .getStaysByPatientStream(widget.patient.id)
-          .first;
       _currentStayIds = stays
           .where((stay) => stay.status == 'active')
           .map((stay) => stay.id)
@@ -370,6 +412,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         });
       }
     } catch (e) {
+      debugPrint('[EDIT PATIENT] rooms and stay load failed: $e');
       if (mounted) {
         setState(() => _isLoadingRooms = false);
       }
@@ -622,6 +665,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     final base64Str = base64Encode(bytes);
     setState(() {
       _patientPhotoDataUrl = 'data:image/jpeg;base64,$base64Str';
+      _patientPhotoRef = null;
     });
   }
 
@@ -636,6 +680,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     final base64Str = base64Encode(bytes);
     setState(() {
       _attendants[index].photoDataUrl = 'data:image/jpeg;base64,$base64Str';
+      _attendants[index].photoRef = null;
     });
   }
 
@@ -707,22 +752,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     try {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
-      final registrationNumber = _registrationNumberController.text.trim();
-      final originalRegistration =
-          widget.patient.registrationNumber?.trim() ?? '';
-      if (registrationNumber.isNotEmpty &&
-          registrationNumber.toLowerCase() !=
-              originalRegistration.toLowerCase()) {
-        final existing = await patientService.getPatientByRegistrationNumber(
-          registrationNumber,
-          excludingPatientId: widget.patient.id,
-        );
-        if (existing != null) {
-          throw Exception(
-            'Registration number $registrationNumber already belongs to ${existing.fullName}.',
-          );
-        }
-      }
+
 
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
@@ -737,6 +767,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           _selectedRegistrationDate ?? currentAdmissionDate;
 
       final structuredAttendants = <AttendantModel>[];
+      final photos = ServiceLocator().photoRtdbService;
+      if (_patientPhotoDataUrl != null && _patientPhotoDataUrl!.isNotEmpty) {
+        final bytes = PhotoRtdbService.decodeLegacyBase64(_patientPhotoDataUrl);
+        if (bytes == null) throw StateError('Patient photo is invalid');
+        _patientPhotoRef = await photos.uploadPhoto(
+          photoPath: PhotoRtdbService.patientPath(widget.patient.id),
+          bytes: bytes,
+        );
+      }
       for (var i = 0; i < _attendants.length; i++) {
         final att = _attendants[i];
         final name = att.nameController.text.trim();
@@ -750,6 +789,15 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           throw Exception('Enter a mobile number for the emergency attendant');
         }
         if (name.isNotEmpty) {
+          var photoRef = att.photoRef;
+          if (att.photoDataUrl != null && att.photoDataUrl!.isNotEmpty) {
+            final bytes = PhotoRtdbService.decodeLegacyBase64(att.photoDataUrl);
+            if (bytes == null) throw StateError('Attendant photo is invalid');
+            photoRef = await photos.uploadPhoto(
+              photoPath: PhotoRtdbService.attendantPath(widget.patient.id, '$i'),
+              bytes: bytes,
+            );
+          }
           structuredAttendants.add(
             AttendantModel(
               name: name,
@@ -762,7 +810,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
               aadhaarNumber: att.aadhaarController.text.trim().isNotEmpty
                   ? att.aadhaarController.text.trim()
                   : null,
-              photoDataUrl: att.photoDataUrl,
+              photoDataUrl: null,
+              photoRef: photoRef,
               mobileNumber: att.mobileController.text.trim().isEmpty
                   ? null
                   : att.mobileController.text.trim(),
@@ -778,7 +827,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'gender': _selectedGender!.toLowerCase(),
         'dateOfBirth': dateOfBirth.millisecondsSinceEpoch,
         'age': age,
-        'photoDataUrl': _patientPhotoDataUrl,
+        'photoDataUrl': null,
+        'photoRef': _patientPhotoRef,
         'medicalCondition': _diagnosisController.text.trim(),
         'emergencyContactName':
             structuredAttendants
@@ -796,9 +846,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'address': _addressController.text.trim().isEmpty
             ? null
             : _addressController.text.trim(),
-        'registrationNumber': _registrationNumberController.text.trim().isEmpty
-            ? null
-            : _registrationNumberController.text.trim(),
+        'registrationNumber': widget.patient.registrationNumber,
         'notes': _updatedNotesWithFileNumber(),
         'registrationDate': _selectedRegistrationDate?.millisecondsSinceEpoch,
         'exitDate': _selectedExitDate?.millisecondsSinceEpoch,
@@ -825,10 +873,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           'totalPresentDays': 0,
           'totalAbsentDays': 0,
           'attendanceCharges': 0.0,
-          'totalPaidAmount': 0.0,
-          'currentDueAmount': widget.patient.currentDueAmount ?? 0,
-          'paymentPending': widget.patient.hasEffectivePendingPayment,
-          'paymentStatus': widget.patient.paymentStatus,
         });
       }
 
@@ -882,34 +926,27 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           }
 
           final currentUser = ServiceLocator().authRestService.currentUser;
-          // Each selected bed creates a stay. A private room normally has two
-          // beds, allowing two patients while retaining independent billing.
-          for (final bed in _selectedBeds) {
-            await roomService.createStay(
-              patientId: widget.patient.id,
-              patientName: _patientNameController.text.trim(),
-              roomId: _selectedRoom!.id,
-              roomNumber: _selectedRoom!.roomIdentifier,
-              roomType: _selectedRoom!.roomType,
-              admissionDate: editingDischargedPatient
-                  ? displayedStayStart
-                  : shiftTime,
-              durationDays: _plannedStayDays,
-              attendantCount: structuredAttendants.length,
-              attendantLabels: structuredAttendants
-                  .map(
-                    (a) => a.relation?.trim().isNotEmpty == true
-                        ? '${a.name} (${a.relation})'
-                        : a.name,
-                  )
-                  .toList(),
-              bedId: bed.id,
-              bedLabel: bed.bedLabel,
-              notes:
-                  'Shifted from ${widget.patient.roomNumber ?? widget.patient.lobby ?? "Unassigned"} (beds: ${widget.patient.bedLabels?.join(", ") ?? "N/A"}) to ${_selectedRoom!.isPrivate ? "Private room" : "Dormitory"} ${_selectedRoom!.roomIdentifier}, bed ${bed.bedLabel}',
-              createdBy: currentUser?.uid ?? 'system',
-            );
-          }
+          final attendantLabels = structuredAttendants
+              .map((a) => a.relation?.trim().isNotEmpty == true
+                  ? '${a.name} (${a.relation})'
+                  : a.name)
+              .toList();
+          await roomService.createStaysForBeds(
+            patientId: widget.patient.id,
+            patientName: _patientNameController.text.trim(),
+            roomId: _selectedRoom!.id,
+            admissionDate: editingDischargedPatient
+                ? displayedStayStart
+                : shiftTime,
+            durationDays: _plannedStayDays,
+            attendantCount: structuredAttendants.length,
+            attendantLabels: attendantLabels,
+            bedIds: _selectedBeds.map((bed) => bed.id).toList(),
+            notes:
+                'Shifted from ${widget.patient.roomNumber ?? widget.patient.lobby ?? "Unassigned"} '
+                'to ${_selectedRoom!.roomIdentifier}',
+            createdBy: currentUser?.uid ?? 'system',
+          );
         } else if (_selectedLobby != null) {
           await roomService.createLobbyStay(
             patientId: widget.patient.id,
@@ -947,6 +984,19 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
 
       await patientService.updatePatient(widget.patient.id, updates);
+      final previousRefs = <String>{
+        if (widget.patient.photoRef != null) widget.patient.photoRef!,
+        for (final attendant in widget.patient.attendants ?? const <AttendantModel>[])
+          if (attendant.photoRef != null) attendant.photoRef!,
+      };
+      final currentRefs = <String>{
+        if (_patientPhotoRef != null) _patientPhotoRef!,
+        for (final attendant in structuredAttendants)
+          if (attendant.photoRef != null) attendant.photoRef!,
+      };
+      for (final removed in previousRefs.difference(currentRefs)) {
+        await photos.deletePhoto(removed);
+      }
       if (!placementChanged) {
         for (final stayId in _currentStayIds) {
           await roomService.updateStayDates(
@@ -1019,18 +1069,16 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: const Color(0xFFEAF3DE),
-                  backgroundImage: _attendants[i].photoDataUrl == null
-                      ? null
-                      : MemoryImage(_decodePhoto(_attendants[i].photoDataUrl)!),
-                  child: _attendants[i].photoDataUrl == null
-                      ? const Icon(
-                          Icons.person_outline,
-                          color: Color(0xFF639922),
-                        )
-                      : null,
+                ClipOval(
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: PatientPhoto(
+                      size: 48,
+                      legacyDataUrl: _attendants[i].photoDataUrl,
+                      photoRef: _attendants[i].photoRef,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
@@ -1043,14 +1091,20 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                   onPressed: () => _pickAttendantPhoto(i),
                   icon: const Icon(Icons.upload_rounded),
                   label: Text(
-                    _attendants[i].photoDataUrl == null ? 'Upload' : 'Change',
+                    _attendants[i].photoDataUrl == null &&
+                            _attendants[i].photoRef == null
+                        ? 'Upload'
+                        : 'Change',
                   ),
                 ),
-                if (_attendants[i].photoDataUrl != null)
+                if (_attendants[i].photoDataUrl != null ||
+                    _attendants[i].photoRef != null)
                   IconButton(
                     tooltip: 'Remove photo',
-                    onPressed: () =>
-                        setState(() => _attendants[i].photoDataUrl = null),
+                    onPressed: () => setState(() {
+                      _attendants[i].photoDataUrl = null;
+                      _attendants[i].photoRef = null;
+                    }),
                     icon: const Icon(Icons.close, color: Color(0xFFD32F2F)),
                   ),
               ],
@@ -1196,19 +1250,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                             ),
                                           ),
                                           child: ClipOval(
-                                            child: _patientPhotoDataUrl != null
-                                                ? Image.memory(
-                                                    _decodePhoto(
-                                                      _patientPhotoDataUrl,
-                                                    )!,
-                                                    fit: BoxFit.cover,
-                                                  )
-                                                : const Icon(
-                                                    Icons
-                                                        .person_outline_rounded,
-                                                    size: 40,
-                                                    color: Color(0xFF639922),
-                                                  ),
+                                            child: PatientPhoto(
+                                              size: 88,
+                                              legacyDataUrl: _patientPhotoDataUrl,
+                                              photoRef: _patientPhotoRef,
+                                            ),
                                           ),
                                         ),
                                         Positioned(
@@ -1235,11 +1281,13 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                       ],
                                     ),
                                   ),
-                                  if (_patientPhotoDataUrl != null)
+                                  if (_patientPhotoDataUrl != null ||
+                                      _patientPhotoRef != null)
                                     TextButton.icon(
-                                      onPressed: () => setState(
-                                        () => _patientPhotoDataUrl = null,
-                                      ),
+                                      onPressed: () => setState(() {
+                                        _patientPhotoDataUrl = null;
+                                        _patientPhotoRef = null;
+                                      }),
                                       icon: const Icon(
                                         Icons.delete_outline,
                                         size: 16,
@@ -1271,8 +1319,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 ),
                               ),
                               PatientFormField(
-                                label: "Registration number",
-                                hint: "e.g. REG-2024-001",
+                                label: "Registration number (Immutable)",
+                                hint: "Not assigned",
+                                enabled: false,
                                 controller: _registrationNumberController,
                               ),
                             ),
@@ -1485,25 +1534,13 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                       ),
                                                     ),
                                                     child: ClipOval(
-                                                      child:
-                                                          _attendants[i]
-                                                                  .photoDataUrl !=
-                                                              null
-                                                          ? Image.memory(
-                                                              _decodePhoto(
-                                                                _attendants[i]
-                                                                    .photoDataUrl,
-                                                              )!,
-                                                              fit: BoxFit.cover,
-                                                            )
-                                                          : const Icon(
-                                                              Icons
-                                                                  .person_outline,
-                                                              size: 24,
-                                                              color: Color(
-                                                                0xFF1565C0,
-                                                              ),
-                                                            ),
+                                                      child: PatientPhoto(
+                                                        size: 48,
+                                                        legacyDataUrl:
+                                                            _attendants[i].photoDataUrl,
+                                                        photoRef:
+                                                            _attendants[i].photoRef,
+                                                      ),
                                                     ),
                                                   ),
                                                   Positioned(
@@ -1533,16 +1570,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                 ],
                                               ),
                                             ),
-                                            if (_attendants[i].photoDataUrl !=
-                                                null)
+                                            if (_attendants[i].photoDataUrl != null ||
+                                                _attendants[i].photoRef != null)
                                               IconButton(
                                                 tooltip: 'Remove photo',
-                                                onPressed: () => setState(
-                                                  () =>
-                                                      _attendants[i]
-                                                              .photoDataUrl =
-                                                          null,
-                                                ),
+                                                onPressed: () => setState(() {
+                                                  _attendants[i].photoDataUrl = null;
+                                                  _attendants[i].photoRef = null;
+                                                }),
                                                 icon: const Icon(
                                                   Icons.delete_outline,
                                                   color: Colors.red,
@@ -1775,6 +1810,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                           selectedBedIds: _selectedBeds
                                               .map((bed) => bed.id)
                                               .toSet(),
+                                          hint: _selectedFloor == null
+                                              ? 'Select floor first'
+                                              : _selectedLobby != null
+                                              ? 'Clear lobby to select a room'
+                                              : 'Select room',
                                           onChanged:
                                               _selectedFloor != null &&
                                                   _selectedLobby == null
@@ -1851,6 +1891,7 @@ class _AttendantEntry {
   final TextEditingController mobileController = TextEditingController();
   bool isEmergencyContact = false;
   String? photoDataUrl; // base64 data url
+  String? photoRef;
 
   void dispose() {
     nameController.dispose();

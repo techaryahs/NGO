@@ -1,0 +1,12 @@
+{
+  "planning": "deep",
+  "verification_depth": "impact",
+  "delegation": "investigators-and-verifier",
+  "reason_codes": [
+    "broad-workflow-request",
+    "existing-uncommitted-migration",
+    "runtime-ui-required",
+    "transaction-consistency"
+  ],
+  "context_depth": "dependency"
+}

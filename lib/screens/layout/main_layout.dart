@@ -12,6 +12,7 @@ import '../payments/payments_screen.dart';
 
 import 'widgets/sidebar.dart';
 import 'widgets/top_bar.dart';
+import '../../widgets/cache_status_banner.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -22,6 +23,7 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int selectedIndex = 0;
+  final Set<int> _visitedPages = {0};
 
   // UPDATED SIDEBAR ITEMS
   final List<NavItem> navItems = const [
@@ -51,7 +53,10 @@ class _MainLayoutState extends State<MainLayout> {
     final index = navItems.indexWhere((item) => item.label == "Settings");
 
     if (index != -1) {
-      setState(() => selectedIndex = index);
+      setState(() {
+        selectedIndex = index;
+        _visitedPages.add(index);
+      });
     }
   }
 
@@ -65,7 +70,10 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     final isCompact = MediaQuery.sizeOf(context).width < 900;
     void selectPage(int index) {
-      setState(() => selectedIndex = index);
+      setState(() {
+        selectedIndex = index;
+        _visitedPages.add(index);
+      });
       if (isCompact) Navigator.of(context).pop();
     }
 
@@ -108,6 +116,7 @@ class _MainLayoutState extends State<MainLayout> {
                         : null,
                   ),
                 ),
+                const CacheStatusBanner(),
 
                 // PAGE CONTENT
                 Expanded(
@@ -119,7 +128,17 @@ class _MainLayoutState extends State<MainLayout> {
                             .clamp(0.0, 1400.0)
                             .toDouble(),
                         height: constraints.maxHeight,
-                        child: pages[selectedIndex],
+                        // Keep visited screens alive without starting every
+                        // screen's subscriptions on the initial dashboard.
+                        child: IndexedStack(
+                          index: selectedIndex,
+                          children: [
+                            for (var index = 0; index < pages.length; index++)
+                              _visitedPages.contains(index)
+                                  ? pages[index]
+                                  : const SizedBox.shrink(),
+                          ],
+                        ),
                       ),
                     ),
                   ),

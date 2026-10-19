@@ -1,14 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/patient_model.dart';
 import '../../../services/service_locator.dart';
+import '../../../services/backend_api_service.dart';
 
-Future<void> showRefundDialog(
+Future<bool?> showRefundDialog(
   BuildContext context,
   PatientModel patient, {
   String? cycleId,
 }) async {
-  await showDialog<bool>(
+  return await showDialog<bool>(
     context: context,
     builder: (_) => RefundDialog(patient: patient, cycleId: cycleId),
   );
@@ -23,6 +25,7 @@ class RefundDialog extends StatefulWidget {
 }
 
 class _RefundDialogState extends State<RefundDialog> {
+  final String _requestId = 'refund_${DateTime.now().microsecondsSinceEpoch}';
   final amount = TextEditingController(),
       receipt = TextEditingController(),
       transaction = TextEditingController();
@@ -51,10 +54,17 @@ class _RefundDialogState extends State<RefundDialog> {
       cycle = balances.containsKey(widget.cycleId)
           ? widget.cycleId
           : balances.keys.firstOrNull;
-      if (cycle != null)
+      if (cycle != null) {
         amount.text = (balances[cycle]['refundDue'] as num).toStringAsFixed(2);
+      }
     } catch (e) {
-      error = e.toString();
+      if (e is BackendApiException && e.serverMessage != null) {
+        error = e.serverMessage;
+      } else if (e is HttpException && e.message.isNotEmpty) {
+        error = e.message;
+      } else {
+        error = e.toString();
+      }
     }
     if (mounted) setState(() => loading = false);
   }
@@ -70,8 +80,9 @@ class _RefundDialogState extends State<RefundDialog> {
   Future<void> _save() async {
     try {
       final value = double.tryParse(amount.text);
-      if (value == null || !value.isFinite || value <= 0 || cycle == null)
+      if (value == null || !value.isFinite || value <= 0 || cycle == null) {
         throw ArgumentError('Enter a valid refund amount');
+      }
       setState(() {
         saving = true;
         error = null;
@@ -84,10 +95,31 @@ class _RefundDialogState extends State<RefundDialog> {
         method: method,
         receiptNumber: receipt.text,
         transactionId: transaction.text,
+        requestId: _requestId,
       );
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Refund recorded successfully'),
+            backgroundColor: Color(0xFF3B6D11),
+          ),
+        );
+        Navigator.pop(context, true);
+      }
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) {
+        String msg = e.toString();
+        if (e is BackendApiException && e.serverMessage != null) {
+          msg = e.serverMessage!;
+        } else if (e is HttpException && e.message.isNotEmpty) {
+          msg = e.message;
+        } else if (e is ArgumentError && e.message != null) {
+          msg = e.message.toString();
+        } else if (e is StateError) {
+          msg = e.message;
+        }
+        setState(() => error = msg);
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -118,7 +150,9 @@ class _RefundDialogState extends State<RefundDialog> {
                         ),
                       ),
                     if (balances.isNotEmpty) ...[
+                      const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: cycle,
                         decoration: const InputDecoration(
                           labelText: 'Admission',
@@ -129,6 +163,7 @@ class _RefundDialogState extends State<RefundDialog> {
                                 value: id,
                                 child: Text(
                                   '${DateFormat('dd MMM yyyy').format(DateTime.fromMillisecondsSinceEpoch(int.tryParse(id) ?? 0))} · ₹${(balances[id]['refundDue'] as num).toStringAsFixed(2)} excess',
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             )
@@ -142,6 +177,7 @@ class _RefundDialogState extends State<RefundDialog> {
                                         .toStringAsFixed(2);
                               }),
                       ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: amount,
                         enabled: !saving,
@@ -150,37 +186,53 @@ class _RefundDialogState extends State<RefundDialog> {
                         ),
                         decoration: const InputDecoration(
                           labelText: 'Refund amount',
+                          prefixText: '₹ ',
                         ),
                       ),
+                      const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: method,
                         decoration: const InputDecoration(
                           labelText: 'Refund method',
                         ),
-                        items: ['cash', 'online', 'check']
-                            .map(
-                              (m) => DropdownMenuItem(value: m, child: Text(m)),
-                            )
-                            .toList(),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'cash',
+                            child: Text('Cash'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'online',
+                            child: Text('UPI QR / Online'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'check',
+                            child: Text('Cheque / Bank Transfer'),
+                          ),
+                        ],
                         onChanged: saving
                             ? null
                             : (value) => setState(() => method = value!),
                       ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: receipt,
                         enabled: !saving,
                         decoration: const InputDecoration(
-                          labelText: 'Refund receipt number',
+                          labelText: 'Refund receipt number (optional)',
                         ),
                       ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: transaction,
                         enabled: !saving,
                         decoration: const InputDecoration(
-                          labelText: 'Transaction / cheque number',
+                          labelText: 'Transaction / reference number (optional)',
                         ),
                       ),
-                      TextButton(
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.calendar_today_rounded, size: 16),
                         onPressed: saving
                             ? null
                             : () async {
@@ -190,16 +242,43 @@ class _RefundDialogState extends State<RefundDialog> {
                                   firstDate: DateTime(2000),
                                   lastDate: DateTime.now(),
                                 );
-                                if (selected != null && mounted)
+                                if (selected != null && mounted) {
                                   setState(() => date = selected);
+                                }
                               },
-                        child: Text(
+                        label: Text(
                           'Refund date: ${DateFormat('dd MMM yyyy').format(date)}',
                         ),
                       ),
                     ],
-                    if (error != null)
-                      Text(error!, style: const TextStyle(color: Colors.red)),
+                    if (error != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEBEE),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFFCDD2)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                error!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

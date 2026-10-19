@@ -1,25 +1,63 @@
+import '../config/app_config.dart';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../models/room_model.dart';
 import '../utils/stay_billing.dart';
 import '../utils/pricing_helper.dart';
+import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'payment_service.dart';
+import 'service_locator.dart';
 
 class StayHistoryService {
-  final FirebaseRTDBRestService db;
-  StayHistoryService(this.db);
+  final FirebaseRTDBRestService? db;
+  final BackendApiService? backendApi;
+
+  StayHistoryService([this.db, this.backendApi])
+      : assert(
+          db != null || backendApi != null,
+          'Provide either db or backendApi',
+        );
+
+  factory StayHistoryService.fromLocator() {
+    final locator = ServiceLocator();
+    if (AppConfig.usePostgresBackend) {
+      return StayHistoryService(null, locator.backendApiService);
+    }
+    return StayHistoryService(locator.rtdbService);
+  }
+
+  Future<dynamic> _get(String path) =>
+      backendApi != null ? backendApi!.get(path) : db!.get(path);
+
+  PaymentService _paymentService() => PaymentService(db, backendApi);
+
+  static Map<String, dynamic> _extractEntitySubtree(
+    Map<String, dynamic> root,
+    String prefix,
+  ) {
+    final out = <String, dynamic>{};
+    for (final entry in root.entries) {
+      if (entry.key.startsWith(prefix)) {
+        final field = entry.key.substring(prefix.length);
+        if (field.isNotEmpty && !field.contains('/')) {
+          out[field] = entry.value;
+        }
+      }
+    }
+    return out;
+  }
 
   Future<void> deleteAdmission(
     String patientId,
     List<StayModel> segments,
   ) async {
     if (segments.isEmpty) return;
-    final patientRaw = await db.get('patients/$patientId');
+    final patientRaw = await _get('patients/$patientId');
     if (patientRaw is! Map) throw StateError('Patient not found');
     final patientData = Map<String, dynamic>.from(patientRaw);
     final patient = PatientModel.fromMap(patientId, patientData);
-    final paymentService = PaymentService(db);
+    final paymentService = _paymentService();
     final allStays = await paymentService.loadStays(patientId);
     final cycleId = StayBilling.cycleFor(segments.first, patient);
     if (segments.any(
@@ -40,13 +78,42 @@ class StayHistoryService {
     }
 
     final ids = segments.map((stay) => stay.id).toSet();
+    final remaining = allStays.where((stay) => !ids.contains(stay.id)).toList();
+
+    if (backendApi != null) {
+      for (final id in ids) {
+        await backendApi!.deleteStay(id);
+      }
+      final refreshedRaw = await _get('patients/$patientId');
+      final refreshedPatientData = refreshedRaw is Map
+          ? Map<String, dynamic>.from(refreshedRaw)
+          : patientData;
+      final billingRoot = await paymentService.billingUpdates(
+        patientId,
+        patientData: refreshedPatientData,
+        stays: remaining,
+      );
+      final patientUpdates = _extractEntitySubtree(
+        billingRoot,
+        'patients/$patientId/',
+      );
+      if (cycleId == StayBilling.currentCycle(patient)) {
+        patientUpdates['billingAmountOverride'] = null;
+      }
+      if (patientUpdates.isNotEmpty) {
+        patientUpdates['expectedVersion'] = refreshedPatientData['version'];
+        await backendApi!.updatePatient(patientId, patientUpdates);
+      }
+      return;
+    }
+
     final root = <String, dynamic>{for (final id in ids) 'stays/$id': null};
     for (final roomId
         in segments
             .where((stay) => stay.roomType != 'lobby')
             .map((stay) => stay.roomId)
             .toSet()) {
-      final roomRaw = await db.get('rooms/$roomId');
+      final roomRaw = await _get('rooms/$roomId');
       if (roomRaw is! Map) continue;
       final room = RoomModel.fromMap(roomId, roomRaw);
       final beds = room.beds
@@ -77,10 +144,10 @@ class StayHistoryService {
             ? 'available'
             : 'occupied',
         'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
+        'rooms/$roomId/version': (room.version ?? 0) + 1,
       });
     }
 
-    final remaining = allStays.where((stay) => !ids.contains(stay.id)).toList();
     if (cycleId == StayBilling.currentCycle(patient)) {
       patientData.addAll({
         'roomId': null,
@@ -110,7 +177,7 @@ class StayHistoryService {
         stays: remaining,
       ),
     );
-    await db.patch('', root);
+    await db!.patch('', root);
   }
 
   Future<void> updateShiftTimeline(
@@ -123,11 +190,11 @@ class StayHistoryService {
     if (costOverrides != null && costOverrides.length != edits.length) {
       throw ArgumentError('A charge value is required for every placement.');
     }
-    final patientRaw = await db.get('patients/$patientId');
+    final patientRaw = await _get('patients/$patientId');
     if (patientRaw is! Map) throw StateError('Patient not found');
     final patientData = Map<String, dynamic>.from(patientRaw);
     final patient = PatientModel.fromMap(patientId, patientData);
-    final paymentService = PaymentService(db);
+    final paymentService = _paymentService();
     final allStays = await paymentService.loadStays(patientId);
     final cycleId = StayBilling.cycleFor(edits.first.stay, patient);
     if (edits.any(
@@ -153,7 +220,7 @@ class StayHistoryService {
     final now = DateTime.now().millisecondsSinceEpoch;
     for (var editIndex = 0; editIndex < edits.length; editIndex++) {
       final edit = edits[editIndex];
-      final raw = await db.get('stays/${edit.stay.id}');
+      final raw = await _get('stays/${edit.stay.id}');
       if (raw is! Map) throw StateError('A stay record could not be found.');
       final current = StayModel.fromMap(edit.stay.id, raw);
       if (current.updatedAt != edit.stay.updatedAt) {
@@ -207,7 +274,21 @@ class StayHistoryService {
         stays: updatedStays,
       ),
     );
-    await db.patch('', root);
+    if (backendApi != null) {
+      for (final entry in revisedById.entries) {
+        await backendApi!.updateStay(entry.key, entry.value.toMap());
+      }
+      final patientUpdates = _extractEntitySubtree(
+        root,
+        'patients/$patientId/',
+      );
+      if (patientUpdates.isNotEmpty) {
+        patientUpdates['expectedVersion'] = patientData['version'];
+        await backendApi!.updatePatient(patientId, patientUpdates);
+      }
+      return;
+    }
+    await db!.patch('', root);
   }
 
   Future<void> updateStay(
@@ -215,7 +296,7 @@ class StayHistoryService {
     Map<String, dynamic> changes, {
     required DateTime expectedUpdatedAt,
   }) async {
-    final raw = await db.get('stays/$stayId');
+    final raw = await _get('stays/$stayId');
     if (raw is! Map)
       throw StateError('Stay not found. Refresh the patient and try again.');
     final original = StayModel.fromMap(stayId, raw);
@@ -223,11 +304,11 @@ class StayHistoryService {
       throw StateError(
         'This stay was changed elsewhere. Reopen the edit form.',
       );
-    final patientRaw = await db.get('patients/${original.patientId}');
+    final patientRaw = await _get('patients/${original.patientId}');
     if (patientRaw is! Map) throw StateError('Patient not found');
     final patientData = Map<String, dynamic>.from(patientRaw);
     final patient = PatientModel.fromMap(original.patientId, patientData);
-    final paymentService = PaymentService(db);
+    final paymentService = _paymentService();
     final allStays = await paymentService.loadStays(patient.id);
     final cycleId = StayBilling.cycleFor(original, patient);
     final editable = <String>{
@@ -263,7 +344,7 @@ class StayHistoryService {
     if (!{'private', 'general', 'lobby'}.contains(revised.roomType))
       throw ArgumentError('Select a valid room type');
     if (revised.isActive && revised.roomType == 'lobby') {
-      final staysRaw = await db.get('stays');
+      final staysRaw = await _get('stays');
       if (staysRaw is Map &&
           staysRaw.entries.any((entry) {
             if (entry.key.toString() == stayId || entry.value is! Map) {
@@ -293,7 +374,7 @@ class StayHistoryService {
     final registration =
         snapshot['registrationNumber']?.toString().trim() ?? '';
     if (registration.isNotEmpty) {
-      final patients = await db.get('patients');
+      final patients = await _get('patients');
       if (patients is Map &&
           patients.entries.any(
             (e) =>
@@ -337,9 +418,9 @@ class StayHistoryService {
     }
     final updatedStays = allStays
         .map(
-          (s) => patches.containsKey(s.id)
-              ? StayModel.fromMap(s.id, patches[s.id]!)
-              : s,
+            (s) => patches.containsKey(s.id)
+                ? StayModel.fromMap(s.id, patches[s.id]!)
+                : s,
         )
         .toList();
     final revisedCycle = updatedStays
@@ -367,7 +448,7 @@ class StayHistoryService {
     final root = <String, dynamic>{};
     RoomModel? target;
     if (revised.roomType != 'lobby') {
-      final roomRaw = await db.get('rooms/${revised.roomId}');
+      final roomRaw = await _get('rooms/${revised.roomId}');
       if (roomRaw is Map) target = RoomModel.fromMap(revised.roomId, roomRaw);
       if (revised.isActive && target == null)
         throw ArgumentError('Select an existing room');
@@ -379,7 +460,7 @@ class StayHistoryService {
         throw StateError('Rejoin the patient before assigning a bed');
       final roomIds = {original.roomId, revised.roomId};
       for (final roomId in roomIds) {
-        final roomRaw = await db.get('rooms/$roomId');
+        final roomRaw = await _get('rooms/$roomId');
         if (roomRaw is! Map) continue;
         final room = RoomModel.fromMap(roomId, roomRaw);
         final beds = room.beds
@@ -427,6 +508,7 @@ class StayHistoryService {
               : 'occupied',
           'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
           'rooms/$roomId/expectedVacancyDate': end.millisecondsSinceEpoch,
+          'rooms/$roomId/version': (room.version ?? 0) + 1,
         });
       }
     }
@@ -444,7 +526,7 @@ class StayHistoryService {
         patientData.addAll({
           'fullName': revised.patientName,
           'searchKey': revised.patientName.toLowerCase(),
-          'photoDataUrl': snapshot['photoDataUrl'],
+          'photoRef': snapshot['photoRef'],
           'attendants': snapshot['attendants'],
           'exitDate': end.millisecondsSinceEpoch,
           if (!revised.isActive) 'dischargeDate': end.millisecondsSinceEpoch,
@@ -472,7 +554,7 @@ class StayHistoryService {
         'registrationDate',
         'fullName',
         'searchKey',
-        'photoDataUrl',
+        'photoRef',
         'attendants',
         'exitDate',
         'dischargeDate',
@@ -508,6 +590,25 @@ class StayHistoryService {
         stays: updatedStays,
       ),
     );
-    await db.patch('', root);
+    if (backendApi != null) {
+      for (final entry in patches.entries) {
+        final stayUpdate = Map<String, dynamic>.from(entry.value)
+          ..remove('id')
+          ..remove('patientId')
+          ..remove('roomId')
+          ..remove('bedId');
+        await backendApi!.updateStay(entry.key, stayUpdate);
+      }
+      final patientUpdates = _extractEntitySubtree(
+        root,
+        'patients/${patient.id}/',
+      );
+      if (patientUpdates.isNotEmpty) {
+        patientUpdates['expectedVersion'] = patientData['version'];
+        await backendApi!.updatePatient(patient.id, patientUpdates);
+      }
+      return;
+    }
+    await db!.patch('', root);
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:ngo/services/service_locator.dart';
-import '../dashboard/dashboard_screen.dart';
 
 class VolunteerLayout extends StatefulWidget {
   const VolunteerLayout({super.key});
@@ -350,7 +349,7 @@ class _PageContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (label == 'Dashboard') {
-      return const DashboardScreen();
+      return const _VolunteerDashboardView();
     }
     return Container(
       color: const Color(0xFFF0F7EA),
@@ -364,6 +363,113 @@ class _PageContent extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _VolunteerDashboardView extends StatelessWidget {
+  const _VolunteerDashboardView();
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ServiceLocator().authService.currentUser;
+    final email = user?.email ?? 'Volunteer';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3B6D11), Color(0xFF639922)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Welcome to NGO Portal",
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Logged in as $email (Volunteer)",
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFFEAF3DE),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Your account is registered with volunteer permissions. Administrative data access is restricted.",
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            "Volunteer Guidelines & Information",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF27500A),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFFC0DD97)),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(Icons.info_outline, color: Color(0xFF3B6D11)),
+                    title: Text("Role Assignment"),
+                    subtitle: Text(
+                      "To request staff or administrative privileges, please contact your system administrator.",
+                    ),
+                  ),
+                  Divider(color: Color(0xFFEAF3DE)),
+                  ListTile(
+                    leading: Icon(Icons.handshake_outlined, color: Color(0xFF3B6D11)),
+                    title: Text("Volunteer Duties"),
+                    subtitle: Text(
+                      "Assisting patients with orientation, dining assistance, and activity support.",
+                    ),
+                  ),
+                  Divider(color: Color(0xFFEAF3DE)),
+                  ListTile(
+                    leading: Icon(Icons.lock_outline, color: Color(0xFF3B6D11)),
+                    title: Text("Confidentiality"),
+                    subtitle: Text(
+                      "Patient health and identity information must remain strictly confidential.",
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

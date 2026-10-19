@@ -24,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> login() async {
+    if (_isLoading) return;
     if (emailController.text.isEmpty || passwordController.text.isEmpty) {
       _showSnackBar("Please fill in all fields", isError: true);
       return;
@@ -43,17 +44,20 @@ class _LoginScreenState extends State<LoginScreen> {
     if (result['success']) {
       if (mounted) {
         _showSnackBar("Login Successful", isError: false);
-        // Wait a moment for the snackbar to show, then navigate
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) {
-          // Navigate to AuthWrapper which will determine the correct layout
+        final hasAncestorAuthWrapper =
+            context.findAncestorWidgetOfExactType<AuthWrapper>() != null;
+        if (!hasAncestorAuthWrapper) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const AuthWrapper()),
           );
+        } else if (Navigator.of(context).canPop()) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }
     } else {
-      _showSnackBar(result['message'], isError: true);
+      if (mounted) {
+        _showSnackBar(result['message'], isError: true);
+      }
     }
   }
 

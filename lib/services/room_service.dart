@@ -4,7 +4,10 @@ import '../models/bed_model.dart';
 import '../models/room_model.dart';
 import '../models/stay_model.dart';
 import '../utils/pricing_helper.dart';
+import '../config/app_config.dart';
+import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
+import 'service_locator.dart';
 
 part 'room_service_pricing.dart';
 part 'room_service_rooms.dart';
@@ -25,7 +28,8 @@ part 'room_service_reconciliation.dart';
 //   room_service_reconciliation.dart — Data reconciliation & self-healing
 // ===========================================================================
 class RoomService {
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _injectedRtdb;
+  final BackendApiService? _injectedBackendApi;
 
   static const String _roomsPath = 'rooms';
   static const String _staysPath = 'stays';
@@ -43,11 +47,31 @@ class RoomService {
     'generalRoomMaxAttendants': 2,
   };
 
-  RoomService({required FirebaseRTDBRestService rtdbService})
-    : _rtdb = rtdbService;
+  RoomService({
+    FirebaseRTDBRestService? rtdbService,
+    BackendApiService? backendApiService,
+  })  : _injectedRtdb = rtdbService,
+        _injectedBackendApi = backendApiService;
 
   // ── Internal accessors for part files ──────────────────────────────────────
-  FirebaseRTDBRestService get rtdb => _rtdb;
+  BackendApiService? get backendApi {
+    if (_injectedBackendApi != null) return _injectedBackendApi;
+    try {
+      if (AppConfig.usePostgresBackend) {
+        return ServiceLocator().backendApiService;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isPostgres => backendApi != null || AppConfig.usePostgresBackend;
+
+  FirebaseRTDBRestService get rtdb {
+    if (_injectedRtdb != null) return _injectedRtdb;
+    return ServiceLocator().rtdbService;
+  }
   String get roomsPath => _roomsPath;
   String get staysPath => _staysPath;
   String get pricingPath => _pricingPath;
@@ -111,39 +135,67 @@ class RoomService {
     Stream<B> streamB,
     T Function(A, B) combiner,
   ) {
-    A? latestA;
-    B? latestB;
-    bool hasA = false;
-    bool hasB = false;
+    return Stream<T>.multi((controller) {
+      A? latestA;
+      B? latestB;
+      bool hasA = false;
+      bool hasB = false;
+      bool doneA = false;
+      bool doneB = false;
 
-    late StreamController<T> controller;
-    StreamSubscription<A>? subA;
-    StreamSubscription<B>? subB;
+      void checkDone() {
+        if (doneA && doneB && !controller.isClosed) {
+          controller.close();
+        }
+      }
 
-    controller = StreamController<T>(
-      onListen: () {
-        subA = streamA.listen((a) {
+      final subA = streamA.listen(
+        (a) {
           latestA = a;
           hasA = true;
           if (hasA && hasB) {
-            controller.add(combiner(latestA as A, latestB as B));
+            try {
+              controller.add(combiner(latestA as A, latestB as B));
+            } catch (e, st) {
+              controller.addError(e, st);
+            }
           }
-        });
-        subB = streamB.listen((b) {
+        },
+        onError: (Object e, StackTrace st) {
+          controller.addError(e, st);
+        },
+        onDone: () {
+          doneA = true;
+          checkDone();
+        },
+      );
+
+      final subB = streamB.listen(
+        (b) {
           latestB = b;
           hasB = true;
           if (hasA && hasB) {
-            controller.add(combiner(latestA as A, latestB as B));
+            try {
+              controller.add(combiner(latestA as A, latestB as B));
+            } catch (e, st) {
+              controller.addError(e, st);
+            }
           }
-        });
-      },
-      onCancel: () {
-        subA?.cancel();
-        subB?.cancel();
-      },
-    );
+        },
+        onError: (Object e, StackTrace st) {
+          controller.addError(e, st);
+        },
+        onDone: () {
+          doneB = true;
+          checkDone();
+        },
+      );
 
-    return controller.stream;
+      controller.onCancel = () {
+        subA.cancel();
+        subB.cancel();
+      };
+    });
   }
 }
 

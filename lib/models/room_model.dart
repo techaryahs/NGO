@@ -33,6 +33,11 @@ class RoomModel {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Monotonic concurrency guard. Every bed mutation must bump this counter
+  /// through a conditional (ETag) write; the rules also reject bed changes
+  /// without a version increment. See room_service_beds.dart.
+  final int version;
+
   RoomModel({
     required this.id,
     required this.roomNumber,
@@ -51,6 +56,7 @@ class RoomModel {
     this.notes,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   bool get isPrivate => roomType == 'private';
@@ -176,6 +182,7 @@ class RoomModel {
       'notes': notes,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
+      'version': version,
     };
   }
 
@@ -232,6 +239,7 @@ class RoomModel {
       notes: data['notes']?.toString(),
       createdAt: _parseDateTime(data['createdAt']),
       updatedAt: _parseDateTime(data['updatedAt']),
+      version: _parseInt(data['version']),
     );
   }
 
@@ -254,6 +262,7 @@ class RoomModel {
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? version,
   }) {
     return RoomModel(
       id: id ?? this.id,
@@ -276,6 +285,7 @@ class RoomModel {
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
     );
   }
 

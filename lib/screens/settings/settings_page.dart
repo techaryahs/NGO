@@ -135,6 +135,63 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Runs the idempotent migration into separate RTDB photo records.
+  /// Re-runnable: records already migrated are skipped, failures leave the
+  /// original Base64 data untouched.
+  Future<void> _runPhotoMigration() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text(
+          "Migrate patient photos",
+          style: TextStyle(color: Color(0xFF27500A)),
+        ),
+        content: const Text(
+          "Patient and attendant photos stored inside the database will be "
+          "moved to separate database photo records. The original photos are only "
+          "removed after the upload is verified. This can be run again safely.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF639922),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              "Start Migration",
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => isSaving = true);
+    try {
+      final report = await ServiceLocator().photoMigrationService.migrate();
+      if (mounted) {
+        _showSnackBar(
+          'Photo migration finished: ${report.uploadedPatientPhotos} patient and '
+          '${report.uploadedAttendantPhotos} attendant photos moved, '
+          '${report.failed} failed.',
+          isError: report.failed > 0,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('Photo migration failed: $e', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
   Future<void> _showChangePasswordDialog() async {
     final currentPasswordCtrl = TextEditingController();
     final newPasswordCtrl = TextEditingController();
@@ -556,6 +613,19 @@ Last updated: August 2026
                               title: "Restore Database",
                               subtitle: "Restore from a previous backup",
                               onTap: () => _showPlaceholder("Restore Database"),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _SettingsSection(
+                          title: "Data Maintenance",
+                          items: [
+                            _SettingsItem(
+                              icon: Icons.cloud_upload_outlined,
+                              title: "Migrate Patient Photos",
+                              subtitle:
+                                  "Move embedded photos to separate database records",
+                              onTap: _runPhotoMigration,
                             ),
                           ],
                         ),

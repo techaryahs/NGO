@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import '../models/inventory_item_model.dart';
 import '../models/vendor_model.dart';
@@ -8,10 +9,52 @@ import '../models/salary_model.dart';
 
 /// Database Service layer for NGO Inventory and Expenses.
 class InventoryExpenseService {
-  final FirebaseRTDBRestService _rtdb;
+  final FirebaseRTDBRestService? _rtdb;
+  final BackendApiService? _backendApi;
 
-  InventoryExpenseService({required FirebaseRTDBRestService rtdbService})
-      : _rtdb = rtdbService;
+  InventoryExpenseService({
+    FirebaseRTDBRestService? rtdbService,
+    BackendApiService? backendApiService,
+  })  : assert(
+          rtdbService != null || backendApiService != null,
+          'Provide either rtdbService or backendApiService',
+        ),
+        _rtdb = rtdbService,
+        _backendApi = backendApiService;
+
+  bool get isPostgres => _backendApi != null;
+
+  Stream<dynamic> _streamPath(String path) =>
+      _backendApi != null ? _backendApi.stream(path) : _rtdb!.stream(path);
+
+  Future<dynamic> _getPath(String path) =>
+      _backendApi != null ? _backendApi.get(path) : _rtdb!.get(path);
+
+  Future<String> _pushPath(String path, Map<String, dynamic> data) async {
+    final cleanData = Map<String, dynamic>.from(data);
+    if (cleanData['id'] != null &&
+        (cleanData['id'].toString().trim().isEmpty ||
+            cleanData['id'].toString().startsWith('temp_'))) {
+      cleanData.remove('id');
+    }
+    if (_backendApi != null) {
+      return _backendApi.push(path, cleanData);
+    }
+    final id = await _rtdb!.push(path, cleanData);
+    await _rtdb.patch('$path/$id', {'id': id});
+    return id;
+  }
+
+  Future<void> _putPath(String path, Map<String, dynamic> data) =>
+      _backendApi != null ? _backendApi.put(path, data) : _rtdb!.put(path, data);
+
+  Future<void> _patchPath(String path, Map<String, dynamic> updates) =>
+      _backendApi != null
+          ? _backendApi.patch(path, updates)
+          : _rtdb!.patch(path, updates);
+
+  Future<void> _deletePath(String path) =>
+      _backendApi != null ? _backendApi.delete(path) : _rtdb!.delete(path);
 
   // ===========================================================================
   // INVENTORY ITEMS
@@ -19,7 +62,7 @@ class InventoryExpenseService {
 
   /// Stream of all inventory items, sorted alphabetically by name.
   Stream<List<InventoryItemModel>> getInventoryItemsStream() {
-    return _rtdb.stream('inventory_items').map((data) {
+    return _streamPath('inventory_items').map((data) {
       final List<InventoryItemModel> items = [];
       if (data != null && data is Map) {
         final mapData = Map<String, dynamic>.from(data);
@@ -58,20 +101,18 @@ class InventoryExpenseService {
       updatedAt: now,
     );
 
-    final itemId = await _rtdb.push('inventory_items', item.toMap());
-    await _rtdb.patch('inventory_items/$itemId', {'id': itemId});
-    return itemId;
+    return _pushPath('inventory_items', item.toMap());
   }
 
   /// Partially update inventory item fields.
   Future<void> updateInventoryItem(String itemId, Map<String, dynamic> updates) async {
     updates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
-    await _rtdb.patch('inventory_items/$itemId', updates);
+    await _patchPath('inventory_items/$itemId', updates);
   }
 
   /// Permanently delete an inventory item.
   Future<void> deleteInventoryItem(String itemId) async {
-    await _rtdb.delete('inventory_items/$itemId');
+    await _deletePath('inventory_items/$itemId');
   }
 
   // ===========================================================================
@@ -80,7 +121,7 @@ class InventoryExpenseService {
 
   /// Stream of all vendors, sorted alphabetically by name.
   Stream<List<VendorModel>> getVendorsStream() {
-    return _rtdb.stream('vendors').map((data) {
+    return _streamPath('vendors').map((data) {
       final List<VendorModel> vendors = [];
       if (data != null && data is Map) {
         final mapData = Map<String, dynamic>.from(data);
@@ -123,20 +164,23 @@ class InventoryExpenseService {
       updatedAt: now,
     );
 
-    final vendorId = await _rtdb.push('vendors', vendor.toMap());
-    await _rtdb.patch('vendors/$vendorId', {'id': vendorId});
-    return vendorId;
+    final map = vendor.toMap();
+    map['phone'] = mobileNumber;
+    return _pushPath('vendors', map);
   }
 
   /// Partially update vendor fields.
   Future<void> updateVendor(String vendorId, Map<String, dynamic> updates) async {
     updates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
-    await _rtdb.patch('vendors/$vendorId', updates);
+    if (updates.containsKey('mobileNumber') && !updates.containsKey('phone')) {
+      updates['phone'] = updates['mobileNumber'];
+    }
+    await _patchPath('vendors/$vendorId', updates);
   }
 
   /// Permanently delete a vendor.
   Future<void> deleteVendor(String vendorId) async {
-    await _rtdb.delete('vendors/$vendorId');
+    await _deletePath('vendors/$vendorId');
   }
 
   // ===========================================================================
@@ -145,7 +189,7 @@ class InventoryExpenseService {
 
   /// Stream of all purchases, sorted newest first.
   Stream<List<PurchaseModel>> getPurchasesStream() {
-    return _rtdb.stream('purchases').map((data) {
+    return _streamPath('purchases').map((data) {
       final List<PurchaseModel> purchases = [];
       if (data != null && data is Map) {
         final mapData = Map<String, dynamic>.from(data);
@@ -162,16 +206,16 @@ class InventoryExpenseService {
 
   /// Record a purchase of inventory items. Automatically increments corresponding item stock!
   Future<String> addPurchase(PurchaseModel purchase) async {
-    final purchaseId = await _rtdb.push('purchases', purchase.toMap());
-    await _rtdb.patch('purchases/$purchaseId', {'id': purchaseId});
+    final purchaseId = await _pushPath('purchases', purchase.toMap());
+    if (isPostgres) return purchaseId;
 
     // Auto stock increment logic
     try {
-      final itemData = await _rtdb.get('inventory_items/${purchase.itemId}');
+      final itemData = await _getPath('inventory_items/${purchase.itemId}');
       if (itemData != null && itemData is Map) {
         final item = InventoryItemModel.fromMap(purchase.itemId, Map<String, dynamic>.from(itemData));
         final updatedStock = item.currentStock + purchase.quantity;
-        await _rtdb.patch('inventory_items/${purchase.itemId}', {'currentStock': updatedStock});
+        await _patchPath('inventory_items/${purchase.itemId}', {'currentStock': updatedStock});
       }
     } catch (_) {}
 
@@ -180,31 +224,33 @@ class InventoryExpenseService {
 
   /// Update an existing purchase. Adjusts inventory item stock accordingly!
   Future<void> updatePurchase(String purchaseId, PurchaseModel purchase, {double oldQuantity = 0.0}) async {
-    await _rtdb.put('purchases/$purchaseId', purchase.toMap());
+    await _putPath('purchases/$purchaseId', purchase.toMap());
+    if (isPostgres) return;
 
     // Auto stock adjust logic
     try {
-      final itemData = await _rtdb.get('inventory_items/${purchase.itemId}');
+      final itemData = await _getPath('inventory_items/${purchase.itemId}');
       if (itemData != null && itemData is Map) {
         final item = InventoryItemModel.fromMap(purchase.itemId, Map<String, dynamic>.from(itemData));
         final stockDiff = purchase.quantity - oldQuantity;
         final updatedStock = item.currentStock + stockDiff;
-        await _rtdb.patch('inventory_items/${purchase.itemId}', {'currentStock': updatedStock});
+        await _patchPath('inventory_items/${purchase.itemId}', {'currentStock': updatedStock});
       }
     } catch (_) {}
   }
 
   /// Delete a purchase record. Automatically adjusts corresponding item stock down!
   Future<void> deletePurchase(String purchaseId, String itemId, double quantity) async {
-    await _rtdb.delete('purchases/$purchaseId');
+    await _deletePath('purchases/$purchaseId');
+    if (isPostgres) return;
 
     // Auto stock decrement logic
     try {
-      final itemData = await _rtdb.get('inventory_items/$itemId');
+      final itemData = await _getPath('inventory_items/$itemId');
       if (itemData != null && itemData is Map) {
         final item = InventoryItemModel.fromMap(itemId, Map<String, dynamic>.from(itemData));
         final updatedStock = (item.currentStock - quantity).clamp(0.0, double.infinity);
-        await _rtdb.patch('inventory_items/$itemId', {'currentStock': updatedStock});
+        await _patchPath('inventory_items/$itemId', {'currentStock': updatedStock});
       }
     } catch (_) {}
   }
@@ -215,7 +261,7 @@ class InventoryExpenseService {
 
   /// Stream of all operational expenses, sorted newest first.
   Stream<List<ExpenseEntryModel>> getExpenseEntriesStream() {
-    return _rtdb.stream('expense_entries').map((data) {
+    return _streamPath('expense_entries').map((data) {
       final List<ExpenseEntryModel> entries = [];
       if (data != null && data is Map) {
         final mapData = Map<String, dynamic>.from(data);
@@ -232,19 +278,25 @@ class InventoryExpenseService {
 
   /// Add a general operational expense record.
   Future<String> addExpenseEntry(ExpenseEntryModel entry) async {
-    final entryId = await _rtdb.push('expense_entries', entry.toMap());
-    await _rtdb.patch('expense_entries/$entryId', {'id': entryId});
-    return entryId;
+    final map = entry.toMap();
+    map['amount'] = entry.totalAmount;
+    map['paymentMethod'] = entry.paymentDetails.paymentMethod;
+    map['paidTo'] = entry.vendorName ?? '';
+    return _pushPath('expense_entries', map);
   }
 
   /// Update an operational expense record.
   Future<void> updateExpenseEntry(String entryId, ExpenseEntryModel entry) async {
-    await _rtdb.put('expense_entries/$entryId', entry.toMap());
+    final map = entry.toMap();
+    map['amount'] = entry.totalAmount;
+    map['paymentMethod'] = entry.paymentDetails.paymentMethod;
+    map['paidTo'] = entry.vendorName ?? '';
+    await _putPath('expense_entries/$entryId', map);
   }
 
   /// Delete an operational expense record.
   Future<void> deleteExpenseEntry(String entryId) async {
-    await _rtdb.delete('expense_entries/$entryId');
+    await _deletePath('expense_entries/$entryId');
   }
 
   // ===========================================================================
@@ -253,7 +305,7 @@ class InventoryExpenseService {
 
   /// Stream of all salary payment records, sorted newest first.
   Stream<List<SalaryModel>> getSalariesStream() {
-    return _rtdb.stream('salaries').map((data) {
+    return _streamPath('salaries').map((data) {
       final List<SalaryModel> salaries = [];
       if (data != null && data is Map) {
         final mapData = Map<String, dynamic>.from(data);
@@ -270,18 +322,16 @@ class InventoryExpenseService {
 
   /// Record a salary payment.
   Future<String> addSalary(SalaryModel salary) async {
-    final salaryId = await _rtdb.push('salaries', salary.toMap());
-    await _rtdb.patch('salaries/$salaryId', {'id': salaryId});
-    return salaryId;
+    return _pushPath('salaries', salary.toMap());
   }
 
   /// Update a salary record.
   Future<void> updateSalary(String salaryId, SalaryModel salary) async {
-    await _rtdb.put('salaries/$salaryId', salary.toMap());
+    await _putPath('salaries/$salaryId', salary.toMap());
   }
 
   /// Delete a salary record.
   Future<void> deleteSalary(String salaryId) async {
-    await _rtdb.delete('salaries/$salaryId');
+    await _deletePath('salaries/$salaryId');
   }
 }
