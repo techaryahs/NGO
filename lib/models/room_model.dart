@@ -1,4 +1,5 @@
 import 'bed_model.dart';
+import '../utils/pricing_helper.dart';
 
 /// RoomModel - RTDB-compatible data model for Room Management.
 ///
@@ -147,12 +148,16 @@ class RoomModel {
     required int includedAttendants,
     required double extraAttendantFee,
   }) {
-    final baseCost = basePrice * days;
-    final chargedAttendants = attendants > includedAttendants
-        ? attendants - includedAttendants
-        : 0;
-    final extraCost = chargedAttendants * extraAttendantFee * days;
-    return baseCost + extraCost;
+    return PricingHelper.calculateProjectedStayCost(
+      true,
+      attendants,
+      days,
+      pricing: {
+        'privateRoomBasePrice': basePrice,
+        'privateRoomIncludedAttendants': includedAttendants,
+        'privateRoomExtraAttendantFee': extraAttendantFee,
+      },
+    );
   }
 
   static double calculateGeneralRoomCost({
@@ -160,7 +165,12 @@ class RoomModel {
     required double bedPrice,
     required int attendants,
   }) {
-    return bedPrice * (1 + attendants) * days;
+    return PricingHelper.calculateProjectedStayCost(
+      false,
+      attendants,
+      days,
+      pricing: {'generalRoomBedPrice': bedPrice},
+    );
   }
 
   Map<String, dynamic> toMap() {

@@ -445,4 +445,27 @@ void main() {
       },
     );
   });
+
+  testWidgets('70-day General payment summary uses the long-stay tier', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AdmissionPaymentSummary(
+            bedsCount: 1,
+            attendantsCount: 0,
+            isPrivateRoom: false,
+            days: 70,
+            placementSelected: true,
+            pricingLoaded: true,
+            pricing: {'generalRoomBedPrice': 200},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('₹200/day × 60 + ₹250/day × 10 days'), findsOneWidget);
+    expect(find.text('₹14,500'), findsOneWidget);
+  });
 }

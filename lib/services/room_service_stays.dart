@@ -99,6 +99,7 @@ extension RoomServiceStays on RoomService {
     required String lobbyName,
     required DateTime admissionDate,
     required int durationDays,
+    int? projectedBillableDays,
     required int attendantCount,
     List<String> attendantLabels = const [],
     required String createdBy,
@@ -132,6 +133,7 @@ extension RoomServiceStays on RoomService {
     final costs = _calculateStayCosts(
       roomType: 'general',
       durationDays: durationDays,
+      projectedBillableDays: projectedBillableDays,
       attendantCount: attendantCount,
       pricing: await getPricing(),
     );
@@ -182,6 +184,7 @@ extension RoomServiceStays on RoomService {
     required String roomType,
     required DateTime admissionDate,
     required int durationDays,
+    int? projectedBillableDays,
     required int attendantCount,
     List<String> attendantLabels = const [],
     String? bedId,
@@ -207,6 +210,7 @@ extension RoomServiceStays on RoomService {
         final costs = _calculateStayCosts(
           roomType: roomType,
           durationDays: durationDays,
+          projectedBillableDays: projectedBillableDays,
           attendantCount: attendantCount,
           pricing: pricing,
         );
@@ -295,6 +299,7 @@ extension RoomServiceStays on RoomService {
       final costs = _calculateStayCosts(
         roomType: resolvedRoomType,
         durationDays: durationDays,
+        projectedBillableDays: projectedBillableDays,
         attendantCount: attendantCount,
         pricing: pricing,
       );
@@ -381,6 +386,7 @@ extension RoomServiceStays on RoomService {
     required String roomId,
     required DateTime admissionDate,
     required int durationDays,
+    int? projectedBillableDays,
     required int attendantCount,
     required List<String> bedIds,
     List<String> attendantLabels = const [],
@@ -420,6 +426,7 @@ extension RoomServiceStays on RoomService {
       final costs = _calculateStayCosts(
         roomType: room.roomType,
         durationDays: durationDays,
+        projectedBillableDays: projectedBillableDays,
         attendantCount: attendantCount,
         pricing: pricing,
       );
@@ -832,37 +839,31 @@ extension RoomServiceStays on RoomService {
   CostBreakdown _calculateStayCosts({
     required String roomType,
     required int durationDays,
+    int? projectedBillableDays,
     required int attendantCount,
     required Map<String, dynamic> pricing,
   }) {
-    double baseCost = 0;
-    double extraAttendantCost = 0;
-
-    if (roomType == 'private') {
-      final basePrice = parseDoubleSafe(pricing['privateRoomBasePrice'], 700);
-      final includedAttendants = parseIntSafe(
-        pricing['privateRoomIncludedAttendants'],
-        1,
-      );
-      final extraFee = parseDoubleSafe(
-        pricing['privateRoomExtraAttendantFee'],
-        200,
-      );
-
-      baseCost = basePrice * durationDays;
-      final chargedAttendants = attendantCount > includedAttendants
-          ? attendantCount - includedAttendants
-          : 0;
-      extraAttendantCost = chargedAttendants * extraFee * durationDays;
-    } else {
-      final bedPrice = parseDoubleSafe(pricing['generalRoomBedPrice'], 200);
-      baseCost = bedPrice * (1 + attendantCount) * durationDays;
-    }
+    final days = (projectedBillableDays ?? durationDays).clamp(1, 3650);
+    final isPrivate = roomType.toLowerCase() == 'private';
+    final patientOnlyCost = PricingHelper.calculateProjectedStayCost(
+      isPrivate,
+      0,
+      days,
+      pricing: pricing,
+    );
+    final totalCost = PricingHelper.calculateProjectedStayCost(
+      isPrivate,
+      attendantCount,
+      days,
+      pricing: pricing,
+    );
+    final baseCost = isPrivate ? patientOnlyCost : totalCost;
+    final extraAttendantCost = isPrivate ? totalCost - baseCost : 0.0;
 
     return CostBreakdown(
       baseCost: baseCost,
       extraAttendantCost: extraAttendantCost,
-      totalCost: baseCost + extraAttendantCost,
+      totalCost: totalCost,
     );
   }
 
@@ -948,6 +949,7 @@ extension RoomServiceStays on RoomService {
     required String patientName,
     required DateTime admissionDate,
     required int durationDays,
+    int? projectedBillableDays,
     required int attendantCount,
     List<String> attendantLabels = const [],
     required String createdBy,
@@ -974,6 +976,7 @@ extension RoomServiceStays on RoomService {
       final costs = _calculateStayCosts(
         roomType: 'general',
         durationDays: durationDays,
+        projectedBillableDays: projectedBillableDays,
         attendantCount: attendantCount,
         pricing: pricing,
       );
@@ -1021,6 +1024,7 @@ extension RoomServiceStays on RoomService {
       final costs = _calculateStayCosts(
         roomType: room.roomType,
         durationDays: durationDays,
+        projectedBillableDays: projectedBillableDays,
         attendantCount: attendantCount,
         pricing: pricing,
       );

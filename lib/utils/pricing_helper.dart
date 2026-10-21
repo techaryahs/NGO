@@ -1,5 +1,6 @@
 class PricingHelper {
   static const int advanceDays = 7;
+  static const int longStayThresholdDays = 60;
 
   /// Physical stay duration, distinct from inclusive attendance dates.
   /// Checkout is at 9:00 AM; leaving after that time adds a billable day.
@@ -92,20 +93,72 @@ class PricingHelper {
     Map<String, dynamic>? pricing,
     bool patientBillable = true,
     double? baseRateOverride,
+    int bedsCount = 1,
   }) {
+    final effectiveBeds = bedsCount < 1 ? 1 : bedsCount;
     final base =
         baseRateOverride ??
         calculateDailyCharge(
           isPrivate,
           attendantsCount,
           pricing: pricing,
+          bedsCount: effectiveBeds,
           patientBillable: patientBillable,
         );
     if (isPrivate) {
       final included = _count(pricing, 'privateRoomIncludedAttendants', 1);
       return base + 200.0 + (attendantsCount - included).clamp(0, 100) * 100.0;
     }
-    return base + ((patientBillable ? 1 : 0) + attendantsCount) * 50.0;
+    return base +
+        effectiveBeds * ((patientBillable ? 1 : 0) + attendantsCount) * 50.0;
+  }
+
+  /// Calculates a planned stay estimate using the same daily rates as the
+  /// attendance-aware billing engine. The planned period is projected as
+  /// billable because no attendance rows exist yet; finalized billing can
+  /// still reduce the total for explicit absences.
+  ///
+  /// [dailyRateOverride] is the historical per-stay manual daily rate. When
+  /// present, it is used through the first 60 billable days and the normal
+  /// long-stay surcharge is applied afterwards unless
+  /// [longStayRateOverride] supplies an explicit long-stay rate.
+  static double calculateProjectedStayCost(
+    bool isPrivate,
+    int attendantsCount,
+    int projectedBillableDays, {
+    Map<String, dynamic>? pricing,
+    int bedsCount = 1,
+    bool patientBillable = true,
+    double? dailyRateOverride,
+    double? longStayRateOverride,
+  }) {
+    if (projectedBillableDays <= 0) return 0;
+    final effectiveBeds = bedsCount < 1 ? 1 : bedsCount;
+    final baseRate =
+        dailyRateOverride ??
+        calculateDailyCharge(
+          isPrivate,
+          attendantsCount,
+          pricing: pricing,
+          bedsCount: effectiveBeds,
+          patientBillable: patientBillable,
+        );
+    final longStayRate =
+        longStayRateOverride ??
+        calculateLongStayDailyCharge(
+          isPrivate,
+          attendantsCount,
+          pricing: pricing,
+          bedsCount: effectiveBeds,
+          patientBillable: patientBillable,
+          baseRateOverride: dailyRateOverride,
+        );
+
+    final baseDays = projectedBillableDays < longStayThresholdDays
+        ? projectedBillableDays
+        : longStayThresholdDays;
+    final longStayDays = projectedBillableDays - baseDays;
+    return baseDays * baseRate + longStayDays * longStayRate;
   }
 
   /// Estimates an extension using the same 60-day threshold as billing.
@@ -124,7 +177,7 @@ class PricingHelper {
     var total = 0.0;
     for (var offset = 1; offset <= additionalDays; offset++) {
       final billableDay = priorBillableDays + offset;
-      total += billableDay <= 60
+      total += billableDay <= longStayThresholdDays
           ? calculateDailyCharge(isPrivate, attendantsCount, pricing: pricing)
           : longStayRateOverride ??
                 calculateLongStayDailyCharge(

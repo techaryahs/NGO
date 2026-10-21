@@ -426,18 +426,13 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     _selectedExitDate,
   );
 
-  double get _estimatedTotal =>
-      PricingHelper.calculateDailyCharge(
-        _selectedRoom?.isPrivate ?? false,
-        _attendants
-            .where((a) => a.nameController.text.trim().isNotEmpty)
-            .length,
-        pricing: _pricing,
-        bedsCount: _selectedLobby != null
-            ? 1
-            : _selectedBeds.length.clamp(1, 999),
-      ) *
-      _billingDays;
+  double get _estimatedTotal => PricingHelper.calculateProjectedStayCost(
+    _selectedRoom?.isPrivate ?? false,
+    _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+    _billingDays,
+    pricing: _pricing,
+    bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
+  );
 
   Future<void> _pickPatientPhoto() async {
     try {
@@ -787,6 +782,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             patientName: _patientNameController.text.trim(),
             admissionDate: admissionDate,
             durationDays: _plannedStayDays,
+            projectedBillableDays: _billingDays,
             attendantCount: attendantCount,
             attendantLabels: attendantLabels,
             createdBy: currentUser.uid,
@@ -888,6 +884,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
             lobbyName: _selectedLobby!,
             admissionDate: admissionDate,
             durationDays: _plannedStayDays,
+            projectedBillableDays: _billingDays,
             attendantCount: attendantCount,
             attendantLabels: attendantLabels,
             createdBy: currentUser.uid,
@@ -1631,7 +1628,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
                         ),
                         const SizedBox(height: 20),
                         // ── Payment Summary ──
-                        _PaymentSummary(
+                        AdmissionPaymentSummary(
                           bedsCount: _selectedLobby != null
                               ? 1
                               : _selectedBeds.length,
@@ -2690,7 +2687,7 @@ class _AttendantEntry {
 
 // ── Payment Summary ───────────────────────────────────────────────────────────
 
-class _PaymentSummary extends StatelessWidget {
+class AdmissionPaymentSummary extends StatelessWidget {
   final int bedsCount;
   final int attendantsCount;
   final bool isPrivateRoom;
@@ -2705,7 +2702,8 @@ class _PaymentSummary extends StatelessWidget {
   // ── Pricing constants (edit here to update rates) ──
   static const int _defaultDays = 7; // default stay duration
 
-  const _PaymentSummary({
+  const AdmissionPaymentSummary({
+    super.key,
     required this.bedsCount,
     required this.attendantsCount,
     required this.isPrivateRoom,
@@ -2723,6 +2721,12 @@ class _PaymentSummary extends StatelessWidget {
       return '₹${amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'), (m) => '${m[1]},')}';
     }
     return '₹${amount.toStringAsFixed(0)}';
+  }
+
+  int _pricingInt(String key, int fallback) {
+    final value = pricing[key];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 
   @override
@@ -2754,21 +2758,62 @@ class _PaymentSummary extends StatelessWidget {
       );
     }
 
+    final effectiveBeds = bedsCount < 1 ? 1 : bedsCount;
     final occupants = 1 + attendantsCount;
-    final privateBase =
-        (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
-    final included =
-        (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
-    final extraRate =
-        (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
-    final generalRate =
-        (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 200.0;
-    final bedTotal = isPrivateRoom
-        ? privateBase * days
-        : bedsCount * occupants * generalRate * days;
+    final included = _pricingInt('privateRoomIncludedAttendants', 1);
+    final privateBaseRate = PricingHelper.calculateDailyCharge(
+      true,
+      0,
+      pricing: pricing,
+    );
+    final privateLongRate = PricingHelper.calculateLongStayDailyCharge(
+      true,
+      0,
+      pricing: pricing,
+    );
+    final generalRate = PricingHelper.calculateDailyCharge(
+      false,
+      attendantsCount,
+      pricing: pricing,
+    );
+    final generalLongRate = PricingHelper.calculateLongStayDailyCharge(
+      false,
+      attendantsCount,
+      pricing: pricing,
+    );
+    final baseTotal = PricingHelper.calculateProjectedStayCost(
+      isPrivateRoom,
+      0,
+      days,
+      pricing: pricing,
+      bedsCount: effectiveBeds,
+    );
+    final grandTotal = PricingHelper.calculateProjectedStayCost(
+      isPrivateRoom,
+      attendantsCount,
+      days,
+      pricing: pricing,
+      bedsCount: effectiveBeds,
+    );
+    final bedTotal = isPrivateRoom ? baseTotal : grandTotal;
     final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
-    final attendantTotal = isPrivateRoom ? extraCount * extraRate * days : 0.0;
-    final grandTotal = bedTotal + attendantTotal;
+    final attendantTotal = isPrivateRoom ? grandTotal - baseTotal : 0.0;
+    final privateExtraRate = attendantsCount > included
+        ? (PricingHelper.calculateDailyCharge(
+                true,
+                attendantsCount,
+                pricing: pricing,
+              ) -
+              privateBaseRate)
+        : 0.0;
+    String rateDescription(double normal, double longStay) {
+      if (days <= PricingHelper.longStayThresholdDays) {
+        return '₹${normal.toStringAsFixed(0)}/day × $days days';
+      }
+      final extensionDays = days - PricingHelper.longStayThresholdDays;
+      return '₹${normal.toStringAsFixed(0)}/day × ${PricingHelper.longStayThresholdDays} + '
+          '₹${longStay.toStringAsFixed(0)}/day × $extensionDays days';
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -2869,9 +2914,12 @@ class _PaymentSummary extends StatelessWidget {
                       ? 'Private Room'
                       : 'Grouped Beds ($bedsCount, $occupants occupants)',
                   count: isPrivateRoom ? 1 : bedsCount,
-                  rate: isPrivateRoom ? privateBase : (occupants * generalRate),
+                  rate: isPrivateRoom ? privateBaseRate : generalRate,
                   total: bedTotal,
                   days: days,
+                  rateDescription: isPrivateRoom
+                      ? rateDescription(privateBaseRate, privateLongRate)
+                      : rateDescription(generalRate, generalLongRate),
                 ),
                 if (isPrivateRoom && extraCount > 0) ...[
                   const SizedBox(height: 8),
@@ -2879,9 +2927,20 @@ class _PaymentSummary extends StatelessWidget {
                     icon: Icons.person_outline_rounded,
                     label: 'Extra attendants',
                     count: extraCount,
-                    rate: extraRate,
+                    rate: privateExtraRate,
                     total: attendantTotal,
                     days: days,
+                    rateDescription: rateDescription(
+                      privateExtraRate,
+                      attendantsCount > included
+                          ? PricingHelper.calculateLongStayDailyCharge(
+                                  true,
+                                  attendantsCount,
+                                  pricing: pricing,
+                                ) -
+                                privateLongRate
+                          : 0,
+                    ),
                   ),
                 ],
               ],
@@ -2954,6 +3013,7 @@ class _SummaryRow extends StatelessWidget {
   final double rate;
   final double total;
   final int days;
+  final String? rateDescription;
 
   const _SummaryRow({
     required this.icon,
@@ -2962,6 +3022,7 @@ class _SummaryRow extends StatelessWidget {
     required this.rate,
     required this.total,
     required this.days,
+    this.rateDescription,
   });
 
   @override
@@ -2982,7 +3043,10 @@ class _SummaryRow extends StatelessWidget {
           ),
         ),
         Text(
-          isZero ? '—' : '₹${rate.toStringAsFixed(0)}/day × $days days',
+          isZero
+              ? '—'
+              : (rateDescription ??
+                    '₹${rate.toStringAsFixed(0)}/day × $days days'),
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.7),
             fontSize: 10.5,

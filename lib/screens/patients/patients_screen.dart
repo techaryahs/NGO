@@ -447,12 +447,12 @@ class _PatientsScreenState extends State<PatientsScreen> {
       final pricing = await ServiceLocator().roomService.getPricing();
       final estimatedTotal = placement.isUnassigned
           ? 0.0
-          : PricingHelper.calculateDailyCharge(
-                  placement.room?.isPrivate ?? false,
-                  patient.attendants?.length ?? 0,
-                  pricing: pricing,
-                ) *
-                PricingHelper.advanceDays;
+          : PricingHelper.calculateProjectedStayCost(
+              placement.room?.isPrivate ?? false,
+              patient.attendants?.length ?? 0,
+              PricingHelper.advanceDays,
+              pricing: pricing,
+            );
       final baseUpdates = <String, dynamic>{
         'status': 'active',
         'dischargeDate': null,

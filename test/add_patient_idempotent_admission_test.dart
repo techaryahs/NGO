@@ -170,6 +170,29 @@ void main() {
   });
 
   test(
+    'persisted admission stay estimate uses projected long-stay pricing',
+    () async {
+      await roomService.createStaysForBeds(
+        patientId: 'patient_long_stay',
+        patientName: 'Long Stay Patient',
+        roomId: 'room_101',
+        admissionDate: DateTime(2026, 10, 2),
+        durationDays: 70,
+        projectedBillableDays: 70,
+        attendantCount: 0,
+        bedIds: ['bed_1'],
+        createdBy: 'test_admin',
+        deterministicStayIds: ['stay_patient_long_stay_bed_1'],
+      );
+
+      final savedStay =
+          mockRtdb.db['stays/stay_patient_long_stay_bed_1'] as Map;
+      expect(savedStay['baseCost'], 14500);
+      expect(savedStay['totalCost'], 14500);
+    },
+  );
+
+  test(
     'reserveBeds allows retry for the same patient without throwing conflict',
     () async {
       final patientId = 'patient_retry_test';

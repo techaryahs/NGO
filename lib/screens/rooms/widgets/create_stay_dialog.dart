@@ -4,6 +4,7 @@ import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/screens/rooms/widgets/create_stay_dialog_components.dart';
+import 'package:ngo/utils/pricing_helper.dart';
 
 class CreateStayDialog extends StatefulWidget {
   final RoomModel room;
@@ -53,28 +54,12 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
 
   void _calculateCost() {
     if (pricing == null) return;
-
-    if (widget.room.isPrivate) {
-      final basePrice = (pricing!['privateRoomBasePrice'] ?? 700).toDouble();
-      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 1;
-      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200)
-          .toDouble();
-
-      calculatedCost = RoomModel.calculatePrivateRoomCost(
-        days: durationDays,
-        attendants: attendantCount,
-        basePrice: basePrice,
-        includedAttendants: includedAttendants,
-        extraAttendantFee: extraFee,
-      );
-    } else {
-      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 200).toDouble();
-      calculatedCost = RoomModel.calculateGeneralRoomCost(
-        days: durationDays,
-        bedPrice: bedPrice,
-        attendants: attendantCount,
-      );
-    }
+    calculatedCost = PricingHelper.calculateProjectedStayCost(
+      widget.room.isPrivate,
+      attendantCount,
+      durationDays,
+      pricing: pricing,
+    );
   }
 
   Future<void> _createStay() async {

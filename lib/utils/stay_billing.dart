@@ -245,7 +245,7 @@ class StayBilling {
                   pricing: pricing,
                   patientBillable: patientBillable,
                 );
-            final rate = billableDays <= 60
+            final rate = billableDays <= PricingHelper.longStayThresholdDays
                 ? base
                 : segment.longStayDailyRate ??
                       PricingHelper.calculateLongStayDailyCharge(

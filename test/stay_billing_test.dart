@@ -362,6 +362,63 @@ void main() {
     expect(bill.total, 60 * 200 + 10 * 250);
   });
 
+  test('projected admission estimates use category and long-stay tiers', () {
+    final pricing = {
+      'generalRoomBedPrice': 200,
+      'privateRoomBasePrice': 700,
+      'privateRoomIncludedAttendants': 1,
+      'privateRoomExtraAttendantFee': 200,
+    };
+
+    expect(
+      PricingHelper.calculateProjectedStayCost(false, 0, 60, pricing: pricing),
+      12000,
+    );
+    expect(
+      PricingHelper.calculateProjectedStayCost(false, 0, 70, pricing: pricing),
+      14500,
+    );
+    expect(
+      PricingHelper.calculateProjectedStayCost(
+        false,
+        0,
+        70,
+        pricing: pricing,
+        bedsCount: 2,
+      ),
+      29000,
+    );
+    expect(
+      PricingHelper.calculateProjectedStayCost(false, 1, 70, pricing: pricing),
+      29000,
+    );
+    expect(
+      PricingHelper.calculateProjectedStayCost(true, 2, 70, pricing: pricing),
+      66000,
+    );
+  });
+
+  test('projected estimates preserve manual base and long-stay overrides', () {
+    expect(
+      PricingHelper.calculateProjectedStayCost(
+        false,
+        0,
+        70,
+        pricing: {'generalRoomBedPrice': 200},
+        dailyRateOverride: 180,
+        longStayRateOverride: 230,
+      ),
+      13100,
+    );
+    expect(
+      PricingHelper.calculateBillingDays(
+        DateTime(2026, 1, 1),
+        DateTime(2026, 3, 11),
+      ),
+      70,
+    );
+  });
+
   test(
     'calendar billing tier counts attendance days, not extension metadata',
     () {
