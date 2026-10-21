@@ -31,8 +31,8 @@ describe('Configuration Module', () => {
     if (!result.success) expect(result.error.issues.some(issue => issue.path[0] === 'FIREBASE_PROJECT_ID')).toBe(true);
   });
 
-  it('rejects default or template production database passwords', () => {
-    for (const password of [undefined, 'ngo_password', 'replace_with_secure_password_in_production']) {
+  it('rejects default, template or hardcoded production database passwords', () => {
+    for (const password of [undefined, 'ngo_password', 'NGO@2026', 'password', 'replace_with_secure_password_in_production', '']) {
       const result = configSchema.safeParse({ NODE_ENV: 'production', FIREBASE_PROJECT_ID: 'ngo-test-project', POSTGRES_PASSWORD: password });
       expect(result.success).toBe(false);
     }
@@ -49,5 +49,22 @@ describe('Configuration Module', () => {
   it('accepts PostgreSQL DATABASE_URL and rejects other connection protocols', () => {
     expect(configSchema.safeParse({ DATABASE_URL: 'postgresql://test:test@127.0.0.1:5432/ngo_audit_test' }).success).toBe(true);
     expect(configSchema.safeParse({ DATABASE_URL: 'https://example.invalid/database' }).success).toBe(false);
+  });
+
+  it('filters out wildcard * from CORS_ORIGINS allowlist and parses explicit origins', () => {
+    const parsedDefault = configSchema.parse({});
+    expect(parsedDefault.CORS_ORIGINS).toEqual([]);
+
+    const parsedWildcard = configSchema.parse({ CORS_ORIGINS: '*' });
+    expect(parsedWildcard.CORS_ORIGINS).toEqual([]);
+
+    const parsedWildcardArray = configSchema.parse({ CORS_ORIGINS: '["*"]' });
+    expect(parsedWildcardArray.CORS_ORIGINS).toEqual([]);
+
+    const parsedList = configSchema.parse({ CORS_ORIGINS: 'https://portal.ngo.org, http://localhost:3000, *' });
+    expect(parsedList.CORS_ORIGINS).toEqual(['https://portal.ngo.org', 'http://localhost:3000']);
+
+    const parsedJson = configSchema.parse({ CORS_ORIGINS: JSON.stringify(['https://portal.ngo.org']) });
+    expect(parsedJson.CORS_ORIGINS).toEqual(['https://portal.ngo.org']);
   });
 });

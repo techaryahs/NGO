@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Centralized application configuration.
@@ -59,6 +60,27 @@ class AppConfig {
       ? (dotenv.env['USE_POSTGRES_BACKEND']?.trim().toLowerCase() == 'true')
       : false;
 
+  /// Active environment name (e.g. 'production', 'development', 'testing').
+  static String get environment => dotenv.isInitialized
+      ? (dotenv.env['ENVIRONMENT']?.trim().toLowerCase() ??
+          (kReleaseMode ? 'production' : 'development'))
+      : 'development';
+
+  /// Whether the application is running in production mode.
+  static bool get isProduction => environment == 'production';
+
+  /// Whether the given URL targets localhost or a loopback address.
+  static bool isLocalhostUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host.toLowerCase();
+    return host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '0.0.0.0' ||
+        host == '::1' ||
+        host == '[::1]';
+  }
+
   /// Whether a trusted payment backend URL is configured.
   static bool get isPaymentBackendConfigured => razorpayBackendUrl.isNotEmpty;
 
@@ -71,11 +93,13 @@ class AppConfig {
   ///
   /// The actual API key is NEVER exposed or printed.
   static Map<String, String> get safeSummary => {
+    'Environment': environment,
     'Firebase project': firebaseProjectId.isEmpty ? 'NOT_CONFIGURED' : firebaseProjectId,
     'Database host': firebaseDatabaseUrl.isEmpty
         ? 'NOT_CONFIGURED'
         : (Uri.tryParse(firebaseDatabaseUrl)?.host ?? firebaseDatabaseUrl),
     'Auth domain': firebaseAuthDomain.isEmpty ? 'NOT_CONFIGURED' : firebaseAuthDomain,
+    'Backend mode': usePostgresBackend ? 'PostgreSQL ($backendApiUrl)' : 'Firebase RTDB',
     'API key configured': isApiKeyConfigured ? 'yes' : 'no',
     'Payment backend configured': isPaymentBackendConfigured ? 'yes' : 'no',
   };
@@ -130,6 +154,40 @@ class AppConfig {
         'Invalid FIREBASE_DATABASE_URL: "$firebaseDatabaseUrl".\n'
         'The application must target the new database URL for "ngo-management-system-new-as".',
       );
+    }
+
+    // Guard against storing PostgreSQL credentials in client .env assets
+    final forbiddenDbKeys = [
+      'POSTGRES_PASSWORD',
+      'POSTGRES_USER',
+      'POSTGRES_DB',
+    ];
+    final leaked = forbiddenDbKeys.where(
+      (k) => dotenv.env.containsKey(k) && (dotenv.env[k]?.trim().isNotEmpty ?? false),
+    );
+    if (leaked.isNotEmpty) {
+      throw StateError(
+        'Security violation: ${leaked.join(', ')} must not be stored in client .env assets.\n'
+        'The Flutter desktop application communicates via the REST API (BackendApiService),\n'
+        'not direct database connections.',
+      );
+    }
+
+    // Production guardrails for backend API configuration
+    if (usePostgresBackend && isProduction) {
+      if (isLocalhostUrl(backendApiUrl)) {
+        throw StateError(
+          'Production configuration error: BACKEND_API_URL cannot target localhost/loopback ("$backendApiUrl").\n'
+          'Configure a production remote API endpoint.',
+        );
+      }
+      final uri = Uri.tryParse(backendApiUrl);
+      if (uri?.scheme != 'https') {
+        throw StateError(
+          'Production configuration error: BACKEND_API_URL must use HTTPS ("$backendApiUrl").\n'
+          'Transmitting patient and financial records over unencrypted HTTP is not permitted in production.',
+        );
+      }
     }
   }
 }

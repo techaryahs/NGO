@@ -30,25 +30,31 @@ export const configSchema = z.object({
   // Firebase project ID is public configuration, never a service-account secret.
   FIREBASE_PROJECT_ID: z.string().trim().regex(/^[a-z0-9][a-z0-9-]{4,62}$/).optional(),
 
-  // CORS Origins
+  // CORS Origins: Environment-based allowlist of approved browser origins.
+  // Wildcard origins are rejected to prevent insecure credential exposure.
   CORS_ORIGINS: z
     .string()
-    .default('*')
+    .default('')
     .transform((val) => {
       try {
         const parsed = JSON.parse(val);
-        if (Array.isArray(parsed)) return parsed as string[];
+        if (Array.isArray(parsed)) {
+          return parsed.map((s) => String(s).trim()).filter((s) => s.length > 0 && s !== '*');
+        }
       } catch {
         // Fall back to comma-separated splitting
       }
-      return val.split(',').map((s) => s.trim()).filter(Boolean);
+      return val
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && s !== '*');
     }),
 }).superRefine((env, context) => {
   if (env.NODE_ENV === 'production' && !env.FIREBASE_PROJECT_ID) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['FIREBASE_PROJECT_ID'], message: 'FIREBASE_PROJECT_ID is required in production' });
   }
   if (env.NODE_ENV === 'production' && !env.DATABASE_URL
-    && ['ngo_password', 'replace_with_secure_password_in_production', ''].includes(env.POSTGRES_PASSWORD)) {
+    && ['ngo_password', 'NGO@2026', 'password', 'replace_with_secure_password_in_production', ''].includes(env.POSTGRES_PASSWORD)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['POSTGRES_PASSWORD'], message: 'Configure a non-default production database password' });
   }
   if (env.DB_POOL_MIN > env.DB_POOL_MAX) {

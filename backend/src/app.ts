@@ -23,19 +23,30 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
     ...opts,
   });
 
-  // Enable CORS
+  // Enable CORS with strict origin validation
   app.addHook('preValidation', validateDomainRequest);
   app.register(cors, {
     origin: (origin, cb) => {
-      // Allow requests with no origin (like mobile apps, curl, desktop clients)
-      if (!origin) return cb(null, true);
-
-      if (config.CORS_ORIGINS.includes('*') || config.CORS_ORIGINS.includes(origin)) {
+      // 1. Allow native desktop (Flutter Windows), mobile, curl and server requests with no Origin header.
+      // Note: Origin is a browser security mechanism, NOT an authentication mechanism.
+      if (!origin) {
         return cb(null, true);
       }
-      return cb(new Error('CORS origin not allowed'), false);
+
+      // 2. Browser requests: Allow ONLY explicitly approved origins from environment configuration.
+      // Wildcard '*' is strictly prohibited as an origin substitute.
+      if (config.CORS_ORIGINS.length > 0 && config.CORS_ORIGINS.includes(origin)) {
+        return cb(null, true);
+      }
+
+      // 3. Disallow unapproved browser origins (omits Access-Control-Allow-Origin).
+      return cb(null, false);
     },
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['x-pagination-mode', 'x-next-cursor'],
     credentials: true,
+    maxAge: 86400,
   });
 
   // Register health & readiness routes at root level

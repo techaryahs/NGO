@@ -74,11 +74,13 @@ PORT=8080
 HOST=0.0.0.0
 NODE_ENV=production
 LOG_LEVEL=info
-CORS_ORIGINS=["*"]
+# Leave blank for native desktop-only deployment, or provide comma-separated approved browser origins.
+# Wildcard '*' is strictly prohibited.
+CORS_ORIGINS=""
 
 FIREBASE_PROJECT_ID=ngo-management-system-new-as
 ```
-*(Note: Production startup automatically rejects default/placeholder passwords such as `replace_with_secure_password_in_production` or `ngo_password`.)*
+*(Note: Production startup automatically rejects default/placeholder passwords such as `replace_with_secure_password_in_production`, `ngo_password`, or `NGO@2026`.)*
 
 ### Step 3: Validate Compose Configuration & Pull PostgreSQL 16
 ```bash

@@ -91,6 +91,9 @@ function allowedRoles(request: FastifyRequest): AuthenticatedUser['role'][] {
     return isRead ? ['admin', 'staff', 'volunteer'] : ['admin', 'staff'];
   }
   if (path.startsWith('/api/settings/') && !isRead) return ['admin'];
+  if (path === '/api/users/:id' || /^\/api\/users\/[^/]+$/.test(path)) {
+    return ['admin', 'staff', 'volunteer'];
+  }
   return ['admin', 'staff'];
 }
 
