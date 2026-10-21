@@ -370,6 +370,59 @@ class PaymentService {
     return updates;
   }
 
+  /// Legacy/offline quote uses the same attendance engine as its final bill.
+  /// PostgreSQL quotes are supplied directly by the server's invoice engine.
+  Future<double> quoteLegacyStayExtension(
+    StayModel stay,
+    int additionalDays,
+  ) async {
+    if (additionalDays < 1 || additionalDays > 3650) {
+      throw ArgumentError('Extension days must be between 1 and 3650');
+    }
+    final raw = await _safeRtdb.get('patients/${stay.patientId}');
+    if (raw is! Map) throw StateError('Patient not found');
+    final data = Map<String, dynamic>.from(raw);
+    final patient = PatientModel.fromMap(stay.patientId, data);
+    if (!stay.isActive || patient.status.toLowerCase() == 'discharged') {
+      throw StateError('Only active stays can be extended');
+    }
+    final stays = await loadStays(stay.patientId);
+    final before = await billingUpdates(
+      stay.patientId,
+      patientData: data,
+      stays: stays,
+    );
+    final afterData = {
+      ...data,
+      if (patient.exitDate != null)
+        'exitDate': patient.exitDate!
+            .add(Duration(days: additionalDays))
+            .millisecondsSinceEpoch,
+    };
+    final afterStays = stays
+        .map(
+          (segment) => segment.id != stay.id
+              ? segment
+              : StayModel.fromMap(segment.id, {
+                  ...segment.toMap(),
+                  'expectedDischargeDate': segment.expectedDischargeDate
+                      .add(Duration(days: additionalDays))
+                      .millisecondsSinceEpoch,
+                }),
+        )
+        .toList();
+    final after = await billingUpdates(
+      stay.patientId,
+      patientData: afterData,
+      stays: afterStays,
+    );
+    final key = 'patients/${stay.patientId}/advanceBilledAmount';
+    return (((after[key] as num).toDouble() - (before[key] as num).toDouble()) *
+                100)
+            .round() /
+        100;
+  }
+
   Future<void> recalculatePatientAttendanceAndBilling(
     String patientId, {
     bool updateBilling = true,

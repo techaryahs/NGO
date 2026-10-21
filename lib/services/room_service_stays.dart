@@ -265,13 +265,15 @@ extension RoomServiceStays on RoomService {
             'Private room attendant limit exceeded (${room.maxAttendants})',
           );
         }
-        if (bedId != null)
+        if (bedId != null) {
           targetBed = room.beds.where((b) => b.id == bedId).firstOrNull;
+        }
         targetBed ??= room.beds
             .where((b) => b.status == 'available')
             .firstOrNull;
-        if (targetBed == null)
+        if (targetBed == null) {
           throw Exception('No available bed found in private room');
+        }
       } else {
         final maxAttendants = room.maxAttendants;
         if (attendantCount > maxAttendants) {
@@ -279,13 +281,15 @@ extension RoomServiceStays on RoomService {
             'General room attendant limit exceeded ($maxAttendants)',
           );
         }
-        if (bedId != null)
+        if (bedId != null) {
           targetBed = room.beds.where((b) => b.id == bedId).firstOrNull;
+        }
         targetBed ??= room.beds
             .where((b) => b.status == 'available')
             .firstOrNull;
-        if (targetBed == null || targetBed.status != 'available')
+        if (targetBed == null || targetBed.status != 'available') {
           throw Exception('Selected bed is no longer available');
+        }
       }
 
       final costs = _calculateStayCosts(
@@ -540,6 +544,32 @@ extension RoomServiceStays on RoomService {
     });
   }
 
+  Future<double> quoteStayExtension({
+    required String stayId,
+    required int additionalDays,
+  }) async {
+    if (additionalDays < 1 || additionalDays > 3650) {
+      throw ArgumentError('Extension days must be between 1 and 3650');
+    }
+    if (isPostgres) {
+      final quote = await backendApi!.get(
+        'stays/extension-quote?stayId=${Uri.encodeQueryComponent(stayId)}&additionalDays=$additionalDays',
+        allowCacheFallback: false,
+      );
+      final amount = quote is Map ? quote['additionalCost'] : null;
+      if (amount is! num || !amount.isFinite || amount < 0) {
+        throw StateError('Invalid server extension quote');
+      }
+      return amount.toDouble();
+    }
+    final raw = await rtdb.get('$staysPath/$stayId');
+    if (raw is! Map) throw StateError('Stay not found');
+    return PaymentService(rtdb).quoteLegacyStayExtension(
+      StayModel.fromMap(stayId, Map<String, dynamic>.from(raw)),
+      additionalDays,
+    );
+  }
+
   Future<void> extendStay({
     required String stayId,
     required int additionalDays,
@@ -547,13 +577,21 @@ extension RoomServiceStays on RoomService {
     String? requestId,
   }) async {
     try {
+      if (additionalDays <= 0 || additionalDays > 3650) {
+        throw ArgumentError.value(
+          additionalDays,
+          'additionalDays',
+          'must be between 1 and 3650',
+        );
+      }
+      final effectiveRequestId = requestId ?? generateStayId();
       if (isPostgres) {
         // Send the increment. The server applies it and the patient extension
         // fields together while holding the current stay and patient locks.
         await backendApi!.updateStay(stayId, {
           'additionalDays': additionalDays,
           'reason': reason,
-          'extensionRequestId': requestId ?? generateStayId(),
+          'extensionRequestId': effectiveRequestId,
         });
         return;
       }
@@ -563,19 +601,26 @@ extension RoomServiceStays on RoomService {
       if (data == null || data is! Map) throw Exception('Stay not found');
 
       final stay = StayModel.fromMap(stayId, Map<String, dynamic>.from(data));
-      final pricing = await getPricing();
-      final costs = _calculateStayCosts(
-        roomType: stay.roomType,
-        durationDays: additionalDays,
-        attendantCount: stay.attendantCount,
-        pricing: pricing,
-      );
+      final priorRequest = stay.extensions
+          .where((extension) => extension.requestId == effectiveRequestId)
+          .firstOrNull;
+      if (priorRequest != null) {
+        if (priorRequest.additionalDays != additionalDays ||
+            priorRequest.reason != reason) {
+          throw StateError('Extension request ID already used differently');
+        }
+        return;
+      }
+      final additionalCost = await PaymentService(
+        rtdb,
+      ).quoteLegacyStayExtension(stay, additionalDays);
 
       final extensionEntry = StayExtension(
+        requestId: effectiveRequestId,
         additionalDays: additionalDays,
         extendedOn: DateTime.now(),
         reason: reason,
-        additionalCost: costs.totalCost,
+        additionalCost: additionalCost,
       );
 
       final updatedExtensions = [...stay.extensions, extensionEntry];
@@ -583,9 +628,11 @@ extension RoomServiceStays on RoomService {
       final newExpiry = stay.expectedDischargeDate.add(
         Duration(days: additionalDays),
       );
-      final newTotalCost = stay.totalCost + costs.totalCost;
+      final newTotalCost = stay.totalCost + additionalCost;
       final stayUpdates = {
-        'durationDays': stay.durationDays + additionalDays,
+        // durationDays is the original admission period. Extensions are
+        // tracked only in totalExtendedDays so StayModel.totalDays cannot
+        // count the same extension twice.
         'totalExtendedDays': newTotalExtended,
         // Make sure both legacy and new date formats are updated
         'expectedDischargeDate': newExpiry
@@ -611,11 +658,15 @@ extension RoomServiceStays on RoomService {
           await rtdb.patch('patients/${stay.patientId}', {
             'extensionDays': currentExtensionDays + additionalDays,
             'extensionApproved': true,
+            if (patientData['exitDate'] != null)
+              'exitDate': DateTime.fromMillisecondsSinceEpoch(
+                parseIntSafe(patientData['exitDate'], 0),
+              ).add(Duration(days: additionalDays)).millisecondsSinceEpoch,
             'updatedAt': DateTime.now().millisecondsSinceEpoch,
           });
         }
       } catch (e) {
-        print('Failed to sync patient extension: $e');
+        debugPrint('Failed to sync patient extension: $e');
       }
     } catch (e) {
       throw Exception('Failed to extend stay: $e');
@@ -716,8 +767,9 @@ extension RoomServiceStays on RoomService {
             ? -stay.attendantCount
             : 0,
       );
-      if (!released)
+      if (!released) {
         throw BedConflictException('Room changed while releasing the bed');
+      }
 
       await rtdb.patch('$staysPath/$stayId', {
         'status': 'completed',

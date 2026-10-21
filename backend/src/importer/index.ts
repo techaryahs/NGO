@@ -771,7 +771,10 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
           if (!stay || stay.status !== 'active' || stay.room_id !== assignment.roomId ||
               (stay.bed_id && stay.bed_id !== assignment.id) ||
               (assignment.patientId && stay.patient_id !== assignment.patientId)) {
-            // Dangling or completed stay assignment; leave bed available
+            // A source assignment that cannot be proven active is a rejected
+            // record, not a successful import with a silently cleared bed.
+            stats.beds.assignmentFailures++;
+            stats.warnings.push('Bed assignment rejected: dangling or completed stay reference.');
             await finishRecord();
             continue;
           }

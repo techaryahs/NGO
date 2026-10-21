@@ -18,8 +18,6 @@ class FirebaseAuthRestService {
       'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
   static const String _refreshTokenUrl =
       'https://securetoken.googleapis.com/v1/token';
-  static const String _getUserDataUrl =
-      'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
   static const String _updateAccountUrl =
       'https://identitytoolkit.googleapis.com/v1/accounts:update';
   static const String _sendOobCodeUrl =
@@ -93,7 +91,9 @@ class FirebaseAuthRestService {
     try {
       final url = '$_signUpUrl?key=$apiKey';
 
-      debugPrint('[FirebaseAuthRestService] Sending signUp request to Identity Toolkit for $email');
+      debugPrint(
+        '[FirebaseAuthRestService] Sending signUp request to Identity Toolkit for $email',
+      );
 
       final response = await http.post(
         Uri.parse(url),
@@ -120,12 +120,10 @@ class FirebaseAuthRestService {
           _authStateController.add(currentUser);
         }
 
-        debugPrint('[FirebaseAuthRestService] signUp success for userId: ${data['localId']}');
-        return AuthResult(
-          success: true,
-          user: currentUser,
-          statusCode: 200,
+        debugPrint(
+          '[FirebaseAuthRestService] signUp success for userId: ${data['localId']}',
         );
+        return AuthResult(success: true, user: currentUser, statusCode: 200);
       } else {
         int? statusCode = response.statusCode;
         String? errorCode;
@@ -173,7 +171,9 @@ class FirebaseAuthRestService {
     try {
       final url = '$_signInUrl?key=$apiKey';
 
-      debugPrint('[FirebaseAuthRestService] Sending signIn request to Identity Toolkit for $email');
+      debugPrint(
+        '[FirebaseAuthRestService] Sending signIn request to Identity Toolkit for $email',
+      );
 
       final response = await http.post(
         Uri.parse(url),
@@ -198,12 +198,10 @@ class FirebaseAuthRestService {
         _currentAuthState = currentUser;
         _authStateController.add(currentUser);
 
-        debugPrint('[FirebaseAuthRestService] signIn success for userId: ${data['localId']}');
-        return AuthResult(
-          success: true,
-          user: currentUser,
-          statusCode: 200,
+        debugPrint(
+          '[FirebaseAuthRestService] signIn success for userId: ${data['localId']}',
         );
+        return AuthResult(success: true, user: currentUser, statusCode: 200);
       } else {
         int? statusCode = response.statusCode;
         String? errorCode;

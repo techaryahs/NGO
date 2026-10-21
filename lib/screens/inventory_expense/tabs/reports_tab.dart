@@ -55,17 +55,36 @@ class _ReportsTabState extends State<ReportsTab> {
     "Salary Report",
     "Payment Method Report",
     "Pending Payments Report",
-    "Low Stock Report"
+    "Low Stock Report",
   ];
 
   final List<String> _categories = [
-    "All", "Fruits", "Vegetables", "Groceries", "Drinking Water", "Water Tanker",
-    "Laundry", "Cable TV", "Internet", "Canteen", "Housekeeping", "Cleaning Material",
-    "Electricity", "Maintenance"
+    "All",
+    "Fruits",
+    "Vegetables",
+    "Groceries",
+    "Drinking Water",
+    "Water Tanker",
+    "Laundry",
+    "Cable TV",
+    "Internet",
+    "Canteen",
+    "Housekeeping",
+    "Cleaning Material",
+    "Electricity",
+    "Maintenance",
   ];
 
   final List<String> _paymentMethods = [
-    "All", "Cash", "Cheque", "UPI", "NEFT / RTGS / IMPS", "Bank Transfer", "Credit Card", "Debit Card", "Other"
+    "All",
+    "Cash",
+    "Cheque",
+    "UPI",
+    "NEFT / RTGS / IMPS",
+    "Bank Transfer",
+    "Credit Card",
+    "Debit Card",
+    "Other",
   ];
 
   @override
@@ -76,24 +95,53 @@ class _ReportsTabState extends State<ReportsTab> {
 
   void _subscribeStreams() {
     _purchasesSub = _service.getPurchasesStream().listen((data) {
-      if (mounted) setState(() { _purchases = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _purchases = data;
+          _checkLoading();
+        });
+      }
     });
     _expensesSub = _service.getExpenseEntriesStream().listen((data) {
-      if (mounted) setState(() { _expenses = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _expenses = data;
+          _checkLoading();
+        });
+      }
     });
     _salariesSub = _service.getSalariesStream().listen((data) {
-      if (mounted) setState(() { _salaries = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _salaries = data;
+          _checkLoading();
+        });
+      }
     });
     _itemsSub = _service.getInventoryItemsStream().listen((data) {
-      if (mounted) setState(() { _items = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _items = data;
+          _checkLoading();
+        });
+      }
     });
     _vendorsSub = _service.getVendorsStream().listen((data) {
-      if (mounted) setState(() { _vendors = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _vendors = data;
+          _checkLoading();
+        });
+      }
     });
   }
 
   void _checkLoading() {
-    if (_purchasesSub != null && _expensesSub != null && _salariesSub != null && _itemsSub != null && _vendorsSub != null) {
+    if (_purchasesSub != null &&
+        _expensesSub != null &&
+        _salariesSub != null &&
+        _itemsSub != null &&
+        _vendorsSub != null) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -125,15 +173,34 @@ class _ReportsTabState extends State<ReportsTab> {
       case "Vendor-wise Report":
       case "Payment Method Report":
       case "Pending Payments Report":
-        _headers = ["Date", "Type", "Ref/Invoice No", "Category/Item", "Vendor/Employee", "Total Amount (₹)", "Method", "Status"];
-        
+        _headers = [
+          "Date",
+          "Type",
+          "Ref/Invoice No",
+          "Category/Item",
+          "Vendor/Employee",
+          "Total Amount (₹)",
+          "Method",
+          "Status",
+        ];
+
         // 1. Process Purchases
         for (final p in _purchases) {
           if (!_checkDateFilter(p.purchaseDate)) continue;
-          if (_selectedCategory != "All" && p.itemName != _selectedCategory) continue;
-          if (_selectedVendor != "All" && p.vendorName != _selectedVendor) continue;
-          if (_selectedPaymentMethod != "All" && p.paymentDetails.paymentMethod != _selectedPaymentMethod) continue;
-          if (_selectedPaymentStatus != "All" && p.paymentDetails.paymentStatus != _selectedPaymentStatus) continue;
+          if (_selectedCategory != "All" && p.itemName != _selectedCategory) {
+            continue;
+          }
+          if (_selectedVendor != "All" && p.vendorName != _selectedVendor) {
+            continue;
+          }
+          if (_selectedPaymentMethod != "All" &&
+              p.paymentDetails.paymentMethod != _selectedPaymentMethod) {
+            continue;
+          }
+          if (_selectedPaymentStatus != "All" &&
+              p.paymentDetails.paymentStatus != _selectedPaymentStatus) {
+            continue;
+          }
 
           rows.add([
             _formatDate(p.purchaseDate),
@@ -143,7 +210,7 @@ class _ReportsTabState extends State<ReportsTab> {
             p.vendorName,
             p.totalAmount.toStringAsFixed(2),
             p.paymentDetails.paymentMethod,
-            p.paymentDetails.paymentStatus
+            p.paymentDetails.paymentStatus,
           ]);
           sum += p.totalAmount;
         }
@@ -151,32 +218,62 @@ class _ReportsTabState extends State<ReportsTab> {
         // 2. Process Operational Expenses
         for (final e in _expenses) {
           if (!_checkDateFilter(e.expenseDate)) continue;
-          if (_selectedCategory != "All" && e.category != _selectedCategory) continue;
-          if (_selectedVendor != "All" && e.vendorName != _selectedVendor) continue;
-          if (_selectedPaymentMethod != "All" && e.paymentDetails.paymentMethod != _selectedPaymentMethod) continue;
-          if (_selectedPaymentStatus != "All" && e.paymentDetails.paymentStatus != _selectedPaymentStatus) continue;
+          if (_selectedCategory != "All" && e.category != _selectedCategory) {
+            continue;
+          }
+          if (_selectedVendor != "All" && e.vendorName != _selectedVendor) {
+            continue;
+          }
+          if (_selectedPaymentMethod != "All" &&
+              e.paymentDetails.paymentMethod != _selectedPaymentMethod) {
+            continue;
+          }
+          if (_selectedPaymentStatus != "All" &&
+              e.paymentDetails.paymentStatus != _selectedPaymentStatus) {
+            continue;
+          }
 
           rows.add([
             _formatDate(e.expenseDate),
             "Operation",
-            e.subcategory != null && e.subcategory!.isNotEmpty ? e.subcategory! : "—",
+            e.subcategory != null && e.subcategory!.isNotEmpty
+                ? e.subcategory!
+                : "—",
             e.category,
-            e.vendorName != null && e.vendorName!.isNotEmpty ? e.vendorName! : "—",
+            e.vendorName != null && e.vendorName!.isNotEmpty
+                ? e.vendorName!
+                : "—",
             e.totalAmount.toStringAsFixed(2),
             e.paymentDetails.paymentMethod,
-            e.paymentDetails.paymentStatus
+            e.paymentDetails.paymentStatus,
           ]);
           sum += e.totalAmount;
         }
         break;
 
       case "Salary Report":
-        _headers = ["Date", "Employee Name", "Role", "Salary Month", "Gross (₹)", "Deductions (₹)", "Net Paid (₹)", "Method", "Status"];
-        
+        _headers = [
+          "Date",
+          "Employee Name",
+          "Role",
+          "Salary Month",
+          "Gross (₹)",
+          "Deductions (₹)",
+          "Net Paid (₹)",
+          "Method",
+          "Status",
+        ];
+
         for (final s in _salaries) {
           if (!_checkDateFilter(s.createdAt)) continue;
-          if (_selectedPaymentMethod != "All" && s.paymentDetails.paymentMethod != _selectedPaymentMethod) continue;
-          if (_selectedPaymentStatus != "All" && s.paymentDetails.paymentStatus != _selectedPaymentStatus) continue;
+          if (_selectedPaymentMethod != "All" &&
+              s.paymentDetails.paymentMethod != _selectedPaymentMethod) {
+            continue;
+          }
+          if (_selectedPaymentStatus != "All" &&
+              s.paymentDetails.paymentStatus != _selectedPaymentStatus) {
+            continue;
+          }
 
           rows.add([
             _formatDate(s.createdAt),
@@ -187,20 +284,33 @@ class _ReportsTabState extends State<ReportsTab> {
             s.deductions.toStringAsFixed(2),
             s.netSalary.toStringAsFixed(2),
             s.paymentDetails.paymentMethod,
-            s.paymentDetails.paymentStatus
+            s.paymentDetails.paymentStatus,
           ]);
           sum += s.netSalary;
         }
         break;
 
       case "Low Stock Report":
-        _headers = ["Item Name", "Category", "Unit", "Min Stock Level", "Current Stock", "Stock Deficit", "Status"];
-        
+        _headers = [
+          "Item Name",
+          "Category",
+          "Unit",
+          "Min Stock Level",
+          "Current Stock",
+          "Stock Deficit",
+          "Status",
+        ];
+
         for (final item in _items) {
           if (!item.isLowStock) continue;
-          if (_selectedCategory != "All" && item.category != _selectedCategory) continue;
+          if (_selectedCategory != "All" && item.category != _selectedCategory) {
+            continue;
+          }
 
-          final deficit = (item.minStockLevel - item.currentStock).clamp(0.0, double.infinity);
+          final deficit = (item.minStockLevel - item.currentStock).clamp(
+            0.0,
+            double.infinity,
+          );
 
           rows.add([
             item.name,
@@ -209,7 +319,7 @@ class _ReportsTabState extends State<ReportsTab> {
             "${item.minStockLevel}",
             "${item.currentStock}",
             deficit.toStringAsFixed(2),
-            "Low Stock Level"
+            "Low Stock Level",
           ]);
           sum += deficit;
         }
@@ -228,13 +338,15 @@ class _ReportsTabState extends State<ReportsTab> {
     }
     // Standard Date Range checking
     return date.isAfter(_startDate.subtract(const Duration(seconds: 1))) &&
-           date.isBefore(_endDate.add(const Duration(days: 1)));
+        date.isBefore(_endDate.add(const Duration(days: 1)));
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+      );
     }
 
     return Padding(
@@ -244,7 +356,7 @@ class _ReportsTabState extends State<ReportsTab> {
           // Filter Panel
           _buildFilterPanel(context),
           const SizedBox(height: 15),
-          
+
           // Total Sum Indicator & Exports
           _buildUtilityHeader(context),
           const SizedBox(height: 10),
@@ -260,28 +372,64 @@ class _ReportsTabState extends State<ReportsTab> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: _generatedRows.isEmpty
-                    ? const Center(child: Text("No records match the active criteria", style: TextStyle(color: Color(0xFF639922))))
+                    ? const Center(
+                        child: Text(
+                          "No records match the active criteria",
+                          style: TextStyle(color: Color(0xFF639922)),
+                        ),
+                      )
                     : ListView(
                         children: [
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
-                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              headingRowColor: WidgetStateProperty.all(
+                                const Color(0xFFF4F9F0),
+                              ),
                               dataRowMinHeight: 48,
                               dataRowMaxHeight: 48,
                               columns: _headers.map((h) {
-                                return DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))));
+                                return DataColumn(
+                                  label: Text(
+                                    h,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                );
                               }).toList(),
                               rows: _generatedRows.map((row) {
                                 return DataRow(
                                   cells: row.map((cell) {
                                     final valStr = cell?.toString() ?? '';
-                                    if (valStr == 'Paid' || valStr == 'Cleared') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
-                                    } else if (valStr == 'Pending' || valStr == 'Low Stock Level' || valStr == 'Bounced') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
+                                    if (valStr == 'Paid' ||
+                                        valStr == 'Cleared') {
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFE8F5E9),
+                                          const Color(0xFF2E7D32),
+                                        ),
+                                      );
+                                    } else if (valStr == 'Pending' ||
+                                        valStr == 'Low Stock Level' ||
+                                        valStr == 'Bounced') {
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFFFEBEE),
+                                          const Color(0xFFC62828),
+                                        ),
+                                      );
                                     } else if (valStr == 'Partial') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFFFF8E1),
+                                          const Color(0xFFF57F17),
+                                        ),
+                                      );
                                     }
                                     return DataCell(Text(valStr));
                                   }).toList(),
@@ -306,7 +454,10 @@ class _ReportsTabState extends State<ReportsTab> {
         color: bg,
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: fg)),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: fg),
+      ),
     );
   }
 
@@ -326,9 +477,13 @@ class _ReportsTabState extends State<ReportsTab> {
               Expanded(
                 flex: 3,
                 child: DropdownButtonFormField<String>(
-                  value: _selectedReportType,
-                  decoration: const InputDecoration(labelText: "Select Report Category *"),
-                  items: _reportTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                  initialValue: _selectedReportType,
+                  decoration: const InputDecoration(
+                    labelText: "Select Report Category *",
+                  ),
+                  items: _reportTypes
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
                   onChanged: (val) {
                     if (val != null) {
                       setState(() {
@@ -361,7 +516,9 @@ class _ReportsTabState extends State<ReportsTab> {
                       }
                     },
                     child: InputDecorator(
-                      decoration: const InputDecoration(labelText: "Start Date"),
+                      decoration: const InputDecoration(
+                        labelText: "Start Date",
+                      ),
                       child: Text(_formatDate(_startDate)),
                     ),
                   ),
@@ -396,15 +553,19 @@ class _ReportsTabState extends State<ReportsTab> {
             ],
           ),
           const SizedBox(height: 10),
-          
+
           Row(
             children: [
               // Category filter
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _selectedCategory,
-                  decoration: const InputDecoration(labelText: "Category Selection"),
-                  items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  initialValue: _selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: "Category Selection",
+                  ),
+                  items: _categories
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
                   onChanged: (val) {
                     if (val != null) {
                       setState(() {
@@ -418,14 +579,25 @@ class _ReportsTabState extends State<ReportsTab> {
               const SizedBox(width: 10),
 
               // Vendor filter
-              if (_selectedReportType != "SalaryReport" && _selectedReportType != "Low Stock Report") ...[
+              if (_selectedReportType != "SalaryReport" &&
+                  _selectedReportType != "Low Stock Report") ...[
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedVendor,
-                    decoration: const InputDecoration(labelText: "Supplier Vendor"),
+                    initialValue: _selectedVendor,
+                    decoration: const InputDecoration(
+                      labelText: "Supplier Vendor",
+                    ),
                     items: [
-                      const DropdownMenuItem(value: "All", child: Text("All Vendors")),
-                      ..._vendors.map((v) => DropdownMenuItem(value: v.name, child: Text(v.name)))
+                      const DropdownMenuItem(
+                        value: "All",
+                        child: Text("All Vendors"),
+                      ),
+                      ..._vendors.map(
+                        (v) => DropdownMenuItem(
+                          value: v.name,
+                          child: Text(v.name),
+                        ),
+                      ),
                     ],
                     onChanged: (val) {
                       if (val != null) {
@@ -444,9 +616,13 @@ class _ReportsTabState extends State<ReportsTab> {
               if (_selectedReportType != "Low Stock Report") ...[
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedPaymentMethod,
-                    decoration: const InputDecoration(labelText: "Settlement Method"),
-                    items: _paymentMethods.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                    initialValue: _selectedPaymentMethod,
+                    decoration: const InputDecoration(
+                      labelText: "Settlement Method",
+                    ),
+                    items: _paymentMethods
+                        .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                        .toList(),
                     onChanged: (val) {
                       if (val != null) {
                         setState(() {
@@ -462,13 +638,24 @@ class _ReportsTabState extends State<ReportsTab> {
                 // Payment Status filter
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedPaymentStatus,
-                    decoration: const InputDecoration(labelText: "Settlement Status"),
+                    initialValue: _selectedPaymentStatus,
+                    decoration: const InputDecoration(
+                      labelText: "Settlement Status",
+                    ),
                     items: const [
-                      DropdownMenuItem(value: "All", child: Text("All Statuses")),
+                      DropdownMenuItem(
+                        value: "All",
+                        child: Text("All Statuses"),
+                      ),
                       DropdownMenuItem(value: "Paid", child: Text("Paid")),
-                      DropdownMenuItem(value: "Pending", child: Text("Pending")),
-                      DropdownMenuItem(value: "Partial", child: Text("Partial")),
+                      DropdownMenuItem(
+                        value: "Pending",
+                        child: Text("Pending"),
+                      ),
+                      DropdownMenuItem(
+                        value: "Partial",
+                        child: Text("Partial"),
+                      ),
                     ],
                     onChanged: (val) {
                       if (val != null) {
@@ -510,20 +697,34 @@ class _ReportsTabState extends State<ReportsTab> {
               color: Color(0xFF27500A),
             ),
           ),
-          
+
           // Action Buttons: Excel, CSV, PDF HTML
           Row(
             children: [
               TextButton.icon(
                 onPressed: () => _exportToExcel(context),
-                icon: const Icon(Icons.table_view_rounded, size: 16, color: Color(0xFF3B6D11)),
-                label: const Text("Excel", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
+                icon: const Icon(
+                  Icons.table_view_rounded,
+                  size: 16,
+                  color: Color(0xFF3B6D11),
+                ),
+                label: const Text(
+                  "Excel",
+                  style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5),
+                ),
               ),
               const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: () => _exportToCSV(context),
-                icon: const Icon(Icons.description_rounded, size: 16, color: Color(0xFF3B6D11)),
-                label: const Text("CSV", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
+                icon: const Icon(
+                  Icons.description_rounded,
+                  size: 16,
+                  color: Color(0xFF3B6D11),
+                ),
+                label: const Text(
+                  "CSV",
+                  style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5),
+                ),
               ),
               const SizedBox(width: 8),
               ElevatedButton.icon(
@@ -533,8 +734,13 @@ class _ReportsTabState extends State<ReportsTab> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF3B6D11),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                 ),
               ),
             ],

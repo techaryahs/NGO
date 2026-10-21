@@ -72,7 +72,7 @@ class RoomCard extends StatelessWidget {
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -290,10 +290,14 @@ class RoomCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 6),
         decoration: BoxDecoration(
-          color: isDisabled ? Colors.grey.shade100 : color.withOpacity(0.08),
+          color: isDisabled
+              ? Colors.grey.shade100
+              : color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: isDisabled ? Colors.grey.shade200 : color.withOpacity(0.3),
+            color: isDisabled
+                ? Colors.grey.shade200
+                : color.withValues(alpha: 0.3),
             width: 1,
           ),
         ),

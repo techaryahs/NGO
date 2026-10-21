@@ -94,8 +94,9 @@ class PhotoMigrationService {
             if (bytes == null) throw FormatException('Invalid patient photo');
             await _photos.uploadPhoto(photoPath: target, bytes: bytes);
             verified = await _photos.photoExists(target);
-            if (!verified)
+            if (!verified) {
               throw StateError('Patient photo could not be verified');
+            }
             patientCount++;
           } else if (verified) {
             already++;
@@ -132,12 +133,14 @@ class PhotoMigrationService {
               final legacy = attendant['photoDataUrl']?.toString();
               if (!valid && legacy != null && legacy.isNotEmpty) {
                 final bytes = PhotoRtdbService.decodeLegacyBase64(legacy);
-                if (bytes == null)
+                if (bytes == null) {
                   throw FormatException('Invalid attendant photo');
+                }
                 await _photos.uploadPhoto(photoPath: path, bytes: bytes);
                 valid = await _photos.photoExists(path);
-                if (!valid)
+                if (!valid) {
                   throw StateError('Attendant photo verification failed');
+                }
                 attendantCount++;
               }
               if (!valid &&
@@ -177,8 +180,9 @@ class PhotoMigrationService {
             );
             try {
               if (!await _photos.photoExists(stayPhotoPath)) {
-                final bytes =
-                    PhotoRtdbService.decodeLegacyBase64(stayLegacyPhoto);
+                final bytes = PhotoRtdbService.decodeLegacyBase64(
+                  stayLegacyPhoto,
+                );
                 if (bytes == null) {
                   throw FormatException('Invalid historical stay photo');
                 }
@@ -235,8 +239,9 @@ class PhotoMigrationService {
               try {
                 if (!await _photos.photoExists(path)) {
                   final bytes = PhotoRtdbService.decodeLegacyBase64(legacy);
-                  if (bytes == null)
+                  if (bytes == null) {
                     throw FormatException('Invalid historical photo');
+                  }
                   await _photos.uploadPhoto(photoPath: path, bytes: bytes);
                   attendantCount++;
                 }
@@ -273,7 +278,9 @@ class PhotoMigrationService {
               for (var i = 0; i < rawAttendants.length; i++) {
                 if (rawAttendants[i] is! Map) continue;
                 final att = Map<String, dynamic>.from(rawAttendants[i] as Map);
-                if (updates.containsKey('patients/$id/attendants/$i/photoRef')) {
+                if (updates.containsKey(
+                  'patients/$id/attendants/$i/photoRef',
+                )) {
                   att['photoRef'] =
                       updates['patients/$id/attendants/$i/photoRef'];
                   att['photoDataUrl'] = null;

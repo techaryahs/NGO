@@ -19,12 +19,34 @@ class _CalendarTabState extends State<CalendarTab> {
   StreamSubscription? _subscription;
   bool _loading = true;
 
-  DateTime _currentMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _currentMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
 
-  final List<String> _weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  final List<String> _weekDays = [
+    "Sun",
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+  ];
   final List<String> _months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   @override
@@ -65,7 +87,9 @@ class _CalendarTabState extends State<CalendarTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+      );
     }
 
     return Padding(
@@ -116,7 +140,10 @@ class _CalendarTabState extends State<CalendarTab> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.calendar_month_rounded, color: Color(0xFF3B6D11)),
+              const Icon(
+                Icons.calendar_month_rounded,
+                color: Color(0xFF3B6D11),
+              ),
               const SizedBox(width: 10),
               Text(
                 "${_months[_currentMonth.month - 1]} ${_currentMonth.year}",
@@ -128,7 +155,7 @@ class _CalendarTabState extends State<CalendarTab> {
               ),
             ],
           ),
-          
+
           // Action Buttons: Previous/Next Month & Quick Guide
           Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -136,23 +163,43 @@ class _CalendarTabState extends State<CalendarTab> {
             children: [
               const Text(
                 "💡 Double-click any empty date to quickly book!",
-                style: TextStyle(fontSize: 12, color: Color(0xFF639922), fontStyle: FontStyle.italic),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF639922),
+                  fontStyle: FontStyle.italic,
+                ),
               ),
               const SizedBox(width: 10),
               IconButton(
-                icon: const Icon(Icons.chevron_left_rounded, color: Color(0xFF3B6D11)),
+                icon: const Icon(
+                  Icons.chevron_left_rounded,
+                  color: Color(0xFF3B6D11),
+                ),
                 onPressed: _previousMonth,
               ),
               TextButton(
                 onPressed: () {
                   setState(() {
-                    _currentMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
+                    _currentMonth = DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month,
+                      1,
+                    );
                   });
                 },
-                child: const Text("Today", style: TextStyle(color: Color(0xFF27500A), fontWeight: FontWeight.bold)),
+                child: const Text(
+                  "Today",
+                  style: TextStyle(
+                    color: Color(0xFF27500A),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               IconButton(
-                icon: const Icon(Icons.chevron_right_rounded, color: Color(0xFF3B6D11)),
+                icon: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFF3B6D11),
+                ),
                 onPressed: _nextMonth,
               ),
             ],
@@ -185,11 +232,20 @@ class _CalendarTabState extends State<CalendarTab> {
 
   Widget _buildCalendarGrid() {
     // 1. Calculate dates layout parameters
-    final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
-    final lastDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0);
-    
+    final firstDayOfMonth = DateTime(
+      _currentMonth.year,
+      _currentMonth.month,
+      1,
+    );
+    final lastDayOfMonth = DateTime(
+      _currentMonth.year,
+      _currentMonth.month + 1,
+      0,
+    );
+
     final daysInMonth = lastDayOfMonth.day;
-    final startWeekday = firstDayOfMonth.weekday % 7; // Convert Sun=0, Mon=1, ..., Sat=6
+    final startWeekday =
+        firstDayOfMonth.weekday % 7; // Convert Sun=0, Mon=1, ..., Sat=6
 
     final totalGridCells = daysInMonth + startWeekday;
     final rowsCount = (totalGridCells / 7).ceil();
@@ -203,31 +259,39 @@ class _CalendarTabState extends State<CalendarTab> {
       itemCount: rowsCount * 7,
       itemBuilder: (context, index) {
         final dayIndex = index - startWeekday + 1;
-        
+
         // Blank cells before month start or after month end
         if (index < startWeekday || dayIndex > daysInMonth) {
           return Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFFAFDF7).withOpacity(0.4),
+              color: const Color(0xFFFAFDF7).withValues(alpha: 0.4),
               border: Border.all(color: const Color(0xFFE6F3D6), width: 0.25),
             ),
           );
         }
 
         // Date of this cell
-        final date = DateTime(_currentMonth.year, _currentMonth.month, dayIndex);
-        
-        // Fetch sponsorships matching this date
-        final bookings = _sponsorships.where((s) =>
-          s.sponsorshipDate.year == date.year &&
-          s.sponsorshipDate.month == date.month &&
-          s.sponsorshipDate.day == date.day &&
-          s.bookingStatus != 'Cancelled'
-        ).toList();
+        final date = DateTime(
+          _currentMonth.year,
+          _currentMonth.month,
+          dayIndex,
+        );
 
-        final isToday = date.year == DateTime.now().year &&
-                        date.month == DateTime.now().month &&
-                        date.day == DateTime.now().day;
+        // Fetch sponsorships matching this date
+        final bookings = _sponsorships
+            .where(
+              (s) =>
+                  s.sponsorshipDate.year == date.year &&
+                  s.sponsorshipDate.month == date.month &&
+                  s.sponsorshipDate.day == date.day &&
+                  s.bookingStatus != 'Cancelled',
+            )
+            .toList();
+
+        final isToday =
+            date.year == DateTime.now().year &&
+            date.month == DateTime.now().month &&
+            date.day == DateTime.now().day;
 
         return InkWell(
           onTap: () {
@@ -252,14 +316,21 @@ class _CalendarTabState extends State<CalendarTab> {
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: isToday
-                          ? const BoxDecoration(color: Color(0xFF3B6D11), shape: BoxShape.circle)
+                          ? const BoxDecoration(
+                              color: Color(0xFF3B6D11),
+                              shape: BoxShape.circle,
+                            )
                           : null,
                       child: Text(
                         "$dayIndex",
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                          color: isToday ? Colors.white : const Color(0xFF27500A),
+                          fontWeight: isToday
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isToday
+                              ? Colors.white
+                              : const Color(0xFF27500A),
                         ),
                       ),
                     ),
@@ -267,8 +338,11 @@ class _CalendarTabState extends State<CalendarTab> {
                       Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(color: Color(0xFF3B6D11), shape: BoxShape.circle),
-                      )
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF3B6D11),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -278,7 +352,9 @@ class _CalendarTabState extends State<CalendarTab> {
                   child: ListView(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    children: bookings.map((b) => _buildGridBookingBadge(b)).toList(),
+                    children: bookings
+                        .map((b) => _buildGridBookingBadge(b))
+                        .toList(),
                   ),
                 ),
               ],
@@ -302,7 +378,11 @@ class _CalendarTabState extends State<CalendarTab> {
         "${b.sponsorPrefix} ${b.sponsorName} - ${b.occasion}",
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32)),
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF2E7D32),
+        ),
       ),
     );
   }
@@ -319,7 +399,7 @@ class _CalendarTabState extends State<CalendarTab> {
           final customized = model.copyWith(sponsorshipDate: date);
           await _service.addSponsorship(customized);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(this.context).showSnackBar(
               const SnackBar(
                 content: Text("Sponsorship successfully booked!"),
                 backgroundColor: Color(0xFF3B6D11),
@@ -331,7 +411,10 @@ class _CalendarTabState extends State<CalendarTab> {
     );
   }
 
-  void _showBookingsSummaryModal(DateTime date, List<SponsorshipModel> bookings) {
+  void _showBookingsSummaryModal(
+    DateTime date,
+    List<SponsorshipModel> bookings,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -341,7 +424,10 @@ class _CalendarTabState extends State<CalendarTab> {
             const SizedBox(width: 10),
             Text(
               "Sponsorships on ${date.day}/${date.month}/${date.year}",
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF27500A),
+              ),
             ),
           ],
         ),
@@ -369,32 +455,75 @@ class _CalendarTabState extends State<CalendarTab> {
                         children: [
                           Text(
                             "${b.sponsorPrefix} ${b.sponsorName}",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF27500A)),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14.5,
+                              color: Color(0xFF27500A),
+                            ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFE8F5E9),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               "₹${b.amount}",
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2E7D32)),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Color(0xFF2E7D32),
+                              ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text("Occasion: ${b.occasion}", style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                      Text(
+                        "Occasion: ${b.occasion}",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                      ),
                       if (b.honoreeName?.isNotEmpty ?? false)
-                        Text("Honoree: ${b.honoreeName}", style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                      Text("Contact: ${b.sponsorMobile}", style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                        Text(
+                          "Honoree: ${b.honoreeName}",
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      Text(
+                        "Contact: ${b.sponsorMobile}",
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black54,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text("Status: ${b.bookingStatus}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF3B6D11))),
-                          Text("Payment: ${b.paymentStatus}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey)),
+                          Text(
+                            "Status: ${b.bookingStatus}",
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF3B6D11),
+                            ),
+                          ),
+                          Text(
+                            "Payment: ${b.paymentStatus}",
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -416,7 +545,10 @@ class _CalendarTabState extends State<CalendarTab> {
             },
             icon: const Icon(Icons.add_rounded, size: 16),
             label: const Text("Book Additional"),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+            ),
           ),
         ],
       ),

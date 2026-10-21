@@ -80,48 +80,50 @@ Future<bool> showShiftPatientDialog(
               const Text('Select the new available room, bed, or lobby.'),
               const SizedBox(height: 14),
               Expanded(
-                child: ListView(
-                  children: [
-                    const Text(
-                      'AVAILABLE ROOM BEDS',
-                      style: TextStyle(
-                        color: Color(0xFF3B6D11),
-                        fontWeight: FontWeight.bold,
+                child: RadioGroup<_Placement>(
+                  groupValue: selected,
+                  onChanged: (value) => setState(() => selected = value),
+                  child: ListView(
+                    children: [
+                      const Text(
+                        'AVAILABLE ROOM BEDS',
+                        style: TextStyle(
+                          color: Color(0xFF3B6D11),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    for (final placement in placements.where(
-                      (p) => p.room != null,
-                    ))
-                      RadioListTile<_Placement>(
-                        value: placement,
-                        groupValue: selected,
-                        onChanged: (value) => setState(() => selected = value),
-                        title: Text(placement.label),
+                      const SizedBox(height: 6),
+                      for (final placement in placements.where(
+                        (p) => p.room != null,
+                      ))
+                        RadioListTile<_Placement>(
+                          value: placement,
+                          title: Text(placement.label),
+                        ),
+                      const Divider(),
+                      const Text(
+                        'LOBBIES',
+                        style: TextStyle(
+                          color: Color(0xFF3B6D11),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    const Divider(),
-                    const Text(
-                      'LOBBIES',
-                      style: TextStyle(
-                        color: Color(0xFF3B6D11),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    for (final placement in placements.where(
-                      (p) => p.lobby != null,
-                    ))
-                      RadioListTile<_Placement>(
-                        value: placement,
-                        groupValue: selected,
-                        onChanged: placement.occupied
-                            ? null
-                            : (value) => setState(() => selected = value),
-                        title: Text(placement.label),
-                        secondary: placement.occupied
-                            ? const Icon(Icons.lock_outline, color: Colors.grey)
-                            : const Icon(Icons.weekend_outlined),
-                      ),
-                  ],
+                      for (final placement in placements.where(
+                        (p) => p.lobby != null,
+                      ))
+                        RadioListTile<_Placement>(
+                          value: placement,
+                          enabled: !placement.occupied,
+                          title: Text(placement.label),
+                          secondary: placement.occupied
+                              ? const Icon(
+                                  Icons.lock_outline,
+                                  color: Colors.grey,
+                                )
+                              : const Icon(Icons.weekend_outlined),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],

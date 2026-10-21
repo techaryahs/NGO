@@ -28,7 +28,8 @@ describe.skipIf(process.env.RUN_PG_MIGRATIONS !== '1')('disposable PostgreSQL mi
     expect(constraints).toHaveLength(4); expect(constraints.every(row => row.confdeltype === 'r')).toBe(true);
     const precision = (await query("SELECT numeric_precision,numeric_scale FROM information_schema.columns WHERE table_name='payments' AND column_name='amount'")).rows[0];
     expect(precision).toEqual({ numeric_precision: 12, numeric_scale: 2 });
-    expect((await query("SELECT indexname FROM pg_indexes WHERE indexname LIKE 'ux_%'")).rows).toHaveLength(5);
+    expect((await query("SELECT indexname FROM pg_indexes WHERE indexname LIKE 'ux_%'")).rows).toHaveLength(4);
+    expect((await query("SELECT indexname FROM pg_indexes WHERE indexname='ix_payments_patient_transaction'")).rows).toHaveLength(1);
     await expect(query("DELETE FROM patients WHERE id='upgrade-p'")).rejects.toMatchObject({ code: '23503' });
     delete process.env.ALLOW_DISPOSABLE_DB_ROLLBACK;
     await expect(runMigrations('down')).rejects.toThrow(/explicitly enabled disposable/);

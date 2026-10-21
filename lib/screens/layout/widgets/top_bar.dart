@@ -223,7 +223,7 @@ void showNotificationPanel(
 }
 
 class _NotificationBell extends StatelessWidget {
-  const _NotificationBell({Key? key}) : super(key: key);
+  const _NotificationBell();
 
   void _showNotificationPanel(
     BuildContext context,

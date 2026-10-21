@@ -193,7 +193,7 @@ describe.skipIf(!enabled)('Firebase importer with disposable PostgreSQL 16', () 
     expect((await query('SELECT COUNT(*)::int AS count FROM rooms')).rows[0].count).toBe(0);
   });
   it('does not silently commit a source with unsupported photos or ERP branches', async () => {
-    fixture.inventory_items = { synthetic_item: { name: 'Synthetic Item' } };
+    fixture.unknown_erp = { synthetic_item: { name: 'Synthetic Item' } };
     fixture.patient_photos = { synthetic_photo: { data: 'synthetic' } };
     const stats = await run();
     expect(stats.warnings.filter((warning) => warning.includes('Unsupported nonempty export branch'))).toHaveLength(2);
@@ -225,14 +225,16 @@ describe.skipIf(!enabled)('Firebase importer with disposable PostgreSQL 16', () 
     expect(stats.committed).toBe(false);
     expect((await query('SELECT COUNT(*)::int AS count FROM patients')).rows[0].count).toBe(0);
   });
-  it('rejects two distinct ledger IDs sharing a transaction identity and atomically rolls back', async () => {
-    fixture.payments.copied_key.transactionId = 'same_transaction';
-    fixture.paymentHistory.original_key.transactionId = 'same_transaction';
-    fixture.payments.audit_pay_2.transactionId = 'same_transaction';
+  it.each(['same_transaction', 'MANUAL_ONLINE'])('preserves distinct legacy split receipts sharing reference %s (migration 009)', async transactionId => {
+    fixture.payments.copied_key.transactionId = transactionId;
+    fixture.paymentHistory.original_key.transactionId = transactionId;
+    fixture.payments.audit_pay_2.transactionId = transactionId;
     const stats = await run();
-    expect(stats.payments.failed).toBe(1);
-    expect(stats.committed).toBe(false);
-    expect((await query('SELECT COUNT(*)::int AS count FROM payments')).rows[0].count).toBe(0);
+    expect(stats.payments.failed).toBe(0);
+    expect(stats.committed).toBe(true);
+    expect((await query('SELECT COUNT(*)::int AS count, SUM(amount)::text AS total FROM payments')).rows[0]).toEqual({ count: 2, total: '0.30' });
+    expect((await run()).committed).toBe(true);
+    expect((await query('SELECT COUNT(*)::int AS count FROM payments')).rows[0].count).toBe(2);
   });
   it('reimports corrected non-ledger source fields instead of silently retaining stale profile and stay values', async () => {
     await run();

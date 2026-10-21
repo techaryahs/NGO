@@ -3,11 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:ngo/models/bed_model.dart';
 import 'package:ngo/models/room_model.dart';
 import 'package:ngo/screens/patients/widgets/add_patient_dialog.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
-import 'package:ngo/services/room_service.dart';
 import 'package:ngo/services/service_locator.dart';
 
 /// Configurable mock RTDB service for UI widget tests.
@@ -17,7 +15,7 @@ class ConfigurableRTDBService extends FirebaseRTDBRestService {
   Future<dynamic> Function(String path)? getHandler;
   Stream<dynamic> Function(String path)? streamHandler;
   Stream<dynamic> Function(String path, {String? orderBy, dynamic equalTo})?
-      queryStreamHandler;
+  queryStreamHandler;
 
   @override
   Future<dynamic> get(String path) async {
@@ -67,7 +65,11 @@ void main() {
       'basePrice': 200,
       'status': 'available',
       'beds': {
-        'bed-1': {'id': 'room-1A_bed1', 'bedLabel': 'bed1', 'status': 'available'},
+        'bed-1': {
+          'id': 'room-1A_bed1',
+          'bedLabel': 'bed1',
+          'status': 'available',
+        },
       },
     },
     'room-2A': {
@@ -79,7 +81,11 @@ void main() {
       'basePrice': 200,
       'status': 'available',
       'beds': {
-        'bed-1': {'id': 'room-2A_bed1', 'bedLabel': 'bed1', 'status': 'available'},
+        'bed-1': {
+          'id': 'room-2A_bed1',
+          'bedLabel': 'bed1',
+          'status': 'available',
+        },
       },
     },
   };
@@ -120,11 +126,7 @@ void main() {
   });
 
   Widget buildTestDialog() {
-    return const MaterialApp(
-      home: Scaffold(
-        body: AddPatientDialog(),
-      ),
-    );
+    return const MaterialApp(home: Scaffold(body: AddPatientDialog()));
   }
 
   group('AddPatient Room Selection & Error Replay Regression Tests', () {
@@ -170,10 +172,13 @@ void main() {
         expect(find.text('Clear lobby to select a room'), findsOneWidget);
 
         // VERIFY: Room dropdown is disabled (onChanged is null)
-        final roomDropdownFinder = find.byType(DropdownButtonFormField<RoomModel>);
+        final roomDropdownFinder = find.byType(
+          DropdownButtonFormField<RoomModel>,
+        );
         expect(roomDropdownFinder, findsOneWidget);
-        final DropdownButtonFormField<RoomModel> roomWidget =
-            tester.widget(roomDropdownFinder);
+        final DropdownButtonFormField<RoomModel> roomWidget = tester.widget(
+          roomDropdownFinder,
+        );
         expect(roomWidget.onChanged, isNull);
       },
     );
@@ -221,9 +226,12 @@ void main() {
         await tester.pumpAndSettle();
 
         // VERIFY: Room dropdown is now re-enabled
-        final roomDropdownFinder = find.byType(DropdownButtonFormField<RoomModel>);
-        final DropdownButtonFormField<RoomModel> roomWidget =
-            tester.widget(roomDropdownFinder);
+        final roomDropdownFinder = find.byType(
+          DropdownButtonFormField<RoomModel>,
+        );
+        final DropdownButtonFormField<RoomModel> roomWidget = tester.widget(
+          roomDropdownFinder,
+        );
         expect(roomWidget.onChanged, isNotNull);
 
         // VERIFY: Room hint changed back to "Select room"
@@ -241,7 +249,9 @@ void main() {
         // Stays query fails with missing index (production error condition)
         mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) {
           return Stream.error(
-            Exception('Index not defined, add ".indexOn": "status", for path "/stays"'),
+            Exception(
+              'Index not defined, add ".indexOn": "status", for path "/stays"',
+            ),
           );
         };
 
@@ -278,7 +288,10 @@ void main() {
         await tester.tap(roomDropdown, warnIfMissed: false);
         await tester.pumpAndSettle();
 
-        expect(find.textContaining('1A (Floor Ground - General)'), findsWidgets);
+        expect(
+          find.textContaining('1A (Floor Ground - General)'),
+          findsWidgets,
+        );
       },
     );
 
@@ -378,7 +391,10 @@ void main() {
 
         // VERIFY: Floor 2 room (2A) is visible, Floor 1 room (1A) is NOT
         expect(find.textContaining('2A (Floor First - General)'), findsWidgets);
-        expect(find.textContaining('1A (Floor Ground - General)'), findsNothing);
+        expect(
+          find.textContaining('1A (Floor Ground - General)'),
+          findsNothing,
+        );
 
         // 3. Select Room 2A
         await tester.tap(

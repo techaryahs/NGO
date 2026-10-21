@@ -133,11 +133,11 @@ class _EditRoomDialogState extends State<EditRoomDialog> {
           }
         }
 
-        updates['beds'] = ServiceLocator()
-            .roomService
-            .bedsToRtdbMap(currentBeds);
+        updates['beds'] = ServiceLocator().roomService.bedsToRtdbMap(
+          currentBeds,
+        );
         updates['totalBeds'] = currentBeds.length;
-        updates['version'] = (widget.room.version ?? 0) + 1;
+        updates['version'] = widget.room.version + 1;
       }
 
       await roomService.updateRoom(widget.room.id, updates);

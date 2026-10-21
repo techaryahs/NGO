@@ -12,7 +12,7 @@ String _getUniqueFilePath(String folder, String fileName) {
   int count = 1;
 
   while (File(path).existsSync()) {
-    path = '$folder/${baseName}($count)$extension';
+    path = '$folder/$baseName($count)$extension';
     count++;
   }
 

@@ -11,7 +11,6 @@ import '../../../widgets/patient_photo.dart';
 import '../../../utils/pricing_helper.dart';
 import 'patient_form_components.dart';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 
 class EditPatientDialog extends StatefulWidget {
@@ -31,7 +30,7 @@ class EditPatientDialog extends StatefulWidget {
 class _EditPatientDialogState extends State<EditPatientDialog> {
   bool _isLoading = false;
   bool _isLoadingRooms = true;
-  bool _showLegacyAttendantSection = false;
+  final bool _showLegacyAttendantSection = false;
 
   // Controllers
   late TextEditingController _patientNameController;
@@ -242,9 +241,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   Future<void> _loadPricing() async {
     try {
       final roomService = ServiceLocator().roomService;
-      final pricingData = await roomService
-          .getPricing()
-          .timeout(const Duration(seconds: 6));
+      final pricingData = await roomService.getPricing().timeout(
+        const Duration(seconds: 6),
+      );
       if (!mounted) return;
       setState(() {
         _pricing = Map<String, dynamic>.from(pricingData);
@@ -272,20 +271,21 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           .first
           .timeout(const Duration(seconds: 8))
           .then((activeStays) {
-        if (mounted) {
-          setState(() {
-            _occupiedLobbies = {
-              for (final stay in activeStays)
-                if (stay.roomType == 'lobby' &&
-                    stay.status == 'active' &&
-                    stay.patientId != widget.patient.id)
-                  stay.roomNumber,
-            };
+            if (mounted) {
+              setState(() {
+                _occupiedLobbies = {
+                  for (final stay in activeStays)
+                    if (stay.roomType == 'lobby' &&
+                        stay.status == 'active' &&
+                        stay.patientId != widget.patient.id)
+                      stay.roomNumber,
+                };
+              });
+            }
+          })
+          .catchError((e) {
+            debugPrint('[EDIT PATIENT] active stays load failed: $e');
           });
-        }
-      }).catchError((e) {
-        debugPrint('[EDIT PATIENT] active stays load failed: $e');
-      });
 
       final results = await Future.wait<dynamic>([
         roomService.getRoomsStream().first.timeout(const Duration(seconds: 8)),
@@ -470,31 +470,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
   int get _plannedStayDays {
     final start = _selectedRegistrationDate ?? widget.patient.admissionDate;
     return PricingHelper.calculateStayDays(start, _selectedExitDate);
-  }
-
-  double get _estimatedTotal {
-    if (_selectedRoom == null && _selectedLobby == null) return 0;
-    return PricingHelper.calculateDailyCharge(
-          _selectedLobby != null
-              ? false
-              : (_selectedRoom?.isPrivate ??
-                    (_historicalRoomType == 'private')),
-          _attendants
-              .where((a) => a.nameController.text.trim().isNotEmpty)
-              .length,
-          pricing: _pricing,
-          bedsCount: _selectedLobby != null
-              ? 1
-              : _selectedBeds.length.clamp(1, 999),
-        ) *
-        _plannedStayDays;
-  }
-
-  double get _effectiveTotalAmount {
-    final override = double.tryParse(
-      _totalAmountOverrideController.text.trim().replaceAll(',', ''),
-    );
-    return override != null && override >= 0 ? override : _estimatedTotal;
   }
 
   void _refreshPaymentSummary() {
@@ -684,18 +659,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
     });
   }
 
-  Uint8List? _decodePhoto(String? dataUrl) {
-    if (dataUrl == null || dataUrl.isEmpty) return null;
-    try {
-      final base64Part = dataUrl.contains(',')
-          ? dataUrl.split(',').last
-          : dataUrl;
-      return base64Decode(base64Part);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> _updatePatient() async {
     // Validation
     if (_patientNameController.text.trim().isEmpty) {
@@ -753,16 +716,12 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       final roomService = ServiceLocator().roomService;
       final patientService = ServiceLocator().patientService;
 
-
       final dateOfBirth = _selectedDateOfBirth;
       final age = PatientModel.calculateAge(dateOfBirth);
       // Rejoining is an explicit action from the patient menu. Editing a
       // discharged record must not reactivate it; this form is also used to
       // enter historical registration and exit dates.
-      const isRejoining = false;
-      final currentAdmissionDate = isRejoining
-          ? (_selectedRegistrationDate ?? DateTime.now())
-          : widget.patient.admissionDate;
+      final currentAdmissionDate = widget.patient.admissionDate;
       final displayedStayStart =
           _selectedRegistrationDate ?? currentAdmissionDate;
 
@@ -794,7 +753,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             final bytes = PhotoRtdbService.decodeLegacyBase64(att.photoDataUrl);
             if (bytes == null) throw StateError('Attendant photo is invalid');
             photoRef = await photos.uploadPhoto(
-              photoPath: PhotoRtdbService.attendantPath(widget.patient.id, '$i'),
+              photoPath: PhotoRtdbService.attendantPath(
+                widget.patient.id,
+                '$i',
+              ),
               bytes: bytes,
             );
           }
@@ -865,16 +827,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         // saved. Do not replace it with a full-period attendant estimate.
         'billingAmountOverride': null,
       };
-      if (isRejoining) {
-        updates.addAll({
-          'status': 'active',
-          'admissionDate': currentAdmissionDate.millisecondsSinceEpoch,
-          'dischargeDate': null,
-          'totalPresentDays': 0,
-          'totalAbsentDays': 0,
-          'attendanceCharges': 0.0,
-        });
-      }
 
       // Handle room/bed change
       final roomChanged = _selectedRoom?.id != _loadedRoomId;
@@ -927,9 +879,11 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
           final currentUser = ServiceLocator().authRestService.currentUser;
           final attendantLabels = structuredAttendants
-              .map((a) => a.relation?.trim().isNotEmpty == true
-                  ? '${a.name} (${a.relation})'
-                  : a.name)
+              .map(
+                (a) => a.relation?.trim().isNotEmpty == true
+                    ? '${a.name} (${a.relation})'
+                    : a.name,
+              )
               .toList();
           await roomService.createStaysForBeds(
             patientId: widget.patient.id,
@@ -986,7 +940,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       await patientService.updatePatient(widget.patient.id, updates);
       final previousRefs = <String>{
         if (widget.patient.photoRef != null) widget.patient.photoRef!,
-        for (final attendant in widget.patient.attendants ?? const <AttendantModel>[])
+        for (final attendant
+            in widget.patient.attendants ?? const <AttendantModel>[])
           if (attendant.photoRef != null) attendant.photoRef!,
       };
       final currentRefs = <String>{
@@ -1252,7 +1207,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                           child: ClipOval(
                                             child: PatientPhoto(
                                               size: 88,
-                                              legacyDataUrl: _patientPhotoDataUrl,
+                                              legacyDataUrl:
+                                                  _patientPhotoDataUrl,
                                               photoRef: _patientPhotoRef,
                                             ),
                                           ),
@@ -1537,9 +1493,10 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                       child: PatientPhoto(
                                                         size: 48,
                                                         legacyDataUrl:
-                                                            _attendants[i].photoDataUrl,
-                                                        photoRef:
-                                                            _attendants[i].photoRef,
+                                                            _attendants[i]
+                                                                .photoDataUrl,
+                                                        photoRef: _attendants[i]
+                                                            .photoRef,
                                                       ),
                                                     ),
                                                   ),
@@ -1570,13 +1527,16 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                                 ],
                                               ),
                                             ),
-                                            if (_attendants[i].photoDataUrl != null ||
+                                            if (_attendants[i].photoDataUrl !=
+                                                    null ||
                                                 _attendants[i].photoRef != null)
                                               IconButton(
                                                 tooltip: 'Remove photo',
                                                 onPressed: () => setState(() {
-                                                  _attendants[i].photoDataUrl = null;
-                                                  _attendants[i].photoRef = null;
+                                                  _attendants[i].photoDataUrl =
+                                                      null;
+                                                  _attendants[i].photoRef =
+                                                      null;
                                                 }),
                                                 icon: const Icon(
                                                   Icons.delete_outline,
@@ -1902,39 +1862,17 @@ class _AttendantEntry {
   }
 }
 
-class _Row3 extends StatelessWidget {
-  final Widget a, b, c;
-  const _Row3(this.a, this.b, this.c);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: a),
-        const SizedBox(width: 12),
-        Expanded(child: b),
-        const SizedBox(width: 12),
-        Expanded(child: c),
-      ],
-    );
-  }
-}
-
 class _NatureField extends StatelessWidget {
   final String label;
   final String hint;
-  final bool isDate;
   final TextInputType keyboard;
   final TextEditingController? controller;
-  final VoidCallback? onTap;
 
   const _NatureField({
     required this.label,
     required this.hint,
-    this.isDate = false,
     this.keyboard = TextInputType.text,
     this.controller,
-    this.onTap,
   });
 
   @override
@@ -1954,9 +1892,7 @@ class _NatureField extends StatelessWidget {
         const SizedBox(height: 5),
         TextField(
           controller: controller,
-          readOnly: isDate,
-          onTap: onTap,
-          keyboardType: isDate ? TextInputType.datetime : keyboard,
+          keyboardType: keyboard,
           textInputAction: TextInputAction.next,
           maxLength: keyboard == TextInputType.phone ? 10 : null,
           inputFormatters: keyboard == TextInputType.phone
@@ -1968,18 +1904,11 @@ class _NatureField extends StatelessWidget {
           style: const TextStyle(fontSize: 13, color: Color(0xFF27500A)),
           decoration: InputDecoration(
             counterText: '',
-            hintText: isDate ? "DD / MM / YYYY" : hint,
+            hintText: hint,
             hintStyle: TextStyle(
               color: const Color(0xFF97C459).withValues(alpha: 0.75),
               fontSize: 13,
             ),
-            suffixIcon: isDate
-                ? const Icon(
-                    Icons.calendar_today_outlined,
-                    color: Color(0xFF639922),
-                    size: 16,
-                  )
-                : null,
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
             contentPadding: const EdgeInsets.symmetric(
@@ -2111,264 +2040,4 @@ class _BillingValue extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _PaymentSummary extends StatelessWidget {
-  final int bedsCount;
-  final int attendantsCount;
-  final bool isPrivateRoom;
-  final String? roomIdentifier;
-  final int days;
-  final bool placementSelected;
-  final String? placementLabel;
-  final Map<String, dynamic> pricing;
-  final double? totalOverride;
-
-  static const int _defaultDays = 7; // default stay duration
-
-  const _PaymentSummary({
-    required this.bedsCount,
-    required this.attendantsCount,
-    required this.isPrivateRoom,
-    this.roomIdentifier,
-    this.placementSelected = false,
-    this.placementLabel,
-    this.pricing = const {},
-    this.totalOverride,
-    this.days = _defaultDays,
-  });
-
-  String _fmt(double amount) {
-    if (amount >= 1000) {
-      return '₹${amount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d)(?=(\d{2})+(\d)(?!\d))'), (m) => '${m[1]},')}';
-    }
-    return '₹${amount.toStringAsFixed(0)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!placementSelected) return const SizedBox.shrink();
-
-    final privateBase =
-        (pricing['privateRoomBasePrice'] as num?)?.toDouble() ?? 700.0;
-    final included =
-        (pricing['privateRoomIncludedAttendants'] as num?)?.toInt() ?? 1;
-    final extraRate =
-        (pricing['privateRoomExtraAttendantFee'] as num?)?.toDouble() ?? 200.0;
-    final generalRate =
-        (pricing['generalRoomBedPrice'] as num?)?.toDouble() ?? 200.0;
-    final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
-    final bedTotal = isPrivateRoom
-        ? privateBase * days
-        : bedsCount * (1 + attendantsCount) * generalRate * days;
-    final attendantTotal = isPrivateRoom ? extraCount * extraRate * days : 0.0;
-    final calculatedTotal = bedTotal + attendantTotal;
-    final grandTotal = totalOverride != null && totalOverride! >= 0
-        ? totalOverride!
-        : calculatedTotal;
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF3B6D11), Color(0xFF5A9A1A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF3B6D11).withValues(alpha: 0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.receipt_long_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'PAYMENT SUMMARY',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '$days-day estimate',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Column(
-              children: [
-                _SummaryRow(
-                  icon: Icons.bed_outlined,
-                  label: placementLabel != null
-                      ? 'Lobby · $placementLabel'
-                      : isPrivateRoom
-                      ? 'Private Room'
-                      : 'Grouped Beds ($bedsCount, ${1 + attendantsCount} occupants)',
-                  count: isPrivateRoom ? 1 : bedsCount,
-                  rate: isPrivateRoom
-                      ? privateBase
-                      : (1 + attendantsCount) * generalRate,
-                  total: bedTotal,
-                  days: days,
-                ),
-                if (isPrivateRoom && extraCount > 0) ...[
-                  const SizedBox(height: 8),
-                  _SummaryRow(
-                    icon: Icons.person_outline_rounded,
-                    label: 'Extra attendants',
-                    count: extraCount,
-                    rate: extraRate,
-                    total: attendantTotal,
-                    days: days,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              height: 0.5,
-              color: Colors.white.withValues(alpha: 0.3),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  totalOverride != null ? 'Custom Total' : 'Estimated Total',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  _fmt(grandTotal),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 7),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.15),
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(12),
-                bottomRight: Radius.circular(12),
-              ),
-            ),
-            child: const Text(
-              '* Estimate based on standard rates. Actual charges may vary.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70, fontSize: 9.5),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  final double rate;
-  final double total;
-  final int days;
-
-  const _SummaryRow({
-    required this.icon,
-    required this.label,
-    required this.count,
-    required this.rate,
-    required this.total,
-    required this.days,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isZero = count == 0;
-    return Row(
-      children: [
-        Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 15),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            '$label × $count',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Text(
-          isZero ? '—' : '₹${rate.toStringAsFixed(0)}/day × $days days',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 10.5,
-          ),
-        ),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 72,
-          child: Text(
-            isZero ? '₹0' : '₹${total.toStringAsFixed(0)}',
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: isZero ? 0.5 : 1.0),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }

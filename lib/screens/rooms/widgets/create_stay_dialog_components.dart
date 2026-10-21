@@ -62,7 +62,7 @@ class CreateStayBedSelectionGrid extends StatelessWidget {
           borderColor = const Color(0xFF3B6D11);
         } else if (!isAvailable) {
           bgColor = const Color(0xFFFFE5E7);
-          textColor = const Color(0xFFD32F2F).withOpacity(0.5);
+          textColor = const Color(0xFFD32F2F).withValues(alpha: 0.5);
           borderColor = const Color(0xFFE8B4B8);
         } else {
           bgColor = const Color(0xFFF4F9F0);

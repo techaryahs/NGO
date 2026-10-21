@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import '../models/bed_model.dart';
 import '../models/room_model.dart';
 import '../models/stay_model.dart';
@@ -8,6 +9,7 @@ import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
+import 'payment_service.dart';
 
 part 'room_service_pricing.dart';
 part 'room_service_rooms.dart';
@@ -50,8 +52,8 @@ class RoomService {
   RoomService({
     FirebaseRTDBRestService? rtdbService,
     BackendApiService? backendApiService,
-  })  : _injectedRtdb = rtdbService,
-        _injectedBackendApi = backendApiService;
+  }) : _injectedRtdb = rtdbService,
+       _injectedBackendApi = backendApiService;
 
   // ── Internal accessors for part files ──────────────────────────────────────
   BackendApiService? get backendApi {
@@ -72,6 +74,7 @@ class RoomService {
     if (_injectedRtdb != null) return _injectedRtdb;
     return ServiceLocator().rtdbService;
   }
+
   String get roomsPath => _roomsPath;
   String get staysPath => _staysPath;
   String get pricingPath => _pricingPath;

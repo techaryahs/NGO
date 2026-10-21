@@ -147,7 +147,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect((await send('PUT', '/stays/s1', extension)).statusCode).toBe(200);
     const before = (await send('GET', '/stays/s1')).json();
     const patientBefore = (await send('GET', '/patients/p1')).json();
-    expect(before).toMatchObject({ durationDays: 5, totalExtendedDays: 3 });
+    expect(before).toMatchObject({ durationDays: 2, totalExtendedDays: 3 });
     expect(patientBefore.extensionDays).toBe(3);
     expect((await send('PUT', '/stays/s1', extension)).json()).toEqual(before);
     expect((await send('PUT', '/stays/s1', { ...extension, additionalDays: 4 })).statusCode).toBe(409);
@@ -158,6 +158,29 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
       expect((await send('GET', '/patients/p1')).json()).toEqual(patientBefore);
     } finally { await query('DROP TRIGGER race_fail_extension ON stays; DROP FUNCTION race_fail_extension()'); }
     expect((await query('SELECT * FROM attendance_records')).rows).toEqual([]);
+  });
+
+  it('quotes and stores only the projected attendance-based extension charge, with protected reads', async () => {
+    const at = (day: number) => new Date(Date.UTC(2026, 0, day)).toISOString();
+    await send('POST', '/rooms', room());
+    await send('POST', '/patients', { ...patient(), exitDate: at(60) });
+    await send('POST', '/stays', { ...stay(), durationDays: 60, expectedDischargeDate: at(61) });
+    for (let day = 1; day <= 10; day++) {
+      expect((await send('POST', '/attendance', { patientId: 'p1', date: at(day).slice(0, 10), payload: { status: 'Absent' } })).statusCode).toBe(200);
+    }
+    const url = '/stays/extension-quote?stayId=s1&additionalDays=10';
+    expect((await app.inject({ method: 'GET', url: `/api${url}` })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: `/api${url}`, headers: { authorization: `Bearer ${signedTestToken('test-uid-volunteer')}` } })).statusCode).toBe(403);
+    const before = (await query("SELECT * FROM stays WHERE id='s1'")).rows[0];
+    expect((await send('GET', url)).json()).toMatchObject({ additionalCost: 2000, priorBillableDays: 50, pricingBasis: 'projected_billable_attendance' });
+    expect((await query("SELECT * FROM stays WHERE id='s1'")).rows[0]).toEqual(before);
+    const request = { additionalDays: 10, extensionRequestId: 'attendance-quote', reason: 'Approved' };
+    const response = await send('PUT', '/stays/s1', request);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ durationDays: 60, totalExtendedDays: 10, totalCost: 12000,
+      extensions: [expect.objectContaining({ additionalCost: 2000, priorBillableDays: 50 })] });
+    expect((await send('GET', '/patients/p1')).json()).toMatchObject({ advanceBilledAmount: 12000, currentDueAmount: 12000, exitDate: Date.parse(at(70)) });
+    expect((await send('PUT', '/stays/s1', request)).json()).toEqual(response.json());
   });
 
   it('concurrent bulk attendant edits preserve independent people and reject no manual marks', async () => {
@@ -356,7 +379,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     const victim = await pool.connect(); victim.on('error', () => {}); const pid = (await victim.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
     await query('SELECT pg_terminate_backend($1)', [pid]); victim.release(true);
     expect((await query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
-    const pg = await import('pg'); const small = new pg.default.Pool({ connectionString: undefined, host: '127.0.0.1', port: 55439, database: 'ngo_audit_workflows', user: 'ngo_audit', max: 1, connectionTimeoutMillis: 100 });
+    const pg = await import('pg'); const small = new pg.default.Pool({ connectionString: undefined, host: '127.0.0.1', port: 55439, database: 'ngo_audit_workflows', user: 'ngo_audit', password: process.env.POSTGRES_PASSWORD, max: 1, connectionTimeoutMillis: 100 });
     const held = await small.connect(); await expect(small.connect()).rejects.toThrow(/timeout/); held.release(); expect((await small.query('SELECT 1 AS ok')).rows[0].ok).toBe(1); await small.end();
   });
   it('supports atomic multi-bed batch admission with rollback on conflict, room deletion guards, and attendant attendance JSONB merge', async () => {

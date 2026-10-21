@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-10-18T18:07:55.162Z",
+  "capturedAt": "2026-10-21T10:24:53.426Z",
   "counts": {
     "patients": 10000,
     "attendants": 10000,
@@ -7,7 +7,7 @@
     "stays": 20000,
     "attendance": 300000
   },
-  "seedMs": 28467.66,
+  "seedMs": 15782.68,
   "before": [
     {
       "Plan": {
@@ -18,22 +18,22 @@
         "Total Cost": 62413.46,
         "Plan Rows": 250000,
         "Plan Width": 187,
-        "Actual Startup Time": 140.247,
-        "Actual Total Time": 250.022,
+        "Actual Startup Time": 245.646,
+        "Actual Total Time": 395.489,
         "Actual Rows": 300000,
         "Actual Loops": 1,
         "Workers Planned": 2,
         "Workers Launched": 2,
-        "Shared Hit Blocks": 7387,
-        "Shared Read Blocks": 1,
+        "Shared Hit Blocks": 7388,
+        "Shared Read Blocks": 0,
         "Shared Dirtied Blocks": 0,
-        "Shared Written Blocks": 1,
+        "Shared Written Blocks": 0,
         "Local Hit Blocks": 0,
         "Local Read Blocks": 0,
         "Local Dirtied Blocks": 0,
         "Local Written Blocks": 0,
-        "Temp Read Blocks": 6802,
-        "Temp Written Blocks": 6818,
+        "Temp Read Blocks": 6801,
+        "Temp Written Blocks": 6815,
         "Plans": [
           {
             "Node Type": "Sort",
@@ -44,37 +44,37 @@
             "Total Cost": 32557.23,
             "Plan Rows": 125000,
             "Plan Width": 187,
-            "Actual Startup Time": 134.927,
-            "Actual Total Time": 155.139,
+            "Actual Startup Time": 198.902,
+            "Actual Total Time": 229.632,
             "Actual Rows": 100000,
             "Actual Loops": 3,
             "Sort Key": [
               "((attendance_date)::text) DESC"
             ],
             "Sort Method": "external merge",
-            "Sort Space Used": 19904,
+            "Sort Space Used": 23088,
             "Sort Space Type": "Disk",
-            "Shared Hit Blocks": 7387,
-            "Shared Read Blocks": 1,
+            "Shared Hit Blocks": 7388,
+            "Shared Read Blocks": 0,
             "Shared Dirtied Blocks": 0,
-            "Shared Written Blocks": 1,
+            "Shared Written Blocks": 0,
             "Local Hit Blocks": 0,
             "Local Read Blocks": 0,
             "Local Dirtied Blocks": 0,
             "Local Written Blocks": 0,
-            "Temp Read Blocks": 6802,
-            "Temp Written Blocks": 6818,
+            "Temp Read Blocks": 6801,
+            "Temp Written Blocks": 6815,
             "Workers": [
               {
                 "Worker Number": 0,
                 "Sort Method": "external merge",
-                "Sort Space Used": 17456,
+                "Sort Space Used": 16384,
                 "Sort Space Type": "Disk"
               },
               {
                 "Worker Number": 1,
                 "Sort Method": "external merge",
-                "Sort Space Used": 17056,
+                "Sort Space Used": 14936,
                 "Sort Space Type": "Disk"
               }
             ],
@@ -90,8 +90,8 @@
                 "Total Cost": 10126.5,
                 "Plan Rows": 125000,
                 "Plan Width": 187,
-                "Actual Startup Time": 0.018,
-                "Actual Total Time": 44.58,
+                "Actual Startup Time": 0.024,
+                "Actual Total Time": 69.123,
                 "Actual Rows": 100000,
                 "Actual Loops": 3,
                 "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
@@ -113,7 +113,7 @@
         ]
       },
       "Planning": {
-        "Shared Hit Blocks": 31,
+        "Shared Hit Blocks": 12,
         "Shared Read Blocks": 0,
         "Shared Dirtied Blocks": 0,
         "Shared Written Blocks": 0,
@@ -124,9 +124,9 @@
         "Temp Read Blocks": 0,
         "Temp Written Blocks": 0
       },
-      "Planning Time": 0.316,
+      "Planning Time": 0.205,
       "Triggers": [],
-      "Execution Time": 262.864
+      "Execution Time": 424.232
     }
   ],
   "after": [
@@ -143,16 +143,16 @@
         "Total Cost": 37749.74,
         "Plan Rows": 300000,
         "Plan Width": 191,
-        "Actual Startup Time": 0.02,
-        "Actual Total Time": 127.358,
+        "Actual Startup Time": 0.036,
+        "Actual Total Time": 161.456,
         "Actual Rows": 300000,
         "Actual Loops": 1,
         "Index Cond": "(((kind)::text = 'attendance'::text) AND (attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date))",
         "Rows Removed by Index Recheck": 0,
-        "Shared Hit Blocks": 67382,
-        "Shared Read Blocks": 1730,
+        "Shared Hit Blocks": 67420,
+        "Shared Read Blocks": 1692,
         "Shared Dirtied Blocks": 0,
-        "Shared Written Blocks": 1273,
+        "Shared Written Blocks": 242,
         "Local Hit Blocks": 0,
         "Local Read Blocks": 0,
         "Local Dirtied Blocks": 0,
@@ -161,7 +161,7 @@
         "Temp Written Blocks": 0
       },
       "Planning": {
-        "Shared Hit Blocks": 5,
+        "Shared Hit Blocks": 0,
         "Shared Read Blocks": 0,
         "Shared Dirtied Blocks": 0,
         "Shared Written Blocks": 0,
@@ -172,9 +172,9 @@
         "Temp Read Blocks": 0,
         "Temp Written Blocks": 0
       },
-      "Planning Time": 0.11,
+      "Planning Time": 0.163,
       "Triggers": [],
-      "Execution Time": 141.6
+      "Execution Time": 177.232
     }
   ],
   "patientPlan": [
@@ -187,8 +187,8 @@
         "Total Cost": 120.45,
         "Plan Rows": 30,
         "Plan Width": 191,
-        "Actual Startup Time": 0.085,
-        "Actual Total Time": 0.086,
+        "Actual Startup Time": 0.071,
+        "Actual Total Time": 0.072,
         "Actual Rows": 30,
         "Actual Loops": 1,
         "Sort Key": [
@@ -219,8 +219,8 @@
             "Total Cost": 119.64,
             "Plan Rows": 30,
             "Plan Width": 191,
-            "Actual Startup Time": 0.033,
-            "Actual Total Time": 0.067,
+            "Actual Startup Time": 0.027,
+            "Actual Total Time": 0.059,
             "Actual Rows": 30,
             "Actual Loops": 1,
             "Recheck Cond": "((patient_id)::text = 'scale-p-1'::text)",
@@ -250,8 +250,8 @@
                 "Total Cost": 4.65,
                 "Plan Rows": 30,
                 "Plan Width": 0,
-                "Actual Startup Time": 0.02,
-                "Actual Total Time": 0.02,
+                "Actual Startup Time": 0.019,
+                "Actual Total Time": 0.019,
                 "Actual Rows": 30,
                 "Actual Loops": 1,
                 "Index Cond": "((patient_id)::text = 'scale-p-1'::text)",
@@ -282,18 +282,18 @@
         "Temp Read Blocks": 0,
         "Temp Written Blocks": 0
       },
-      "Planning Time": 0.093,
+      "Planning Time": 0.122,
       "Triggers": [],
-      "Execution Time": 0.136
+      "Execution Time": 0.1
     }
   ],
   "patientRequest": {
-    "durationMs": 26.53,
+    "durationMs": 4.62,
     "bytes": 5641,
     "records": 30
   },
   "monthRequest": {
-    "durationMs": 2900.23,
+    "durationMs": 3413.59,
     "bytes": 27234091,
     "records": 300000
   },

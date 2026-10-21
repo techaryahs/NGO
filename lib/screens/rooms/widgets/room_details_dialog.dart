@@ -257,7 +257,7 @@ class RoomDetailsDialog extends StatelessWidget {
                                   size: 48,
                                   color: const Color(
                                     0xFF639922,
-                                  ).withOpacity(0.3),
+                                  ).withValues(alpha: 0.3),
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
@@ -266,7 +266,7 @@ class RoomDetailsDialog extends StatelessWidget {
                                     fontSize: 14,
                                     color: const Color(
                                       0xFF639922,
-                                    ).withOpacity(0.6),
+                                    ).withValues(alpha: 0.6),
                                   ),
                                 ),
                               ],
@@ -457,7 +457,7 @@ class _LobbyStatusCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: textColor.withOpacity(0.7),
+                  color: textColor.withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -538,7 +538,7 @@ class _BedStatusCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: textColor.withOpacity(0.7),
+                  color: textColor.withValues(alpha: 0.7),
                 ),
               ),
             ],

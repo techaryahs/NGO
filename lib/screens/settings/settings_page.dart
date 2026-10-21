@@ -268,12 +268,15 @@ class _SettingsPageState extends State<SettingsPage> {
                                   password: currentPasswordCtrl.text,
                                 );
 
+                            if (!context.mounted || !mounted) return;
+
                             if (reauthResult['success']) {
                               // 2. Change Password
                               final changeResult = await authService
                                   .changePassword(
                                     newPassword: newPasswordCtrl.text,
                                   );
+                              if (!context.mounted || !mounted) return;
                               if (changeResult['success']) {
                                 Navigator.pop(context);
                                 _showSnackBar("Password changed successfully!");
@@ -687,7 +690,7 @@ class _SettingsSection extends StatelessWidget {
             border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF639922).withOpacity(0.05),
+                color: const Color(0xFF639922).withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -821,7 +824,7 @@ class _SettingsSwitchItem extends StatelessWidget {
       trailing: Switch(
         value: value,
         onChanged: onChanged,
-        activeColor: Colors.white,
+        activeThumbColor: Colors.white,
         activeTrackColor: const Color(0xFF3B6D11),
         inactiveTrackColor: const Color(0xFFEAF3DE),
         inactiveThumbColor: const Color(0xFF8BBF4A),

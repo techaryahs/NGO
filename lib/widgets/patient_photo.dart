@@ -71,12 +71,13 @@ class PatientPhoto extends StatelessWidget {
             .downloadPhotoCached(resolvedRef),
         builder: (context, snapshot) {
           final bytes = snapshot.data;
-          if (bytes != null)
+          if (bytes != null) {
             return Image.memory(
               bytes,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => placeholder(),
             );
+          }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return placeholder();
           }

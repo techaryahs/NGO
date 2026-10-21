@@ -13,8 +13,9 @@ class _SignupScreenState extends State<SignupScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
-  
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
@@ -81,7 +82,9 @@ class _SignupScreenState extends State<SignupScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : const Color(0xFF3B6D11),
+        backgroundColor: isError
+            ? Colors.red.shade700
+            : const Color(0xFF3B6D11),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -112,12 +115,20 @@ class _SignupScreenState extends State<SignupScreen> {
           Positioned(
             top: -60,
             left: -60,
-            child: _LeafBlob(size: 220, color: const Color(0xFF3B6D11), rotation: 0.5),
+            child: _LeafBlob(
+              size: 220,
+              color: const Color(0xFF3B6D11),
+              rotation: 0.5,
+            ),
           ),
           Positioned(
             bottom: -40,
             right: -40,
-            child: _LeafBlob(size: 160, color: const Color(0xFF0F6E56), rotation: -0.35),
+            child: _LeafBlob(
+              size: 160,
+              color: const Color(0xFF0F6E56),
+              rotation: -0.35,
+            ),
           ),
 
           // Main content
@@ -129,10 +140,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   width: 420,
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.88),
+                    color: Colors.white.withValues(alpha: 0.88),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFF639922).withOpacity(0.2),
+                      color: const Color(0xFF639922).withValues(alpha: 0.2),
                       width: 0.5,
                     ),
                   ),
@@ -218,7 +229,9 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      const Text('New accounts start as volunteers. An administrator assigns staff access.'),
+                      const Text(
+                        'New accounts start as volunteers. An administrator assigns staff access.',
+                      ),
                       const SizedBox(height: 16),
 
                       // Password field
@@ -236,8 +249,9 @@ class _SignupScreenState extends State<SignupScreen> {
                             color: const Color(0xFF639922),
                             size: 20,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscurePassword = !_obscurePassword),
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -258,7 +272,9 @@ class _SignupScreenState extends State<SignupScreen> {
                             size: 20,
                           ),
                           onPressed: () => setState(
-                              () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                            () => _obscureConfirmPassword =
+                                !_obscureConfirmPassword,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -280,8 +296,13 @@ class _SignupScreenState extends State<SignupScreen> {
                                 )
                               : const Icon(Icons.person_add_rounded, size: 18),
                           label: Text(
-                            _isLoading ? "Creating account..." : "Create Account",
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                            _isLoading
+                                ? "Creating account..."
+                                : "Create Account",
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF3B6D11),
@@ -301,7 +322,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         children: [
                           const Text(
                             "Already have an account? ",
-                            style: TextStyle(fontSize: 13, color: Color(0xFF639922)),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF639922),
+                            ),
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(context),
@@ -374,19 +398,28 @@ class _NatureInputField extends StatelessWidget {
           style: const TextStyle(fontSize: 14, color: Color(0xFF27500A)),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: const Color(0xFF97C459).withOpacity(0.8), fontSize: 14),
+            hintStyle: TextStyle(
+              color: const Color(0xFF97C459).withValues(alpha: 0.8),
+              fontSize: 14,
+            ),
             prefixIcon: Icon(icon, color: const Color(0xFF639922), size: 20),
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: const Color(0xFFF4F9F0),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 14,
+            ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 1),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF639922), width: 1.5),
+              borderSide: const BorderSide(
+                color: Color(0xFF639922),
+                width: 1.5,
+              ),
             ),
           ),
         ),
@@ -397,58 +430,6 @@ class _NatureInputField extends StatelessWidget {
 
 // ── Role selection chip ──────────────────────────────────────────────────────
 
-class _RoleChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _RoleChip({
-    required this.label,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFF4F9F0),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF3B6D11) : const Color(0xFFC0DD97),
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : const Color(0xFF639922),
-              size: 22,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : const Color(0xFF27500A),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ── Decorative leaf blob ─────────────────────────────────────────────────────
 
 class _LeafBlob extends StatelessWidget {
@@ -456,7 +437,11 @@ class _LeafBlob extends StatelessWidget {
   final Color color;
   final double rotation;
 
-  const _LeafBlob({required this.size, required this.color, required this.rotation});
+  const _LeafBlob({
+    required this.size,
+    required this.color,
+    required this.rotation,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -466,7 +451,7 @@ class _LeafBlob extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(size * 0.5),
             bottomRight: Radius.circular(size * 0.5),

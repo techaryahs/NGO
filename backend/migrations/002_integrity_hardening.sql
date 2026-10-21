@@ -21,7 +21,7 @@ CREATE UNIQUE INDEX ux_attendance_identity ON attendance_records(kind, attendanc
 CREATE UNIQUE INDEX ux_payment_transaction ON payments(patient_id, transaction_id) WHERE transaction_id IS NOT NULL AND transaction_id <> '';
 
 -- Down Migration
-DROP INDEX ux_payment_transaction;
+DROP INDEX IF EXISTS ux_payment_transaction;
 DROP INDEX ux_attendance_identity;
 DROP INDEX ux_stays_active_bed;
 ALTER TABLE stays DROP CONSTRAINT stays_bed_room_fkey;

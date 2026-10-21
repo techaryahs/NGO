@@ -61,7 +61,7 @@ class NotificationService {
         if (dueDateOnly.isBefore(todayDateOnly)) {
           final daysOverdue = todayDateOnly.difference(dueDateOnly).inDays;
           final id = '${patient.id}_payment_overdue';
-          if (!_deletedIds.contains(id))
+          if (!_deletedIds.contains(id)) {
             notifications.add(
               NotificationModel(
                 id: id,
@@ -75,11 +75,12 @@ class NotificationService {
                 amount: patient.currentDueAmount,
               ),
             );
+          }
         }
       } else if ((patient.currentDueAmount ?? 0) > 0) {
         // Fallback if currentDueAmount > 0 but no due date, maybe treat as pending
         final id = '${patient.id}_payment_pending';
-        if (!_deletedIds.contains(id))
+        if (!_deletedIds.contains(id)) {
           notifications.add(
             NotificationModel(
               id: id,
@@ -93,17 +94,17 @@ class NotificationService {
               amount: patient.currentDueAmount,
             ),
           );
+        }
       }
 
       // 2. Check for Stay Ending (uses PRESENT days only)
-      final int allowedDays =
-          (patient.maxStayDays ?? 60) + (patient.extensionDays ?? 0);
+      final int allowedDays = patient.maxStayDays + patient.extensionDays;
       final int presentDays = patient.totalPresentDays;
       final int remainingDays = allowedDays - presentDays;
 
       if (remainingDays <= 10 && remainingDays >= 0) {
         final id = '${patient.id}_stay_ending';
-        if (!_deletedIds.contains(id))
+        if (!_deletedIds.contains(id)) {
           notifications.add(
             NotificationModel(
               id: id,
@@ -116,9 +117,10 @@ class NotificationService {
               patientId: patient.id,
             ),
           );
+        }
       } else if (remainingDays < 0) {
         final id = '${patient.id}_stay_ended';
-        if (!_deletedIds.contains(id))
+        if (!_deletedIds.contains(id)) {
           notifications.add(
             NotificationModel(
               id: id,
@@ -132,6 +134,7 @@ class NotificationService {
               patientId: patient.id,
             ),
           );
+        }
       }
     }
 

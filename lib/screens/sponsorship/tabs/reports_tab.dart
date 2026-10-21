@@ -34,12 +34,22 @@ class _ReportsTabState extends State<ReportsTab> {
     "Daily Sponsorship Report",
     "Monthly Sponsorship Report",
     "Yearly Sponsorship Report",
-    "Sponsor-wise Report"
+    "Sponsor-wise Report",
   ];
 
   final List<String> _months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   @override
@@ -71,21 +81,32 @@ class _ReportsTabState extends State<ReportsTab> {
     final List<List<dynamic>> rows = [];
     double totalSum = 0.0;
 
-    _headers = ["Date", "Sponsor Details", "Contact No", "Occasion", "Honoree Name", "Amount (₹)", "Payment", "Status"];
+    _headers = [
+      "Date",
+      "Sponsor Details",
+      "Contact No",
+      "Occasion",
+      "Honoree Name",
+      "Amount (₹)",
+      "Payment",
+      "Status",
+    ];
 
     for (final s in _allBookings) {
       bool include = false;
 
       switch (_selectedReportType) {
         case "Daily Sponsorship Report":
-          include = s.sponsorshipDate.year == _selectedDate.year &&
-                    s.sponsorshipDate.month == _selectedDate.month &&
-                    s.sponsorshipDate.day == _selectedDate.day;
+          include =
+              s.sponsorshipDate.year == _selectedDate.year &&
+              s.sponsorshipDate.month == _selectedDate.month &&
+              s.sponsorshipDate.day == _selectedDate.day;
           break;
 
         case "Monthly Sponsorship Report":
-          include = s.sponsorshipDate.year == _selectedDate.year &&
-                    s.sponsorshipDate.month == _selectedDate.month;
+          include =
+              s.sponsorshipDate.year == _selectedDate.year &&
+              s.sponsorshipDate.month == _selectedDate.month;
           break;
 
         case "Yearly Sponsorship Report":
@@ -96,7 +117,9 @@ class _ReportsTabState extends State<ReportsTab> {
           if (_selectedSponsorQuery.isEmpty) {
             include = true; // Show all if search is blank
           } else {
-            include = s.sponsorName.toLowerCase().contains(_selectedSponsorQuery.toLowerCase());
+            include = s.sponsorName.toLowerCase().contains(
+              _selectedSponsorQuery.toLowerCase(),
+            );
           }
           break;
       }
@@ -115,7 +138,7 @@ class _ReportsTabState extends State<ReportsTab> {
           s.honoreeName?.isNotEmpty ?? false ? s.honoreeName! : "—",
           s.amount.toStringAsFixed(2),
           s.paymentStatus,
-          s.bookingStatus
+          s.bookingStatus,
         ]);
         totalSum += s.amount;
       }
@@ -130,7 +153,9 @@ class _ReportsTabState extends State<ReportsTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+      );
     }
 
     return Padding(
@@ -156,26 +181,67 @@ class _ReportsTabState extends State<ReportsTab> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: _generatedRows.isEmpty
-                    ? const Center(child: Text("No records compiled for the selected parameters", style: TextStyle(color: Color(0xFF639922))))
+                    ? const Center(
+                        child: Text(
+                          "No records compiled for the selected parameters",
+                          style: TextStyle(color: Color(0xFF639922)),
+                        ),
+                      )
                     : ListView(
                         children: [
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
-                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              headingRowColor: WidgetStateProperty.all(
+                                const Color(0xFFF4F9F0),
+                              ),
                               dataRowMinHeight: 48,
                               dataRowMaxHeight: 48,
-                              columns: _headers.map((h) => DataColumn(label: Text(h, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A))))).toList(),
+                              columns: _headers
+                                  .map(
+                                    (h) => DataColumn(
+                                      label: Text(
+                                        h,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF27500A),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
                               rows: _generatedRows.map((row) {
                                 return DataRow(
                                   cells: row.map((cell) {
                                     final valStr = cell?.toString() ?? '';
-                                    if (valStr == 'Paid' || valStr == 'Confirmed' || valStr == 'Completed') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFE8F5E9), const Color(0xFF2E7D32)));
-                                    } else if (valStr == 'Pending' || valStr == 'Cancelled') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFEBEE), const Color(0xFFC62828)));
-                                    } else if (valStr == 'Partial' || valStr == 'Booked') {
-                                      return DataCell(_buildCellBadge(valStr, const Color(0xFFFFF8E1), const Color(0xFFF57F17)));
+                                    if (valStr == 'Paid' ||
+                                        valStr == 'Confirmed' ||
+                                        valStr == 'Completed') {
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFE8F5E9),
+                                          const Color(0xFF2E7D32),
+                                        ),
+                                      );
+                                    } else if (valStr == 'Pending' ||
+                                        valStr == 'Cancelled') {
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFFFEBEE),
+                                          const Color(0xFFC62828),
+                                        ),
+                                      );
+                                    } else if (valStr == 'Partial' ||
+                                        valStr == 'Booked') {
+                                      return DataCell(
+                                        _buildCellBadge(
+                                          valStr,
+                                          const Color(0xFFFFF8E1),
+                                          const Color(0xFFF57F17),
+                                        ),
+                                      );
                                     }
                                     return DataCell(Text(valStr));
                                   }).toList(),
@@ -196,8 +262,18 @@ class _ReportsTabState extends State<ReportsTab> {
   Widget _buildCellBadge(String text, Color bg, Color fg) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: fg)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.bold,
+          color: fg,
+        ),
+      ),
     );
   }
 
@@ -218,9 +294,13 @@ class _ReportsTabState extends State<ReportsTab> {
           SizedBox(
             width: 300,
             child: DropdownButtonFormField<String>(
-              value: _selectedReportType,
-              decoration: const InputDecoration(labelText: "Select Report Type *"),
-              items: _reportTypes.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+              initialValue: _selectedReportType,
+              decoration: const InputDecoration(
+                labelText: "Select Report Type *",
+              ),
+              items: _reportTypes
+                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .toList(),
               onChanged: (val) {
                 if (val != null) {
                   setState(() {
@@ -252,7 +332,9 @@ class _ReportsTabState extends State<ReportsTab> {
                   }
                 },
                 child: InputDecorator(
-                  decoration: const InputDecoration(labelText: "Choose Target Date"),
+                  decoration: const InputDecoration(
+                    labelText: "Choose Target Date",
+                  ),
                   child: Text(_formatDate(_selectedDate)),
                 ),
               ),
@@ -264,10 +346,13 @@ class _ReportsTabState extends State<ReportsTab> {
             SizedBox(
               width: 200,
               child: DropdownButtonFormField<int>(
-                value: _selectedDate.month,
+                initialValue: _selectedDate.month,
                 decoration: const InputDecoration(labelText: "Choose Month"),
                 items: List.generate(12, (index) {
-                  return DropdownMenuItem(value: index + 1, child: Text(_months[index]));
+                  return DropdownMenuItem(
+                    value: index + 1,
+                    child: Text(_months[index]),
+                  );
                 }),
                 onChanged: (val) {
                   if (val != null) {
@@ -282,7 +367,7 @@ class _ReportsTabState extends State<ReportsTab> {
             SizedBox(
               width: 200,
               child: DropdownButtonFormField<int>(
-                value: _selectedDate.year,
+                initialValue: _selectedDate.year,
                 decoration: const InputDecoration(labelText: "Choose Year"),
                 items: List.generate(10, (index) {
                   final yr = DateTime.now().year - 5 + index;
@@ -305,8 +390,10 @@ class _ReportsTabState extends State<ReportsTab> {
             SizedBox(
               width: 300,
               child: DropdownButtonFormField<int>(
-                value: _selectedYear,
-                decoration: const InputDecoration(labelText: "Select Calendar Year"),
+                initialValue: _selectedYear,
+                decoration: const InputDecoration(
+                  labelText: "Select Calendar Year",
+                ),
                 items: List.generate(10, (index) {
                   final yr = DateTime.now().year - 5 + index;
                   return DropdownMenuItem(value: yr, child: Text("$yr"));
@@ -369,7 +456,7 @@ class _ReportsTabState extends State<ReportsTab> {
               color: Color(0xFF27500A),
             ),
           ),
-          
+
           // Action Buttons: Excel, CSV, PDF
           Wrap(
             spacing: 8,
@@ -377,13 +464,27 @@ class _ReportsTabState extends State<ReportsTab> {
             children: [
               TextButton.icon(
                 onPressed: () => _exportToExcel(context),
-                icon: const Icon(Icons.table_view_rounded, size: 16, color: Color(0xFF3B6D11)),
-                label: const Text("Excel", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
+                icon: const Icon(
+                  Icons.table_view_rounded,
+                  size: 16,
+                  color: Color(0xFF3B6D11),
+                ),
+                label: const Text(
+                  "Excel",
+                  style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5),
+                ),
               ),
               TextButton.icon(
                 onPressed: () => _exportToCSV(context),
-                icon: const Icon(Icons.description_rounded, size: 16, color: Color(0xFF3B6D11)),
-                label: const Text("CSV", style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5)),
+                icon: const Icon(
+                  Icons.description_rounded,
+                  size: 16,
+                  color: Color(0xFF3B6D11),
+                ),
+                label: const Text(
+                  "CSV",
+                  style: TextStyle(color: Color(0xFF27500A), fontSize: 12.5),
+                ),
               ),
               ElevatedButton.icon(
                 onPressed: () => _exportToPDF(context),
@@ -392,8 +493,13 @@ class _ReportsTabState extends State<ReportsTab> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF3B6D11),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                 ),
               ),
             ],
@@ -433,13 +539,16 @@ class _ReportsTabState extends State<ReportsTab> {
         subtitle = "Date: ${_formatDate(_selectedDate)}";
         break;
       case "Monthly Sponsorship Report":
-        subtitle = "Month: ${_months[_selectedDate.month - 1]} ${_selectedDate.year}";
+        subtitle =
+            "Month: ${_months[_selectedDate.month - 1]} ${_selectedDate.year}";
         break;
       case "Yearly Sponsorship Report":
         subtitle = "Year: $_selectedYear";
         break;
       case "Sponsor-wise Report":
-        subtitle = _selectedSponsorQuery.isNotEmpty ? "Sponsor contains: '$_selectedSponsorQuery'" : "All Sponsor Dossier";
+        subtitle = _selectedSponsorQuery.isNotEmpty
+            ? "Sponsor contains: '$_selectedSponsorQuery'"
+            : "All Sponsor Dossier";
         break;
     }
 

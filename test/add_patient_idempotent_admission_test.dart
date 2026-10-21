@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ngo/models/bed_model.dart';
-import 'package:ngo/models/room_model.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
 import 'package:ngo/services/room_service.dart';
 import 'package:ngo/services/service_locator.dart';
@@ -84,7 +82,9 @@ void main() {
     roomService = RoomService(rtdbService: mockRtdb);
 
     // Seed pricing with standard schema
-    mockRtdb.db['admin_settings/pricing'] = Map<String, dynamic>.from(RoomService.defaultPricing);
+    mockRtdb.db['admin_settings/pricing'] = Map<String, dynamic>.from(
+      RoomService.defaultPricing,
+    );
 
     // Seed a room
     mockRtdb.db['rooms/room_101'] = {
@@ -115,30 +115,33 @@ void main() {
     };
   });
 
-  test('createStaysForBeds uses deterministic stay IDs when provided', () async {
-    final patientId = 'patient_test_001';
-    final deterministicStayIds = ['stay_patient_test_001_bed_1'];
+  test(
+    'createStaysForBeds uses deterministic stay IDs when provided',
+    () async {
+      final patientId = 'patient_test_001';
+      final deterministicStayIds = ['stay_patient_test_001_bed_1'];
 
-    final stayIds = await roomService.createStaysForBeds(
-      patientId: patientId,
-      patientName: 'Test Patient',
-      roomId: 'room_101',
-      admissionDate: DateTime(2026, 10, 2),
-      durationDays: 5,
-      attendantCount: 1,
-      bedIds: ['bed_1'],
-      createdBy: 'test_admin',
-      deterministicStayIds: deterministicStayIds,
-    );
+      final stayIds = await roomService.createStaysForBeds(
+        patientId: patientId,
+        patientName: 'Test Patient',
+        roomId: 'room_101',
+        admissionDate: DateTime(2026, 10, 2),
+        durationDays: 5,
+        attendantCount: 1,
+        bedIds: ['bed_1'],
+        createdBy: 'test_admin',
+        deterministicStayIds: deterministicStayIds,
+      );
 
-    expect(stayIds, equals(['stay_patient_test_001_bed_1']));
-    expect(mockRtdb.db['stays/stay_patient_test_001_bed_1'], isNotNull);
-    final savedStay = mockRtdb.db['stays/stay_patient_test_001_bed_1'] as Map;
-    expect(savedStay['id'], equals('stay_patient_test_001_bed_1'));
-    expect(savedStay['patientId'], equals(patientId));
-    expect(savedStay['bedId'], equals('bed_1'));
-    expect(savedStay['status'], equals('active'));
-  });
+      expect(stayIds, equals(['stay_patient_test_001_bed_1']));
+      expect(mockRtdb.db['stays/stay_patient_test_001_bed_1'], isNotNull);
+      final savedStay = mockRtdb.db['stays/stay_patient_test_001_bed_1'] as Map;
+      expect(savedStay['id'], equals('stay_patient_test_001_bed_1'));
+      expect(savedStay['patientId'], equals(patientId));
+      expect(savedStay['bedId'], equals('bed_1'));
+      expect(savedStay['status'], equals('active'));
+    },
+  );
 
   test('createLobbyStay uses deterministic stay ID when provided', () async {
     final patientId = 'patient_test_002';
@@ -156,63 +159,79 @@ void main() {
     );
 
     expect(stayId, equals('stay_patient_test_002_lobby_Main_Lobby'));
-    expect(mockRtdb.db['stays/stay_patient_test_002_lobby_Main_Lobby'], isNotNull);
-    final savedStay = mockRtdb.db['stays/stay_patient_test_002_lobby_Main_Lobby'] as Map;
+    expect(
+      mockRtdb.db['stays/stay_patient_test_002_lobby_Main_Lobby'],
+      isNotNull,
+    );
+    final savedStay =
+        mockRtdb.db['stays/stay_patient_test_002_lobby_Main_Lobby'] as Map;
     expect(savedStay['id'], equals('stay_patient_test_002_lobby_Main_Lobby'));
     expect(savedStay['roomType'], equals('lobby'));
   });
 
-  test('reserveBeds allows retry for the same patient without throwing conflict', () async {
-    final patientId = 'patient_retry_test';
-    final bedIds = ['bed_1'];
-    final stayIds = ['stay_patient_retry_test_bed_1'];
+  test(
+    'reserveBeds allows retry for the same patient without throwing conflict',
+    () async {
+      final patientId = 'patient_retry_test';
+      final bedIds = ['bed_1'];
+      final stayIds = ['stay_patient_retry_test_bed_1'];
 
-    // First reservation
-    await roomService.reserveBeds(
-      roomId: 'room_101',
-      bedIds: bedIds,
-      patientId: patientId,
-      stayIds: stayIds,
-    );
+      // First reservation
+      await roomService.reserveBeds(
+        roomId: 'room_101',
+        bedIds: bedIds,
+        patientId: patientId,
+        stayIds: stayIds,
+      );
 
-    // Verify bed is now marked occupied by patient_retry_test
-    final roomData = mockRtdb.db['rooms/room_101'] as Map;
-    final bedData = (roomData['beds'] as Map)['bed_1'] as Map;
-    expect(bedData['status'], equals('occupied'));
-    expect(bedData['currentPatientId'], equals(patientId));
+      // Verify bed is now marked occupied by patient_retry_test
+      final roomData = mockRtdb.db['rooms/room_101'] as Map;
+      final bedData = (roomData['beds'] as Map)['bed_1'] as Map;
+      expect(bedData['status'], equals('occupied'));
+      expect(bedData['currentPatientId'], equals(patientId));
 
-    // Second reservation (retry of the same admission) should SUCCEED without throwing BedConflictException
-    final retriedRoom = await roomService.reserveBeds(
-      roomId: 'room_101',
-      bedIds: bedIds,
-      patientId: patientId,
-      stayIds: stayIds,
-    );
+      // Second reservation (retry of the same admission) should SUCCEED without throwing BedConflictException
+      final retriedRoom = await roomService.reserveBeds(
+        roomId: 'room_101',
+        bedIds: bedIds,
+        patientId: patientId,
+        stayIds: stayIds,
+      );
 
-    expect(retriedRoom.beds.firstWhere((b) => b.id == 'bed_1').status, equals('occupied'));
-    expect(retriedRoom.beds.firstWhere((b) => b.id == 'bed_1').currentPatientId, equals(patientId));
-  });
+      expect(
+        retriedRoom.beds.firstWhere((b) => b.id == 'bed_1').status,
+        equals('occupied'),
+      );
+      expect(
+        retriedRoom.beds.firstWhere((b) => b.id == 'bed_1').currentPatientId,
+        equals(patientId),
+      );
+    },
+  );
 
-  test('reserveBeds rejects different patient trying to reserve the occupied bed', () async {
-    // Bed 1 already reserved by patient_retry_test
-    await roomService.reserveBeds(
-      roomId: 'room_101',
-      bedIds: ['bed_1'],
-      patientId: 'patient_retry_test',
-      stayIds: ['stay_1'],
-    );
-
-    // A DIFFERENT patient attempts to reserve Bed 1 -> MUST throw BedConflictException
-    expect(
-      () => roomService.reserveBeds(
+  test(
+    'reserveBeds rejects different patient trying to reserve the occupied bed',
+    () async {
+      // Bed 1 already reserved by patient_retry_test
+      await roomService.reserveBeds(
         roomId: 'room_101',
         bedIds: ['bed_1'],
-        patientId: 'different_patient_999',
-        stayIds: ['stay_2'],
-      ),
-      throwsA(isA<BedConflictException>()),
-    );
-  });
+        patientId: 'patient_retry_test',
+        stayIds: ['stay_1'],
+      );
+
+      // A DIFFERENT patient attempts to reserve Bed 1 -> MUST throw BedConflictException
+      expect(
+        () => roomService.reserveBeds(
+          roomId: 'room_101',
+          bedIds: ['bed_1'],
+          patientId: 'different_patient_999',
+          stayIds: ['stay_2'],
+        ),
+        throwsA(isA<BedConflictException>()),
+      );
+    },
+  );
 
   test('stays patientId query is never called during stay creation', () async {
     mockRtdb.queriedPaths.clear();

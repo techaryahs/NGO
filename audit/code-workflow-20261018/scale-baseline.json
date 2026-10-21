@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-10-18T18:01:17.278Z",
+  "capturedAt": "2026-10-21T08:50:10.568Z",
   "phase": "baseline",
   "environment": {
     "node": "v24.11.1",
@@ -23,75 +23,75 @@
         "stays": 2000,
         "attendance": 30000
       },
-      "seedMs": 2932.06,
+      "seedMs": 1312.77,
       "measurements": [
         {
           "name": "patients-default",
           "url": "/patients?format=map",
           "repetitions": 3,
-          "minMs": 127.71,
-          "medianMs": 130.29,
-          "maxMs": 166.56,
-          "bytes": 1525021,
+          "minMs": 53.08,
+          "medianMs": 58.56,
+          "maxMs": 62.98,
+          "bytes": 1572521,
           "queriesPerRequest": 4
         },
         {
           "name": "payments-default",
           "url": "/payments?format=map",
           "repetitions": 3,
-          "minMs": 15.9,
-          "medianMs": 16.76,
-          "maxMs": 20.21,
-          "bytes": 162521,
+          "minMs": 7.62,
+          "medianMs": 8.1,
+          "maxMs": 8.85,
+          "bytes": 182521,
           "queriesPerRequest": 2
         },
         {
           "name": "patients-page-50",
           "url": "/patients?limit=50",
           "repetitions": 3,
-          "minMs": 18.14,
-          "medianMs": 20.94,
-          "maxMs": 21.56,
-          "bytes": 151820,
+          "minMs": 7.57,
+          "medianMs": 8.81,
+          "maxMs": 10.54,
+          "bytes": 156570,
           "queriesPerRequest": 4
         },
         {
           "name": "patients-page-500",
           "url": "/patients?limit=500",
           "repetitions": 3,
-          "minMs": 118.12,
-          "medianMs": 146.09,
-          "maxMs": 165.52,
-          "bytes": 1518020,
+          "minMs": 44.43,
+          "medianMs": 54,
+          "maxMs": 54.51,
+          "bytes": 1565520,
           "queriesPerRequest": 4
         },
         {
           "name": "patients-page-max",
           "url": "/patients?limit=5000",
           "repetitions": 3,
-          "minMs": 261.88,
-          "medianMs": 262.75,
-          "maxMs": 352.9,
-          "bytes": 3033968,
+          "minMs": 91.04,
+          "medianMs": 91.09,
+          "maxMs": 111.87,
+          "bytes": 3128968,
           "queriesPerRequest": 4
         },
         {
           "name": "patient-exact-search",
           "url": "/patients?search=Patient%2001000",
           "repetitions": 3,
-          "minMs": 7.35,
-          "medianMs": 7.52,
-          "maxMs": 7.94,
-          "bytes": 3056,
+          "minMs": 3.28,
+          "medianMs": 3.35,
+          "maxMs": 3.8,
+          "bytes": 3151,
           "queriesPerRequest": 4
         },
         {
           "name": "stays-complete",
           "url": "/stays?format=map",
           "repetitions": 2,
-          "minMs": 42.32,
-          "medianMs": 42.32,
-          "maxMs": 58.66,
+          "minMs": 46.11,
+          "medianMs": 46.11,
+          "maxMs": 47.45,
           "bytes": 1577145,
           "queriesPerRequest": 2
         },
@@ -99,9 +99,9 @@
           "name": "attendance-day",
           "url": "/attendance?date=2026-01-15&kind=attendance&format=map",
           "repetitions": 2,
-          "minMs": 12.19,
-          "medianMs": 12.19,
-          "maxMs": 12.51,
+          "minMs": 7.78,
+          "medianMs": 7.78,
+          "maxMs": 11.33,
           "bytes": 88787,
           "queriesPerRequest": 2
         },
@@ -109,9 +109,9 @@
           "name": "attendance-month",
           "url": "/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map",
           "repetitions": 2,
-          "minMs": 264.32,
-          "medianMs": 264.32,
-          "maxMs": 344.66,
+          "minMs": 200.43,
+          "medianMs": 200.43,
+          "maxMs": 223.81,
           "bytes": 2664031,
           "queriesPerRequest": 2
         }
@@ -119,15 +119,21 @@
       "patientLoad": {
         "requests": 3,
         "uniquePatients": 1000,
-        "bytes": 3047864,
-        "durationMs": 216.63
+        "bytes": 3142864,
+        "durationMs": 134.89
+      },
+      "cursorPatientLoad": {
+        "requests": 2,
+        "uniquePatients": 1000,
+        "bytes": 3142862,
+        "durationMs": 140.09
       },
       "paymentLoad": {
         "requests": 2,
         "uniquePayments": 5000,
         "totalCents": 50000,
-        "bytes": 1533398,
-        "durationMs": 119.64
+        "bytes": 1733398,
+        "durationMs": 126.04
       },
       "concurrent": [
         {
@@ -135,22 +141,22 @@
           "concurrency": 20,
           "requests": 20,
           "status200": 20,
-          "totalMs": 210.53,
-          "requestsPerSecond": 95,
-          "medianMs": 170.33,
-          "p95Ms": 205.48,
-          "bytes": 3036400
+          "totalMs": 422.22,
+          "requestsPerSecond": 47.37,
+          "medianMs": 347.86,
+          "p95Ms": 407.71,
+          "bytes": 3131400
         },
         {
           "pageSize": 500,
           "concurrency": 20,
           "requests": 20,
           "status200": 20,
-          "totalMs": 1694.48,
-          "requestsPerSecond": 11.8,
-          "medianMs": 1001.58,
-          "p95Ms": 1623.29,
-          "bytes": 30360400
+          "totalMs": 1135.88,
+          "requestsPerSecond": 17.61,
+          "medianMs": 693.86,
+          "p95Ms": 1089.21,
+          "bytes": 31310400
         }
       ],
       "plans": [
@@ -165,9 +171,9 @@
                 "Startup Cost": 54.51,
                 "Total Cost": 54.52,
                 "Plan Rows": 1,
-                "Plan Width": 3037,
-                "Actual Startup Time": 2.651,
-                "Actual Total Time": 2.655,
+                "Plan Width": 3069,
+                "Actual Startup Time": 1.496,
+                "Actual Total Time": 1.498,
                 "Actual Rows": 1,
                 "Actual Loops": 1,
                 "Shared Hit Blocks": 37,
@@ -189,9 +195,9 @@
                     "Startup Cost": 54.51,
                     "Total Cost": 54.52,
                     "Plan Rows": 1,
-                    "Plan Width": 3037,
-                    "Actual Startup Time": 2.648,
-                    "Actual Total Time": 2.649,
+                    "Plan Width": 3069,
+                    "Actual Startup Time": 1.494,
+                    "Actual Total Time": 1.496,
                     "Actual Rows": 1,
                     "Actual Loops": 1,
                     "Sort Key": [
@@ -221,9 +227,9 @@
                         "Startup Cost": 0,
                         "Total Cost": 54.5,
                         "Plan Rows": 1,
-                        "Plan Width": 3037,
-                        "Actual Startup Time": 2.624,
-                        "Actual Total Time": 2.626,
+                        "Plan Width": 3069,
+                        "Actual Startup Time": 1.482,
+                        "Actual Total Time": 1.483,
                         "Actual Rows": 1,
                         "Actual Loops": 1,
                         "Filter": "(((full_name)::text ~~* '%Patient 01000%'::text) OR ((search_key)::text ~~* '%Patient 01000%'::text) OR ((registration_number)::text ~~* '%Patient 01000%'::text))",
@@ -244,7 +250,7 @@
                 ]
               },
               "Planning": {
-                "Shared Hit Blocks": 6,
+                "Shared Hit Blocks": 0,
                 "Shared Read Blocks": 0,
                 "Shared Dirtied Blocks": 0,
                 "Shared Written Blocks": 0,
@@ -255,9 +261,9 @@
                 "Temp Read Blocks": 0,
                 "Temp Written Blocks": 0
               },
-              "Planning Time": 0.694,
+              "Planning Time": 0.282,
               "Triggers": [],
-              "Execution Time": 2.775
+              "Execution Time": 1.538
             }
           ]
         },
@@ -273,17 +279,17 @@
                 "Total Cost": 6376.9,
                 "Plan Rows": 30000,
                 "Plan Width": 184,
-                "Actual Startup Time": 30.048,
-                "Actual Total Time": 33.685,
+                "Actual Startup Time": 27.07,
+                "Actual Total Time": 30.607,
                 "Actual Rows": 30000,
                 "Actual Loops": 1,
                 "Sort Key": [
                   "((attendance_date)::text) DESC"
                 ],
                 "Sort Method": "external merge",
-                "Sort Space Used": 5232,
+                "Sort Space Used": 5224,
                 "Sort Space Type": "Disk",
-                "Shared Hit Blocks": 732,
+                "Shared Hit Blocks": 729,
                 "Shared Read Blocks": 0,
                 "Shared Dirtied Blocks": 0,
                 "Shared Written Blocks": 0,
@@ -291,8 +297,8 @@
                 "Local Read Blocks": 0,
                 "Local Dirtied Blocks": 0,
                 "Local Written Blocks": 0,
-                "Temp Read Blocks": 654,
-                "Temp Written Blocks": 655,
+                "Temp Read Blocks": 653,
+                "Temp Written Blocks": 654,
                 "Plans": [
                   {
                     "Node Type": "Seq Scan",
@@ -305,8 +311,8 @@
                     "Total Cost": 1404,
                     "Plan Rows": 30000,
                     "Plan Width": 184,
-                    "Actual Startup Time": 0.008,
-                    "Actual Total Time": 8.817,
+                    "Actual Startup Time": 0.015,
+                    "Actual Total Time": 8.215,
                     "Actual Rows": 30000,
                     "Actual Loops": 1,
                     "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
@@ -325,7 +331,7 @@
                 ]
               },
               "Planning": {
-                "Shared Hit Blocks": 117,
+                "Shared Hit Blocks": 0,
                 "Shared Read Blocks": 0,
                 "Shared Dirtied Blocks": 0,
                 "Shared Written Blocks": 0,
@@ -336,14 +342,14 @@
                 "Temp Read Blocks": 0,
                 "Temp Written Blocks": 0
               },
-              "Planning Time": 0.774,
+              "Planning Time": 0.099,
               "Triggers": [],
-              "Execution Time": 35.493
+              "Execution Time": 39.1
             }
           ]
         }
       ],
-      "rssBytesAtEnd": 368316416
+      "rssBytesAtEnd": 398225408
     },
     {
       "counts": {
@@ -353,75 +359,75 @@
         "stays": 20000,
         "attendance": 300000
       },
-      "seedMs": 36032.67,
+      "seedMs": 14294.36,
       "measurements": [
         {
           "name": "patients-default",
           "url": "/patients?format=map",
           "repetitions": 3,
-          "minMs": 85.11,
-          "medianMs": 97.73,
-          "maxMs": 106.49,
-          "bytes": 1535021,
+          "minMs": 59.41,
+          "medianMs": 63.4,
+          "maxMs": 73.56,
+          "bytes": 1582521,
           "queriesPerRequest": 4
         },
         {
           "name": "payments-default",
           "url": "/payments?format=map",
           "repetitions": 3,
-          "minMs": 8.2,
-          "medianMs": 9.32,
-          "maxMs": 10.99,
-          "bytes": 164521,
+          "minMs": 6.97,
+          "medianMs": 7.09,
+          "maxMs": 7.22,
+          "bytes": 184521,
           "queriesPerRequest": 2
         },
         {
           "name": "patients-page-50",
           "url": "/patients?limit=50",
           "repetitions": 3,
-          "minMs": 8.8,
-          "medianMs": 9.14,
-          "maxMs": 11.38,
-          "bytes": 152770,
+          "minMs": 6.27,
+          "medianMs": 6.62,
+          "maxMs": 9.78,
+          "bytes": 157520,
           "queriesPerRequest": 4
         },
         {
           "name": "patients-page-500",
           "url": "/patients?limit=500",
           "repetitions": 3,
-          "minMs": 117.69,
-          "medianMs": 133.66,
-          "maxMs": 143.84,
-          "bytes": 1527520,
+          "minMs": 52.13,
+          "medianMs": 55.17,
+          "maxMs": 57.23,
+          "bytes": 1575020,
           "queriesPerRequest": 4
         },
         {
           "name": "patients-page-max",
           "url": "/patients?limit=5000",
           "repetitions": 3,
-          "minMs": 3351.52,
-          "medianMs": 3923.39,
-          "maxMs": 3964.92,
-          "bytes": 15275020,
+          "minMs": 432.61,
+          "medianMs": 435.38,
+          "maxMs": 471.16,
+          "bytes": 15750020,
           "queriesPerRequest": 4
         },
         {
           "name": "patient-exact-search",
           "url": "/patients?search=Patient%2010000",
           "repetitions": 3,
-          "minMs": 21.93,
-          "medianMs": 22.48,
-          "maxMs": 23.45,
-          "bytes": 3075,
+          "minMs": 12.42,
+          "medianMs": 12.7,
+          "maxMs": 12.73,
+          "bytes": 3170,
           "queriesPerRequest": 4
         },
         {
           "name": "stays-complete",
           "url": "/stays?format=map",
           "repetitions": 2,
-          "minMs": 440.94,
-          "medianMs": 440.94,
-          "maxMs": 705.27,
+          "minMs": 487.52,
+          "medianMs": 487.52,
+          "maxMs": 497.4,
           "bytes": 15851153,
           "queriesPerRequest": 2
         },
@@ -429,9 +435,9 @@
           "name": "attendance-day",
           "url": "/attendance?date=2026-01-15&kind=attendance&format=map",
           "repetitions": 2,
-          "minMs": 75.81,
-          "medianMs": 75.81,
-          "maxMs": 98.71,
+          "minMs": 80.21,
+          "medianMs": 80.21,
+          "maxMs": 91.61,
           "bytes": 907789,
           "queriesPerRequest": 2
         },
@@ -439,9 +445,9 @@
           "name": "attendance-month",
           "url": "/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map",
           "repetitions": 2,
-          "minMs": 2218.87,
-          "medianMs": 2218.87,
-          "maxMs": 2412.83,
+          "minMs": 2018.21,
+          "medianMs": 2018.21,
+          "maxMs": 2185.86,
           "bytes": 27234091,
           "queriesPerRequest": 2
         }
@@ -449,15 +455,21 @@
       "patientLoad": {
         "requests": 21,
         "uniquePatients": 10000,
-        "bytes": 30677902,
-        "durationMs": 2147.95
+        "bytes": 31627902,
+        "durationMs": 1446.13
+      },
+      "cursorPatientLoad": {
+        "requests": 20,
+        "uniquePatients": 10000,
+        "bytes": 31627900,
+        "durationMs": 1349.16
       },
       "paymentLoad": {
         "requests": 11,
         "uniquePayments": 50000,
         "totalCents": 500000,
-        "bytes": 15483422,
-        "durationMs": 1430.01
+        "bytes": 17483422,
+        "durationMs": 1715.44
       },
       "concurrent": [
         {
@@ -465,22 +477,22 @@
           "concurrency": 20,
           "requests": 20,
           "status200": 20,
-          "totalMs": 384.9,
-          "requestsPerSecond": 51.96,
-          "medianMs": 308.39,
-          "p95Ms": 378.83,
-          "bytes": 3055400
+          "totalMs": 552.13,
+          "requestsPerSecond": 36.22,
+          "medianMs": 475.62,
+          "p95Ms": 545.14,
+          "bytes": 3150400
         },
         {
           "pageSize": 500,
           "concurrency": 20,
           "requests": 20,
           "status200": 20,
-          "totalMs": 1931.34,
-          "requestsPerSecond": 10.36,
-          "medianMs": 1153.81,
-          "p95Ms": 1827.52,
-          "bytes": 30550400
+          "totalMs": 1136.61,
+          "requestsPerSecond": 17.6,
+          "medianMs": 730.77,
+          "p95Ms": 1091.18,
+          "bytes": 31500400
         }
       ],
       "plans": [
@@ -495,9 +507,9 @@
                 "Startup Cost": 546.02,
                 "Total Cost": 546.03,
                 "Plan Rows": 3,
-                "Plan Width": 3039,
-                "Actual Startup Time": 27.563,
-                "Actual Total Time": 27.568,
+                "Plan Width": 3071,
+                "Actual Startup Time": 9.513,
+                "Actual Total Time": 9.515,
                 "Actual Rows": 1,
                 "Actual Loops": 1,
                 "Shared Hit Blocks": 371,
@@ -519,9 +531,9 @@
                     "Startup Cost": 546.02,
                     "Total Cost": 546.03,
                     "Plan Rows": 3,
-                    "Plan Width": 3039,
-                    "Actual Startup Time": 27.561,
-                    "Actual Total Time": 27.563,
+                    "Plan Width": 3071,
+                    "Actual Startup Time": 9.512,
+                    "Actual Total Time": 9.513,
                     "Actual Rows": 1,
                     "Actual Loops": 1,
                     "Sort Key": [
@@ -551,9 +563,9 @@
                         "Startup Cost": 0,
                         "Total Cost": 546,
                         "Plan Rows": 3,
-                        "Plan Width": 3039,
-                        "Actual Startup Time": 27.536,
-                        "Actual Total Time": 27.538,
+                        "Plan Width": 3071,
+                        "Actual Startup Time": 9.503,
+                        "Actual Total Time": 9.504,
                         "Actual Rows": 1,
                         "Actual Loops": 1,
                         "Filter": "(((full_name)::text ~~* '%Patient 10000%'::text) OR ((search_key)::text ~~* '%Patient 10000%'::text) OR ((registration_number)::text ~~* '%Patient 10000%'::text))",
@@ -574,7 +586,7 @@
                 ]
               },
               "Planning": {
-                "Shared Hit Blocks": 6,
+                "Shared Hit Blocks": 0,
                 "Shared Read Blocks": 0,
                 "Shared Dirtied Blocks": 0,
                 "Shared Written Blocks": 0,
@@ -585,9 +597,9 @@
                 "Temp Read Blocks": 0,
                 "Temp Written Blocks": 0
               },
-              "Planning Time": 0.667,
+              "Planning Time": 0.237,
               "Triggers": [],
-              "Execution Time": 27.659
+              "Execution Time": 9.545
             }
           ]
         },
@@ -603,8 +615,8 @@
                 "Total Cost": 62413.46,
                 "Plan Rows": 250000,
                 "Plan Width": 187,
-                "Actual Startup Time": 210.925,
-                "Actual Total Time": 390.683,
+                "Actual Startup Time": 164.51,
+                "Actual Total Time": 279.762,
                 "Actual Rows": 300000,
                 "Actual Loops": 1,
                 "Workers Planned": 2,
@@ -629,15 +641,15 @@
                     "Total Cost": 32557.23,
                     "Plan Rows": 125000,
                     "Plan Width": 187,
-                    "Actual Startup Time": 204.501,
-                    "Actual Total Time": 239.025,
+                    "Actual Startup Time": 127.206,
+                    "Actual Total Time": 148.936,
                     "Actual Rows": 100000,
                     "Actual Loops": 3,
                     "Sort Key": [
                       "((attendance_date)::text) DESC"
                     ],
                     "Sort Method": "external merge",
-                    "Sort Space Used": 18560,
+                    "Sort Space Used": 24856,
                     "Sort Space Type": "Disk",
                     "Shared Hit Blocks": 7388,
                     "Shared Read Blocks": 0,
@@ -653,13 +665,13 @@
                       {
                         "Worker Number": 0,
                         "Sort Method": "external merge",
-                        "Sort Space Used": 18296,
+                        "Sort Space Used": 14976,
                         "Sort Space Type": "Disk"
                       },
                       {
                         "Worker Number": 1,
                         "Sort Method": "external merge",
-                        "Sort Space Used": 17552,
+                        "Sort Space Used": 14576,
                         "Sort Space Type": "Disk"
                       }
                     ],
@@ -675,8 +687,8 @@
                         "Total Cost": 10126.5,
                         "Plan Rows": 125000,
                         "Plan Width": 187,
-                        "Actual Startup Time": 0.024,
-                        "Actual Total Time": 74.961,
+                        "Actual Startup Time": 0.017,
+                        "Actual Total Time": 44.888,
                         "Actual Rows": 100000,
                         "Actual Loops": 3,
                         "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
@@ -698,7 +710,7 @@
                 ]
               },
               "Planning": {
-                "Shared Hit Blocks": 117,
+                "Shared Hit Blocks": 0,
                 "Shared Read Blocks": 0,
                 "Shared Dirtied Blocks": 0,
                 "Shared Written Blocks": 0,
@@ -709,14 +721,14 @@
                 "Temp Read Blocks": 0,
                 "Temp Written Blocks": 0
               },
-              "Planning Time": 1.067,
+              "Planning Time": 0.15,
               "Triggers": [],
-              "Execution Time": 412.16
+              "Execution Time": 299.386
             }
           ]
         }
       ],
-      "rssBytesAtEnd": 728158208
+      "rssBytesAtEnd": 657018880
     }
   ]
 }

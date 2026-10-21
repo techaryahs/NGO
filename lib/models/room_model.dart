@@ -304,8 +304,9 @@ class RoomModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double)
+    if (value is double) {
       return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    }
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }

@@ -14,10 +14,10 @@ class StayHistoryService {
   final BackendApiService? backendApi;
 
   StayHistoryService([this.db, this.backendApi])
-      : assert(
-          db != null || backendApi != null,
-          'Provide either db or backendApi',
-        );
+    : assert(
+        db != null || backendApi != null,
+        'Provide either db or backendApi',
+      );
 
   factory StayHistoryService.fromLocator() {
     final locator = ServiceLocator();
@@ -144,7 +144,7 @@ class StayHistoryService {
             ? 'available'
             : 'occupied',
         'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
-        'rooms/$roomId/version': (room.version ?? 0) + 1,
+        'rooms/$roomId/version': room.version + 1,
       });
     }
 
@@ -297,13 +297,15 @@ class StayHistoryService {
     required DateTime expectedUpdatedAt,
   }) async {
     final raw = await _get('stays/$stayId');
-    if (raw is! Map)
+    if (raw is! Map) {
       throw StateError('Stay not found. Refresh the patient and try again.');
+    }
     final original = StayModel.fromMap(stayId, raw);
-    if (original.updatedAt != expectedUpdatedAt)
+    if (original.updatedAt != expectedUpdatedAt) {
       throw StateError(
         'This stay was changed elsewhere. Reopen the edit form.',
       );
+    }
     final patientRaw = await _get('patients/${original.patientId}');
     if (patientRaw is! Map) throw StateError('Patient not found');
     final patientData = Map<String, dynamic>.from(patientRaw);
@@ -330,19 +332,23 @@ class StayHistoryService {
       'costOverride',
       'notes',
     };
-    if (changes.keys.any((key) => !editable.contains(key)))
+    if (changes.keys.any((key) => !editable.contains(key))) {
       throw ArgumentError('Unsupported stay field');
+    }
     final merged = <String, dynamic>{...raw, ...changes, 'cycleId': cycleId};
     final revised = StayModel.fromMap(stayId, merged);
     final end = revised.isActive
         ? revised.expectedDischargeDate
         : revised.completedAt;
-    if (end == null || !end.isAfter(revised.admissionDate))
+    if (end == null || !end.isAfter(revised.admissionDate)) {
       throw ArgumentError('End date must be after the start date');
-    if (end.difference(revised.admissionDate).inDays > 3650)
+    }
+    if (end.difference(revised.admissionDate).inDays > 3650) {
       throw ArgumentError('Stay cannot exceed 10 years');
-    if (!{'private', 'general', 'lobby'}.contains(revised.roomType))
+    }
+    if (!{'private', 'general', 'lobby'}.contains(revised.roomType)) {
       throw ArgumentError('Select a valid room type');
+    }
     if (revised.isActive && revised.roomType == 'lobby') {
       final staysRaw = await _get('stays');
       if (staysRaw is Map &&
@@ -364,8 +370,9 @@ class StayHistoryService {
       revised.longStayDailyRate,
       revised.costOverride,
     ]) {
-      if (rate != null && (!rate.isFinite || rate < 0))
+      if (rate != null && (!rate.isFinite || rate < 0)) {
         throw ArgumentError('Charges must be zero or greater');
+      }
     }
     final snapshot = Map<String, dynamic>.from(revised.patientSnapshot);
     snapshot['admissionDate'] =
@@ -418,9 +425,9 @@ class StayHistoryService {
     }
     final updatedStays = allStays
         .map(
-            (s) => patches.containsKey(s.id)
-                ? StayModel.fromMap(s.id, patches[s.id]!)
-                : s,
+          (s) => patches.containsKey(s.id)
+              ? StayModel.fromMap(s.id, patches[s.id]!)
+              : s,
         )
         .toList();
     final revisedCycle = updatedStays
@@ -430,11 +437,13 @@ class StayHistoryService {
       final aEnd = a.isActive
           ? a.expectedDischargeDate
           : a.completedAt ?? a.updatedAt;
-      if (!aEnd.isAfter(a.admissionDate))
+      if (!aEnd.isAfter(a.admissionDate)) {
         throw ArgumentError('The dates would make an adjoining stay invalid');
+      }
       for (final b in revisedCycle.where((b) => b.id != a.id)) {
-        if (a.roomId == b.roomId && a.admissionDate == b.admissionDate)
+        if (a.roomId == b.roomId && a.admissionDate == b.admissionDate) {
           continue;
+        }
         final bEnd = b.isActive
             ? b.expectedDischargeDate
             : b.completedAt ?? b.updatedAt;
@@ -450,14 +459,17 @@ class StayHistoryService {
     if (revised.roomType != 'lobby') {
       final roomRaw = await _get('rooms/${revised.roomId}');
       if (roomRaw is Map) target = RoomModel.fromMap(revised.roomId, roomRaw);
-      if (revised.isActive && target == null)
+      if (revised.isActive && target == null) {
         throw ArgumentError('Select an existing room');
-      if (target != null && target.roomType != revised.roomType)
+      }
+      if (target != null && target.roomType != revised.roomType) {
         throw ArgumentError('Room type does not match the selected room');
+      }
     }
     if (revised.isActive) {
-      if (patient.status.toLowerCase() == 'discharged')
+      if (patient.status.toLowerCase() == 'discharged') {
         throw StateError('Rejoin the patient before assigning a bed');
+      }
       final roomIds = {original.roomId, revised.roomId};
       for (final roomId in roomIds) {
         final roomRaw = await _get('rooms/$roomId');
@@ -476,10 +488,12 @@ class StayHistoryService {
             .toList();
         if (roomId == revised.roomId && revised.roomType != 'lobby') {
           final index = beds.indexWhere((b) => b.id == revised.bedId);
-          if (index < 0 || !beds[index].isAvailable)
+          if (index < 0 || !beds[index].isAvailable) {
             throw StateError('Selected bed is not available');
-          if (room.status == 'maintenance' || room.status == 'unavailable')
+          }
+          if (room.status == 'maintenance' || room.status == 'unavailable') {
             throw StateError('Selected room is not available');
+          }
           beds[index] = beds[index].copyWith(
             status: 'occupied',
             currentPatientId: patient.id,
@@ -494,8 +508,9 @@ class StayHistoryService {
             (roomId == revised.roomId && room.isPrivate
                 ? revised.attendantCount
                 : 0);
-        if (attendants > room.maxAttendants)
+        if (attendants > room.maxAttendants) {
           throw ArgumentError('Private room attendant capacity exceeded');
+        }
         final occupied = beds.where((b) => b.isOccupied).length;
         root.addAll({
           'rooms/$roomId/beds': {for (final b in beds) b.id: b.toMap()},
@@ -508,7 +523,7 @@ class StayHistoryService {
               : 'occupied',
           'rooms/$roomId/updatedAt': DateTime.now().millisecondsSinceEpoch,
           'rooms/$roomId/expectedVacancyDate': end.millisecondsSinceEpoch,
-          'rooms/$roomId/version': (room.version ?? 0) + 1,
+          'rooms/$roomId/version': room.version + 1,
         });
       }
     }
@@ -519,9 +534,10 @@ class StayHistoryService {
       patientData['fullName'] = revised.patientName;
       patientData['searchKey'] = revised.patientName.toLowerCase();
       patientData['billingAmountOverride'] = null;
-      if (cycle.first.id == stayId)
+      if (cycle.first.id == stayId) {
         patientData['registrationDate'] =
             revised.admissionDate.millisecondsSinceEpoch;
+      }
       if (latest) {
         patientData.addAll({
           'fullName': revised.patientName,
@@ -565,8 +581,9 @@ class StayHistoryService {
         'bedIds',
         'bedLabels',
       ]) {
-        if (patientData[key] != patientRaw[key])
+        if (patientData[key] != patientRaw[key]) {
           root['patients/${patient.id}/$key'] = patientData[key];
+        }
       }
     }
     for (final entry in patches.entries) {
@@ -580,8 +597,9 @@ class StayHistoryService {
       entry.value['expiryDate'] =
           changed.expectedDischargeDate.millisecondsSinceEpoch;
       entry.value['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
-      for (final field in entry.value.entries)
+      for (final field in entry.value.entries) {
         root['stays/${entry.key}/${field.key}'] = field.value;
+      }
     }
     root.addAll(
       await paymentService.billingUpdates(

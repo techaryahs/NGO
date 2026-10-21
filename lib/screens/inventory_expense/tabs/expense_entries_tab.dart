@@ -28,9 +28,20 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
   String _categoryFilter = "All";
 
   final List<String> _categories = [
-    "All", "Fruits", "Vegetables", "Groceries", "Drinking Water", "Water Tanker",
-    "Laundry", "Cable TV", "Internet", "Canteen", "Housekeeping", "Cleaning Material",
-    "Electricity", "Maintenance"
+    "All",
+    "Fruits",
+    "Vegetables",
+    "Groceries",
+    "Drinking Water",
+    "Water Tanker",
+    "Laundry",
+    "Cable TV",
+    "Internet",
+    "Canteen",
+    "Housekeeping",
+    "Cleaning Material",
+    "Electricity",
+    "Maintenance",
   ];
 
   @override
@@ -46,16 +57,28 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
 
   void _subscribeStreams() {
     _expensesSub = _service.getExpenseEntriesStream().listen((data) {
-      if (mounted) setState(() { _expenses = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _expenses = data;
+          _checkLoading();
+        });
+      }
     });
     _vendorsSub = _service.getVendorsStream().listen((data) {
-      if (mounted) setState(() { _vendors = data; _checkLoading(); });
+      if (mounted) {
+        setState(() {
+          _vendors = data;
+          _checkLoading();
+        });
+      }
     });
   }
 
   void _checkLoading() {
     if (_expensesSub != null && _vendorsSub != null) {
-      setState(() { _loading = false; });
+      setState(() {
+        _loading = false;
+      });
     }
   }
 
@@ -70,14 +93,20 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+      );
     }
 
     final filteredExpenses = _expenses.where((e) {
-      final matchesSearch = e.description.toLowerCase().contains(_searchQuery) ||
-                            (e.subcategory != null && e.subcategory!.toLowerCase().contains(_searchQuery)) ||
-                            (e.vendorName != null && e.vendorName!.toLowerCase().contains(_searchQuery));
-      final matchesCategory = _categoryFilter == "All" || e.category == _categoryFilter;
+      final matchesSearch =
+          e.description.toLowerCase().contains(_searchQuery) ||
+          (e.subcategory != null &&
+              e.subcategory!.toLowerCase().contains(_searchQuery)) ||
+          (e.vendorName != null &&
+              e.vendorName!.toLowerCase().contains(_searchQuery));
+      final matchesCategory =
+          _categoryFilter == "All" || e.category == _categoryFilter;
       return matchesSearch && matchesCategory;
     }).toList();
 
@@ -88,7 +117,7 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
           // Filter Bar
           _buildFilterBar(context),
           const SizedBox(height: 15),
-          
+
           // Expense Table
           Expanded(
             child: Container(
@@ -100,35 +129,136 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: filteredExpenses.isEmpty
-                    ? const Center(child: Text("No operational expenses recorded", style: TextStyle(color: Color(0xFF639922))))
+                    ? const Center(
+                        child: Text(
+                          "No operational expenses recorded",
+                          style: TextStyle(color: Color(0xFF639922)),
+                        ),
+                      )
                     : ListView(
                         children: [
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
-                              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F9F0)),
+                              headingRowColor: WidgetStateProperty.all(
+                                const Color(0xFFF4F9F0),
+                              ),
                               dataRowMinHeight: 48,
                               dataRowMaxHeight: 48,
                               columns: const [
-                                DataColumn(label: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Category", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Subcategory", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Description", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Amount", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Method", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
-                                DataColumn(label: Text("Actions", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A)))),
+                                DataColumn(
+                                  label: Text(
+                                    "Date",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Category",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Subcategory",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Description",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Amount",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Method",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Status",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    "Actions",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF27500A),
+                                    ),
+                                  ),
+                                ),
                               ],
                               rows: filteredExpenses.map((expense) {
                                 return DataRow(
                                   cells: [
-                                    DataCell(Text(_formatDate(expense.expenseDate))),
+                                    DataCell(
+                                      Text(_formatDate(expense.expenseDate)),
+                                    ),
                                     DataCell(Text(expense.category)),
-                                    DataCell(Text(expense.subcategory != null && expense.subcategory!.isNotEmpty ? expense.subcategory! : "—")),
-                                    DataCell(Text(expense.description, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                    DataCell(Text("₹${expense.totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold))),
-                                    DataCell(Text(expense.paymentDetails.paymentMethod)),
-                                    DataCell(_buildStatusBadge(expense.paymentDetails.paymentStatus)),
+                                    DataCell(
+                                      Text(
+                                        expense.subcategory != null &&
+                                                expense.subcategory!.isNotEmpty
+                                            ? expense.subcategory!
+                                            : "—",
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Text(
+                                        expense.description,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Text(
+                                        "₹${expense.totalAmount.toStringAsFixed(2)}",
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Text(
+                                        expense.paymentDetails.paymentMethod,
+                                      ),
+                                    ),
+                                    DataCell(
+                                      _buildStatusBadge(
+                                        expense.paymentDetails.paymentStatus,
+                                      ),
+                                    ),
                                     DataCell(_buildActionButtons(expense)),
                                   ],
                                 );
@@ -162,38 +292,59 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: "Search description, subcategory, or vendor...",
-                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF639922), size: 20),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFF639922),
+                  size: 20,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 12,
+                ),
                 fillColor: const Color(0xFFF4F9F0),
                 filled: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFC0DD97),
+                    width: 0.5,
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFC0DD97),
+                    width: 0.5,
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF3B6D11), width: 1.0),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF3B6D11),
+                    width: 1.0,
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 15),
-          
+
           // Category filter dropdown
           Expanded(
             flex: 2,
             child: DropdownButtonFormField<String>(
-              value: _categoryFilter,
+              initialValue: _categoryFilter,
               decoration: const InputDecoration(
                 labelText: "Category Filter",
                 labelStyle: TextStyle(color: Color(0xFF3B6D11), fontSize: 12),
-                contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 10),
+                contentPadding: EdgeInsets.symmetric(
+                  vertical: 4,
+                  horizontal: 10,
+                ),
               ),
-              items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              items: _categories
+                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                  .toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _categoryFilter = val);
               },
@@ -210,7 +361,9 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
               backgroundColor: const Color(0xFF3B6D11),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],
@@ -252,17 +405,29 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: const Icon(Icons.visibility_outlined, color: Color(0xFF3B6D11), size: 18),
+          icon: const Icon(
+            Icons.visibility_outlined,
+            color: Color(0xFF3B6D11),
+            size: 18,
+          ),
           tooltip: "View Details",
           onPressed: () => _viewExpenseDetails(expense),
         ),
         IconButton(
-          icon: const Icon(Icons.edit_rounded, color: Color(0xFF639922), size: 18),
+          icon: const Icon(
+            Icons.edit_rounded,
+            color: Color(0xFF639922),
+            size: 18,
+          ),
           tooltip: "Edit Record",
           onPressed: () => _showFormDialog(context, expense: expense),
         ),
         IconButton(
-          icon: const Icon(Icons.delete_rounded, color: Color(0xFFC62828), size: 18),
+          icon: const Icon(
+            Icons.delete_rounded,
+            color: Color(0xFFC62828),
+            size: 18,
+          ),
           tooltip: "Delete Record",
           onPressed: () => _confirmDelete(expense),
         ),
@@ -275,7 +440,9 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Delete Expense Record"),
-        content: Text("Are you sure you want to permanently delete this operational expense for '${expense.category}'?"),
+        content: Text(
+          "Are you sure you want to permanently delete this operational expense for '${expense.category}'?",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -287,11 +454,17 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Expense successfully deleted'), backgroundColor: Color(0xFF3B6D11)),
+                  const SnackBar(
+                    content: Text('Expense successfully deleted'),
+                    backgroundColor: Color(0xFF3B6D11),
+                  ),
                 );
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFC62828), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC62828),
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Delete"),
           ),
         ],
@@ -317,30 +490,66 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDetailRow("Expense Date", _formatDate(expense.expenseDate)),
+                _buildDetailRow(
+                  "Expense Date",
+                  _formatDate(expense.expenseDate),
+                ),
                 _buildDetailRow("Category", expense.category),
-                _buildDetailRow("Subcategory", expense.subcategory != null && expense.subcategory!.isNotEmpty ? expense.subcategory! : "—"),
+                _buildDetailRow(
+                  "Subcategory",
+                  expense.subcategory != null && expense.subcategory!.isNotEmpty
+                      ? expense.subcategory!
+                      : "—",
+                ),
                 _buildDetailRow("Description", expense.description),
-                _buildDetailRow("Linked Vendor", expense.vendorName != null && expense.vendorName!.isNotEmpty ? expense.vendorName! : "No Registered Vendor Linked"),
-                _buildDetailRow("Total Paid Amount", "₹${expense.totalAmount.toStringAsFixed(2)}"),
-                
+                _buildDetailRow(
+                  "Linked Vendor",
+                  expense.vendorName != null && expense.vendorName!.isNotEmpty
+                      ? expense.vendorName!
+                      : "No Registered Vendor Linked",
+                ),
+                _buildDetailRow(
+                  "Total Paid Amount",
+                  "₹${expense.totalAmount.toStringAsFixed(2)}",
+                ),
+
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Divider(color: Color(0xFFC0DD97)),
                 ),
-                const Text("Payment Information", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A), fontSize: 13.5)),
+                const Text(
+                  "Payment Information",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF27500A),
+                    fontSize: 13.5,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                
+
                 _buildDetailRow("Payment Method", pd.paymentMethod),
                 _buildDetailRow("Payment Status", pd.paymentStatus),
-                if (pd.paymentDate != null) _buildDetailRow("Payment Date", _formatDate(pd.paymentDate!)),
-                if (pd.bankName != null && pd.bankName!.isNotEmpty) _buildDetailRow("Bank Name", pd.bankName!),
-                if (pd.transactionId != null && pd.transactionId!.isNotEmpty) _buildDetailRow("UTR / Transaction ID", pd.transactionId!),
-                if (pd.cashVoucherNumber != null && pd.cashVoucherNumber!.isNotEmpty) _buildDetailRow("Cash Voucher No", pd.cashVoucherNumber!),
-                if (pd.receivedBy != null && pd.receivedBy!.isNotEmpty) _buildDetailRow("Cash Received By", pd.receivedBy!),
-                if (pd.chequeNumber != null && pd.chequeNumber!.isNotEmpty) _buildDetailRow("Cheque Number", pd.chequeNumber!),
-                if (pd.chequeDate != null) _buildDetailRow("Cheque Date", _formatDate(pd.chequeDate!)),
-                if (pd.chequeClearanceStatus != null && pd.chequeClearanceStatus!.isNotEmpty) _buildDetailRow("Clearance Status", pd.chequeClearanceStatus!),
+                if (pd.paymentDate != null)
+                  _buildDetailRow("Payment Date", _formatDate(pd.paymentDate!)),
+                if (pd.bankName != null && pd.bankName!.isNotEmpty)
+                  _buildDetailRow("Bank Name", pd.bankName!),
+                if (pd.transactionId != null && pd.transactionId!.isNotEmpty)
+                  _buildDetailRow("UTR / Transaction ID", pd.transactionId!),
+                if (pd.cashVoucherNumber != null &&
+                    pd.cashVoucherNumber!.isNotEmpty)
+                  _buildDetailRow("Cash Voucher No", pd.cashVoucherNumber!),
+                if (pd.receivedBy != null && pd.receivedBy!.isNotEmpty)
+                  _buildDetailRow("Cash Received By", pd.receivedBy!),
+                if (pd.chequeNumber != null && pd.chequeNumber!.isNotEmpty)
+                  _buildDetailRow("Cheque Number", pd.chequeNumber!),
+                if (pd.chequeDate != null)
+                  _buildDetailRow("Cheque Date", _formatDate(pd.chequeDate!)),
+                if (pd.chequeClearanceStatus != null &&
+                    pd.chequeClearanceStatus!.isNotEmpty)
+                  _buildDetailRow(
+                    "Clearance Status",
+                    pd.chequeClearanceStatus!,
+                  ),
               ],
             ),
           ),
@@ -348,7 +557,10 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Close"),
           ),
         ],
@@ -364,10 +576,20 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
         children: [
           SizedBox(
             width: 150,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF639922), fontSize: 12.5)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF639922),
+                fontSize: 12.5,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(color: Colors.black87, fontSize: 12.5)),
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.black87, fontSize: 12.5),
+            ),
           ),
         ],
       ),
@@ -376,31 +598,48 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
 
   void _showFormDialog(BuildContext context, {ExpenseEntryModel? expense}) {
     final formKey = GlobalKey<FormState>();
-    
+
     final descCtrl = TextEditingController(text: expense?.description ?? "");
     final subcatCtrl = TextEditingController(text: expense?.subcategory ?? "");
-    final amountCtrl = TextEditingController(text: expense?.totalAmount.toString() ?? "");
-    
-    final bankCtrl = TextEditingController(text: expense?.paymentDetails.bankName ?? "");
-    final transactionCtrl = TextEditingController(text: expense?.paymentDetails.transactionId ?? "");
-    final voucherCtrl = TextEditingController(text: expense?.paymentDetails.cashVoucherNumber ?? "");
-    final receivedByCtrl = TextEditingController(text: expense?.paymentDetails.receivedBy ?? "");
-    final chequeNumCtrl = TextEditingController(text: expense?.paymentDetails.chequeNumber ?? "");
+    final amountCtrl = TextEditingController(
+      text: expense?.totalAmount.toString() ?? "",
+    );
+
+    final bankCtrl = TextEditingController(
+      text: expense?.paymentDetails.bankName ?? "",
+    );
+    final transactionCtrl = TextEditingController(
+      text: expense?.paymentDetails.transactionId ?? "",
+    );
+    final voucherCtrl = TextEditingController(
+      text: expense?.paymentDetails.cashVoucherNumber ?? "",
+    );
+    final receivedByCtrl = TextEditingController(
+      text: expense?.paymentDetails.receivedBy ?? "",
+    );
+    final chequeNumCtrl = TextEditingController(
+      text: expense?.paymentDetails.chequeNumber ?? "",
+    );
 
     DateTime expenseDate = expense?.expenseDate ?? DateTime.now();
     DateTime? chequeDate = expense?.paymentDetails.chequeDate;
 
-    String selectedCategory = expense?.category ?? _categories.where((c) => c != "All").first;
-    
+    String selectedCategory =
+        expense?.category ?? _categories.where((c) => c != "All").first;
+
     // Optional vendor linkage
-    VendorModel? selectedVendor = _vendors.isNotEmpty 
-        ? _vendors.firstWhere((v) => v.id == expense?.vendorId, orElse: () => _vendors.first)
+    VendorModel? selectedVendor = _vendors.isNotEmpty
+        ? _vendors.firstWhere(
+            (v) => v.id == expense?.vendorId,
+            orElse: () => _vendors.first,
+          )
         : null;
     bool enableVendor = expense?.vendorId != null;
 
     String paymentMethod = expense?.paymentDetails.paymentMethod ?? "Cash";
     String paymentStatus = expense?.paymentDetails.paymentStatus ?? "Paid";
-    String chequeStatus = expense?.paymentDetails.chequeClearanceStatus ?? "Pending";
+    String chequeStatus =
+        expense?.paymentDetails.chequeClearanceStatus ?? "Pending";
 
     showDialog(
       context: context,
@@ -408,7 +647,11 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(expense == null ? "Record Operational Expense" : "Edit Expense Details"),
+              title: Text(
+                expense == null
+                    ? "Record Operational Expense"
+                    : "Edit Expense Details",
+              ),
               content: SizedBox(
                 width: 580,
                 child: Form(
@@ -430,11 +673,15 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                                     lastDate: DateTime(2030),
                                   );
                                   if (selected != null) {
-                                    setDialogState(() => expenseDate = selected);
+                                    setDialogState(
+                                      () => expenseDate = selected,
+                                    );
                                   }
                                 },
                                 child: InputDecorator(
-                                  decoration: const InputDecoration(labelText: "Expense Date"),
+                                  decoration: const InputDecoration(
+                                    labelText: "Expense Date",
+                                  ),
                                   child: Text(_formatDate(expenseDate)),
                                 ),
                               ),
@@ -442,15 +689,24 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: DropdownButtonFormField<String>(
-                                value: selectedCategory,
-                                decoration: const InputDecoration(labelText: "Expense Category *"),
+                                initialValue: selectedCategory,
+                                decoration: const InputDecoration(
+                                  labelText: "Expense Category *",
+                                ),
                                 items: _categories
                                     .where((c) => c != "All")
-                                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                    .map(
+                                      (c) => DropdownMenuItem(
+                                        value: c,
+                                        child: Text(c),
+                                      ),
+                                    )
                                     .toList(),
                                 onChanged: (val) {
                                   if (val != null) {
-                                    setDialogState(() => selectedCategory = val);
+                                    setDialogState(
+                                      () => selectedCategory = val,
+                                    );
                                   }
                                 },
                               ),
@@ -464,16 +720,26 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                             Expanded(
                               child: TextFormField(
                                 controller: subcatCtrl,
-                                decoration: const InputDecoration(labelText: "Subcategory / Label (Optional)"),
+                                decoration: const InputDecoration(
+                                  labelText: "Subcategory / Label (Optional)",
+                                ),
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: TextFormField(
                                 controller: amountCtrl,
-                                decoration: const InputDecoration(labelText: "Total Bill Amount (₹) *"),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                validator: (val) => val == null || double.tryParse(val) == null ? "Enter valid bill amount" : null,
+                                decoration: const InputDecoration(
+                                  labelText: "Total Bill Amount (₹) *",
+                                ),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                validator: (val) =>
+                                    val == null || double.tryParse(val) == null
+                                    ? "Enter valid bill amount"
+                                    : null,
                               ),
                             ),
                           ],
@@ -483,21 +749,35 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                         // Vendor Link Switch
                         Row(
                           children: [
-                            const Text("Link Registered Vendor", style: TextStyle(fontSize: 12, color: Color(0xFF27500A), fontWeight: FontWeight.w600)),
+                            const Text(
+                              "Link Registered Vendor",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF27500A),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             const SizedBox(width: 10),
                             Switch(
                               value: enableVendor,
-                              activeColor: const Color(0xFF3B6D11),
+                              activeThumbColor: const Color(0xFF3B6D11),
                               onChanged: (val) {
                                 if (_vendors.isEmpty && val) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('No registered vendors found!'), backgroundColor: Color(0xFFC62828)),
+                                    const SnackBar(
+                                      content: Text(
+                                        'No registered vendors found!',
+                                      ),
+                                      backgroundColor: Color(0xFFC62828),
+                                    ),
                                   );
                                   return;
                                 }
                                 setDialogState(() {
                                   enableVendor = val;
-                                  if (val && selectedVendor == null && _vendors.isNotEmpty) {
+                                  if (val &&
+                                      selectedVendor == null &&
+                                      _vendors.isNotEmpty) {
                                     selectedVendor = _vendors.first;
                                   }
                                 });
@@ -505,13 +785,22 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                             ),
                           ],
                         ),
-                        
+
                         if (enableVendor && selectedVendor != null) ...[
                           const SizedBox(height: 5),
                           DropdownButtonFormField<VendorModel>(
-                            value: selectedVendor,
-                            decoration: const InputDecoration(labelText: "Select Supplier Vendor"),
-                            items: _vendors.map((v) => DropdownMenuItem(value: v, child: Text(v.name))).toList(),
+                            initialValue: selectedVendor,
+                            decoration: const InputDecoration(
+                              labelText: "Select Supplier Vendor",
+                            ),
+                            items: _vendors
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(v.name),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (val) {
                               if (val != null) {
                                 setDialogState(() => selectedVendor = val);
@@ -519,31 +808,60 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                             },
                           ),
                         ],
-                        
+
                         const SizedBox(height: 10),
                         TextFormField(
                           controller: descCtrl,
-                          decoration: const InputDecoration(labelText: "Payment Description / Notes *"),
+                          decoration: const InputDecoration(
+                            labelText: "Payment Description / Notes *",
+                          ),
                           maxLines: 2,
-                          validator: (val) => val == null || val.isEmpty ? "Enter expense description" : null,
+                          validator: (val) => val == null || val.isEmpty
+                              ? "Enter expense description"
+                              : null,
                         ),
 
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 10),
                           child: Divider(color: Color(0xFFC0DD97)),
                         ),
-                        
-                        const Text("Payment Settlement", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF27500A), fontSize: 13)),
+
+                        const Text(
+                          "Payment Settlement",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF27500A),
+                            fontSize: 13,
+                          ),
+                        ),
                         const SizedBox(height: 10),
 
                         Row(
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<String>(
-                                value: paymentMethod,
-                                decoration: const InputDecoration(labelText: "Payment Method"),
-                                items: ["Cash", "Cheque", "UPI", "NEFT / RTGS / IMPS", "Bank Transfer", "Credit Card", "Debit Card", "Other"]
-                                    .map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                                initialValue: paymentMethod,
+                                decoration: const InputDecoration(
+                                  labelText: "Payment Method",
+                                ),
+                                items:
+                                    [
+                                          "Cash",
+                                          "Cheque",
+                                          "UPI",
+                                          "NEFT / RTGS / IMPS",
+                                          "Bank Transfer",
+                                          "Credit Card",
+                                          "Debit Card",
+                                          "Other",
+                                        ]
+                                        .map(
+                                          (m) => DropdownMenuItem(
+                                            value: m,
+                                            child: Text(m),
+                                          ),
+                                        )
+                                        .toList(),
                                 onChanged: (val) {
                                   if (val != null) {
                                     setDialogState(() => paymentMethod = val);
@@ -554,10 +872,18 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: DropdownButtonFormField<String>(
-                                value: paymentStatus,
-                                decoration: const InputDecoration(labelText: "Payment Status"),
+                                initialValue: paymentStatus,
+                                decoration: const InputDecoration(
+                                  labelText: "Payment Status",
+                                ),
                                 items: ["Paid", "Pending", "Partial"]
-                                    .map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                    .map(
+                                      (s) => DropdownMenuItem(
+                                        value: s,
+                                        child: Text(s),
+                                      ),
+                                    )
+                                    .toList(),
                                 onChanged: (val) {
                                   if (val != null) {
                                     setDialogState(() => paymentStatus = val);
@@ -576,8 +902,12 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                               Expanded(
                                 child: TextFormField(
                                   controller: chequeNumCtrl,
-                                  decoration: const InputDecoration(labelText: "Cheque Number"),
-                                  validator: (val) => val == null || val.isEmpty ? "Enter cheque no" : null,
+                                  decoration: const InputDecoration(
+                                    labelText: "Cheque Number",
+                                  ),
+                                  validator: (val) => val == null || val.isEmpty
+                                      ? "Enter cheque no"
+                                      : null,
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -591,12 +921,20 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                                       lastDate: DateTime(2030),
                                     );
                                     if (selected != null) {
-                                      setDialogState(() => chequeDate = selected);
+                                      setDialogState(
+                                        () => chequeDate = selected,
+                                      );
                                     }
                                   },
                                   child: InputDecorator(
-                                    decoration: const InputDecoration(labelText: "Cheque Date"),
-                                    child: Text(chequeDate != null ? _formatDate(chequeDate!) : "Select Date"),
+                                    decoration: const InputDecoration(
+                                      labelText: "Cheque Date",
+                                    ),
+                                    child: Text(
+                                      chequeDate != null
+                                          ? _formatDate(chequeDate!)
+                                          : "Select Date",
+                                    ),
                                   ),
                                 ),
                               ),
@@ -604,9 +942,18 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                           ),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            value: chequeStatus,
-                            decoration: const InputDecoration(labelText: "Cheque Clearance Status"),
-                            items: ["Pending", "Cleared", "Bounced"].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                            initialValue: chequeStatus,
+                            decoration: const InputDecoration(
+                              labelText: "Cheque Clearance Status",
+                            ),
+                            items: ["Pending", "Cleared", "Bounced"]
+                                .map(
+                                  (s) => DropdownMenuItem(
+                                    value: s,
+                                    child: Text(s),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (val) {
                               if (val != null) {
                                 setDialogState(() => chequeStatus = val);
@@ -619,33 +966,45 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                               Expanded(
                                 child: TextFormField(
                                   controller: voucherCtrl,
-                                  decoration: const InputDecoration(labelText: "Cash Voucher Number"),
+                                  decoration: const InputDecoration(
+                                    labelText: "Cash Voucher Number",
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: TextFormField(
                                   controller: receivedByCtrl,
-                                  decoration: const InputDecoration(labelText: "Received By"),
+                                  decoration: const InputDecoration(
+                                    labelText: "Received By",
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        ] else if (paymentMethod == "UPI" || paymentMethod.contains("Bank") || paymentMethod.contains("NEFT")) ...[
+                        ] else if (paymentMethod == "UPI" ||
+                            paymentMethod.contains("Bank") ||
+                            paymentMethod.contains("NEFT")) ...[
                           Row(
                             children: [
                               Expanded(
                                 child: TextFormField(
                                   controller: bankCtrl,
-                                  decoration: const InputDecoration(labelText: "Bank Name"),
+                                  decoration: const InputDecoration(
+                                    labelText: "Bank Name",
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: TextFormField(
                                   controller: transactionCtrl,
-                                  decoration: const InputDecoration(labelText: "UTR / Transaction ID"),
-                                  validator: (val) => val == null || val.isEmpty ? "Enter transaction id" : null,
+                                  decoration: const InputDecoration(
+                                    labelText: "UTR / Transaction ID",
+                                  ),
+                                  validator: (val) => val == null || val.isEmpty
+                                      ? "Enter transaction id"
+                                      : null,
                                 ),
                               ),
                             ],
@@ -657,7 +1016,10 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel"),
+                ),
                 ElevatedButton(
                   onPressed: () async {
                     if (formKey.currentState!.validate()) {
@@ -684,8 +1046,12 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                         category: selectedCategory,
                         subcategory: subcatCtrl.text.trim(),
                         description: descCtrl.text.trim(),
-                        vendorId: enableVendor && selectedVendor != null ? selectedVendor!.id : null,
-                        vendorName: enableVendor && selectedVendor != null ? selectedVendor!.name : null,
+                        vendorId: enableVendor && selectedVendor != null
+                            ? selectedVendor!.id
+                            : null,
+                        vendorName: enableVendor && selectedVendor != null
+                            ? selectedVendor!.name
+                            : null,
                         totalAmount: total,
                         paymentDetails: paymentDetails,
                         createdBy: "Admin",
@@ -704,14 +1070,21 @@ class _ExpenseEntriesTabState extends State<ExpenseEntriesTab> {
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(expense == null ? 'Expense successfully recorded.' : 'Expense successfully updated.'),
+                            content: Text(
+                              expense == null
+                                  ? 'Expense successfully recorded.'
+                                  : 'Expense successfully updated.',
+                            ),
                             backgroundColor: const Color(0xFF3B6D11),
                           ),
                         );
                       }
                     }
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3B6D11),
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text("Save"),
                 ),
               ],

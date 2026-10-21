@@ -45,15 +45,17 @@ class _StayHistoryTabState extends State<StayHistoryTab> {
   Widget build(BuildContext context) => StreamBuilder<List<StayModel>>(
     stream: stream,
     builder: (context, snapshot) {
-      if (snapshot.hasError)
+      if (snapshot.hasError) {
         return Center(
           child: Text('Could not load stay history: ${snapshot.error}'),
         );
-      if (!snapshot.hasData)
+      }
+      if (!snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
+      }
       final stays = [...snapshot.data!]
         ..sort((a, b) => b.admissionDate.compareTo(a.admissionDate));
-      if (stays.isEmpty)
+      if (stays.isEmpty) {
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -71,6 +73,7 @@ class _StayHistoryTabState extends State<StayHistoryTab> {
             ],
           ),
         );
+      }
       final currentCycle = StayBilling.currentCycle(widget.patient);
       final activeAdmission =
           widget.patient.status.toLowerCase() != 'discharged';

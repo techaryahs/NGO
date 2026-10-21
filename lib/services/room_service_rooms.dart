@@ -166,10 +166,11 @@ extension RoomServiceRooms on RoomService {
     String? notes,
   }) async {
     try {
-      if (floor < 1 || floor > 2)
+      if (floor < 1 || floor > 2) {
         throw Exception(
           'Invalid floor: Only Floor 1 and Floor 2 are supported',
         );
+      }
 
       final upperIdentifier = roomIdentifier.toUpperCase();
       if (!RoomModel.validateIdentifierForFloor(upperIdentifier, floor)) {
@@ -185,8 +186,9 @@ extension RoomServiceRooms on RoomService {
       final List<BedModel> beds = [];
       if (roomType == 'general') {
         if (bedLabels != null && bedLabels.isNotEmpty) {
-          for (final label in bedLabels)
+          for (final label in bedLabels) {
             beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
+          }
         } else {
           final bedCount =
               totalBeds ?? parseIntSafe(pricing['generalRoomDefaultBeds'], 6);
@@ -197,12 +199,14 @@ extension RoomServiceRooms on RoomService {
         }
       } else {
         if (bedLabels != null && bedLabels.isNotEmpty) {
-          for (final label in bedLabels)
+          for (final label in bedLabels) {
             beds.add(BedModel.create(roomId: 'temp', bedLabel: label));
+          }
         } else {
           final bedCount = totalBeds ?? 2;
-          for (int i = 1; i <= bedCount; i++)
+          for (int i = 1; i <= bedCount; i++) {
             beds.add(BedModel.create(roomId: 'temp', bedLabel: i.toString()));
+          }
         }
       }
 
@@ -275,8 +279,9 @@ extension RoomServiceRooms on RoomService {
       final roomData = isPostgres
           ? await backendApi!.get('$roomsPath/$roomId')
           : await rtdb.get('$roomsPath/$roomId');
-      if (roomData == null || roomData is! Map)
+      if (roomData == null || roomData is! Map) {
         throw Exception('Room not found');
+      }
 
       final room = RoomModel.fromMap(
         roomId,
@@ -320,10 +325,11 @@ extension RoomServiceRooms on RoomService {
     try {
       final room = await getRoom(roomId);
       if (room == null) throw Exception('Room not found');
-      if (room.actualOccupiedBeds > 0)
+      if (room.actualOccupiedBeds > 0) {
         throw Exception(
           'Cannot delete room while one or more beds are occupied',
         );
+      }
 
       final staysData = isPostgres
           ? await backendApi!.get(
@@ -337,8 +343,9 @@ extension RoomServiceRooms on RoomService {
       final hasActiveStay = parseStaysFromData(
         staysData,
       ).any((s) => s.roomId == roomId && s.status == 'active');
-      if (hasActiveStay)
+      if (hasActiveStay) {
         throw Exception('Cannot delete room with active stays');
+      }
 
       if (isPostgres) {
         await backendApi!.delete('$roomsPath/$roomId');

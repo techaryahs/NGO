@@ -74,9 +74,7 @@ class _Sidebar extends StatelessWidget {
       width: 220,
       decoration: const BoxDecoration(
         color: Color(0xFFF4F9F0),
-        border: Border(
-          right: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
-        ),
+        border: Border(right: BorderSide(color: Color(0xFFC0DD97), width: 0.5)),
       ),
       child: Column(
         children: [
@@ -122,7 +120,11 @@ class _SidebarBrand extends StatelessWidget {
               shape: BoxShape.circle,
               border: Border.all(color: const Color(0xFFC0DD97), width: 1.5),
             ),
-            child: const Icon(Icons.eco_rounded, color: Color(0xFF3B6D11), size: 18),
+            child: const Icon(
+              Icons.eco_rounded,
+              color: Color(0xFF3B6D11),
+              size: 18,
+            ),
           ),
           const SizedBox(width: 10),
           Column(
@@ -181,14 +183,18 @@ class _NavTile extends StatelessWidget {
                 Icon(
                   item.icon,
                   size: 18,
-                  color: const Color(0xFF3B6D11).withOpacity(isSelected ? 1.0 : 0.7),
+                  color: const Color(
+                    0xFF3B6D11,
+                  ).withValues(alpha: isSelected ? 1.0 : 0.7),
                 ),
                 const SizedBox(width: 10),
                 Text(
                   item.label,
                   style: TextStyle(
                     fontSize: 13.5,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     color: const Color(0xFF27500A),
                   ),
                 ),
@@ -222,7 +228,10 @@ class _SidebarFooter extends StatelessWidget {
               onTap: () {},
               borderRadius: BorderRadius.circular(10),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     CircleAvatar(
@@ -251,7 +260,10 @@ class _SidebarFooter extends StatelessWidget {
                         ),
                         const Text(
                           "Staff member",
-                          style: TextStyle(fontSize: 11, color: Color(0xFF639922)),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF639922),
+                          ),
                         ),
                       ],
                     ),
@@ -292,7 +304,9 @@ class _TopBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: const BoxDecoration(
         color: Color(0xFFFAFDf7),
-        border: Border(bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5)),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -314,7 +328,10 @@ class _TopBar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: const Color(0xFFEAF3DE),
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
+                  border: Border.all(
+                    color: const Color(0xFFC0DD97),
+                    width: 0.5,
+                  ),
                 ),
                 child: const Icon(
                   Icons.notifications_outlined,

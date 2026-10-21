@@ -1,0 +1,1286 @@
+
+> ngo-backend@1.0.0 test:postgres
+> node scripts/test-postgres.mjs
+
+The files belonging to this database system will be owned by user "sahil".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory C:/Users/sahil/AppData/Local/Temp/ngo-audit-pg16-release-ZPC78J/ngo-audit-pg16-cluster ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... windows
+selecting default max_connections ... 100
+selecting default shared_buffers ... 128MB
+selecting default time zone ... Asia/Calcutta
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    ^"C^:^\Program^ Files^\PostgreSQL^\16^\bin^\pg^_ctl^" -D ^"C^:^\Users^\sahil^\AppData^\Local^\Temp^\ngo^-audit^-pg16^-release^-ZPC78J^\ngo^-audit^-pg16^-cluster^" -l logfile start
+
+waiting for server to start.... done
+server started
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+ ✓ tests/billing_pricing.test.ts (17 tests) 61ms
+ ✓ tests/firebase_verifier.test.ts (10 tests) 86ms
+{"level":30,"time":1792575348595,"pid":22212,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/patients","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575348709,"pid":22212,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/patients","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575348772,"pid":22212,"hostname":"Evo08","reqId":"req-1","req":{"method":"DELETE","url":"/api/patients/p_123","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575348893,"pid":22212,"hostname":"Evo08","reqId":"req-1","req":{"method":"POST","url":"/api/counters/registrationNumber/next","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+ ✓ tests/attendance_identity_isolation.test.ts (2 tests) 413ms
+{"level":30,"time":1792575348978,"pid":22212,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/rooms","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575348628,"pid":22212,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":401},"responseTime":15.994899988174438,"msg":"request completed"}
+{"level":30,"time":1792575348727,"pid":22212,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":17.450899958610535,"msg":"request completed"}
+{"level":30,"time":1792575348774,"pid":22212,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":403},"responseTime":1.4661999940872192,"msg":"request completed"}
+{"level":30,"time":1792575348895,"pid":22212,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":1.7384999990463257,"msg":"request completed"}
+{"level":30,"time":1792575348980,"pid":22212,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":2.2614001035690308,"msg":"request completed"}
+ ✓ tests/domain_routes.test.ts (5 tests) 602ms
+ ✓ tests/patient_deletion.test.ts (7 tests) 813ms
+ ✓ tests/refund_fix.test.ts (11 tests) 738ms
+ ✓ tests/security_audit.test.ts (22 tests) 1115ms
+ ✓ tests/importer.test.ts (9 tests) 91ms
+ ✓ tests/config.test.ts (10 tests) 19ms
+ ✓ tests/auth.test.ts (32 tests) 1765ms
+{"level":30,"time":1792575350896,"pid":14164,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/health","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575350920,"pid":14164,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/health","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575350935,"pid":14164,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/ready","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575350953,"pid":14164,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/ready","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575350972,"pid":14164,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792575350902,"pid":14164,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":4.024500012397766,"msg":"request completed"}
+{"level":30,"time":1792575350921,"pid":14164,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.5870000123977661,"msg":"request completed"}
+{"level":30,"time":1792575350935,"pid":14164,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.6085000038146973,"msg":"request completed"}
+{"level":30,"time":1792575350953,"pid":14164,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":503},"responseTime":0.5845000743865967,"msg":"request completed"}
+{"level":30,"time":1792575350972,"pid":14164,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.5579999685287476,"msg":"request completed"}
+ ✓ tests/health.test.ts (5 tests) 129ms
+
+ Test Files  11 passed (11)
+      Tests  130 passed (130)
+   Start at  15:05:45
+   Duration  5.28s (transform 1.52s, setup 0ms, collect 14.55s, tests 5.83s, environment 4ms, prepare 3.50s)
+
+
+DISPOSABLE_SUITE workflows
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_workflows...
+
+stderr | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows
+Migrations (up) completed successfully.
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows > fresh migration creates all 17 domain tables, is rerunnable and records status
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_workflows...
+
+stderr | tests/workflows.integration.test.ts > real PostgreSQL API workflows > fresh migration creates all 17 domain tables, is rerunnable and records status
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows > fresh migration creates all 17 domain tables, is rerunnable and records status
+No migrations to run!
+Migrations (up) completed successfully.
+
+stderr | tests/workflows.integration.test.ts > real PostgreSQL API workflows > lost database connection is replaced and a saturated pool times out without leaks
+Unexpected error on idle PostgreSQL client pool { code: '57P01' }
+
+stdout | tests/workflows.integration.test.ts > real PostgreSQL API workflows > measures before/after workflow latency against real PostgreSQL 16
+{"benchmark":"PG16_FASTIFY_WORKFLOWS_MS","regBeforeMs":36.19,"regAfterMs":8.45,"patientsGetMs":6.45,"roomsGetMs":1.89,"attBeforeMs":13.72,"attAfterMs":1.66,"payMs":7.71,"disBeforeMs":20.48,"disAfterMs":10.03}
+
+ ✓ tests/workflows.integration.test.ts (42 tests) 9634ms
+   ✓ real PostgreSQL API workflows > planned October admission and extension never initialize attendance, including legacy registration payloads 345ms
+   ✓ real PostgreSQL API workflows > patient deletion and concurrent admission use a consistent lock order without deadlock 314ms
+   ✓ real PostgreSQL API workflows > lost database connection is replaced and a saturated pool times out without leaks 330ms
+   ✓ real PostgreSQL API workflows > measures before/after workflow latency against real PostgreSQL 16 346ms
+
+ Test Files  1 passed (1)
+      Tests  42 passed (42)
+   Start at  15:05:51
+   Duration  11.43s (transform 386ms, setup 0ms, collect 1.11s, tests 9.63s, environment 0ms, prepare 255ms)
+
+
+DISPOSABLE_SUITE modules
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_modules...
+
+stderr | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 003
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/modules.integration.test.ts > Modules: real PostgreSQL API integration
+Migrations (up) completed successfully.
+
+ ✓ tests/modules.integration.test.ts (41 tests) 1458ms
+
+ Test Files  1 passed (1)
+      Tests  41 passed (41)
+   Start at  15:06:03
+   Duration  3.28s (transform 379ms, setup 0ms, collect 1.20s, tests 1.46s, environment 0ms, prepare 214ms)
+
+
+DISPOSABLE_SUITE importer
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_importer...
+
+stderr | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+Can't determine timestamp for 003
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 008
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 009
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+### MIGRATION 008_registration_identity (UP) ###
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/importer.integration.test.ts > Firebase importer with disposable PostgreSQL 16
+Migrations (up) completed successfully.
+
+ ✓ tests/importer.integration.test.ts (22 tests) 5550ms
+   ✓ Firebase importer with disposable PostgreSQL 16 > does not invent a patient name when a required legacy field is missing 312ms
+   ✓ Firebase importer with disposable PostgreSQL 16 > preserves distinct legacy split receipts sharing reference same_transaction (migration 009) 310ms
+   ✓ Firebase importer with disposable PostgreSQL 16 > preserves distinct legacy split receipts sharing reference MANUAL_ONLINE (migration 009) 332ms
+   ✓ Firebase importer with disposable PostgreSQL 16 > reimports corrected non-ledger source fields instead of silently retaining stale profile and stay values 324ms
+   ✓ Firebase importer with disposable PostgreSQL 16 > imports a maximum-length patient identity with stable schema-compatible attendant IDs 331ms
+
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+   Start at  15:06:07
+   Duration  6.50s (transform 148ms, setup 0ms, collect 330ms, tests 5.55s, environment 0ms, prepare 189ms)
+
+
+DISPOSABLE_SUITE payment_financial
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_payment_accuracy...
+
+stderr | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 009
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/payment_financial.integration.test.ts > isolated PostgreSQL payment financial accuracy
+Migrations (up) completed successfully.
+
+ ✓ tests/payment_financial.integration.test.ts (36 tests) 8500ms
+   ✓ isolated PostgreSQL payment financial accuracy > identical concurrent refund retries return one canonical ledger record 312ms
+   ✓ isolated PostgreSQL payment financial accuracy > refund edits and deletion reverse refunded totals and preserve billed charges 310ms
+   ✓ isolated PostgreSQL payment financial accuracy > historical refunds update their cycle and aggregates without restating current admission 315ms
+
+ Test Files  1 passed (1)
+      Tests  36 passed (36)
+   Start at  15:06:14
+   Duration  10.46s (transform 389ms, setup 0ms, collect 1.27s, tests 8.50s, environment 0ms, prepare 217ms)
+
+
+DISPOSABLE_SUITE scalability
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_scale...
+
+stderr | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 006
+Can't determine timestamp for 009
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence
+Migrations (up) completed successfully.
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence > 1000 patients: complete paginated reads, financial totals, filtered history and bounded concurrent reads
+SCALE_STAGE {"counts":{"patients":1000,"attendants":1000,"payments":5000,"stays":2000,"attendance":30000},"seedMs":1781.13,"measurements":[{"name":"patients-default","url":"/patients?format=map","repetitions":3,"minMs":50.57,"medianMs":51.37,"maxMs":63.88,"bytes":1572521,"queriesPerRequest":4},{"name":"payments-default","url":"/payments?format=map","repetitions":3,"minMs":7.57,"medianMs":7.59,"maxMs":8.91,"bytes":182521,"queriesPerRequest":2},{"name":"patients-page-50","url":"/patients?limit=50","repetitions":3,"minMs":7.71,"medianMs":9.72,"maxMs":13.91,"bytes":156570,"queriesPerRequest":4},{"name":"patients-page-500","url":"/patients?limit=500","repetitions":3,"minMs":51.09,"medianMs":53.85,"maxMs":60.32,"bytes":1565520,"queriesPerRequest":4},{"name":"patients-page-max","url":"/patients?limit=5000","repetitions":3,"minMs":101.15,"medianMs":104.34,"maxMs":113.59,"bytes":3128968,"queriesPerRequest":4},{"name":"patient-exact-search","url":"/patients?search=Patient%2001000","repetitions":3,"minMs":3.41,"medianMs":3.72,"maxMs":8.37,"bytes":3151,"queriesPerRequest":4},{"name":"stays-complete","url":"/stays?format=map","repetitions":2,"minMs":45.26,"medianMs":45.26,"maxMs":48.89,"bytes":1577145,"queriesPerRequest":2},{"name":"attendance-day","url":"/attendance?date=2026-01-15&kind=attendance&format=map","repetitions":2,"minMs":7.5,"medianMs":7.5,"maxMs":8.98,"bytes":88787,"queriesPerRequest":2},{"name":"attendance-month","url":"/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map","repetitions":2,"minMs":194.31,"medianMs":194.31,"maxMs":220.24,"bytes":2664031,"queriesPerRequest":2}],"patientLoad":{"requests":3,"uniquePatients":1000,"bytes":3142864,"durationMs":137.36},"cursorPatientLoad":{"requests":2,"uniquePatients":1000,"bytes":3142862,"durationMs":126.36},"paymentLoad":{"requests":2,"uniquePayments":5000,"totalCents":50000,"bytes":1733398,"durationMs":127.55},"concurrent":[{"pageSize":50,"concurrency":20,"requests":20,"status200":20,"totalMs":449.29,"requestsPerSecond":44.51,"medianMs":289.68,"p95Ms":438.85,"bytes":3131400},{"pageSize":500,"concurrency":20,"requests":20,"status200":20,"totalMs":1138.01,"requestsPerSecond":17.57,"medianMs":691.6,"p95Ms":1079.17,"bytes":31310400}],"plans":[{"name":"patient-search","executionMs":0.966,"rootNode":"Limit"},{"name":"attendance-month","executionMs":45.383,"rootNode":"Sort"}],"rssBytesAtEnd":392200192}
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence > 10000 patients: complete paginated reads, financial totals, filtered history and bounded concurrent reads
+SCALE_STAGE {"counts":{"patients":10000,"attendants":10000,"payments":50000,"stays":20000,"attendance":300000},"seedMs":13880.39,"measurements":[{"name":"patients-default","url":"/patients?format=map","repetitions":3,"minMs":66.93,"medianMs":69.2,"maxMs":72.6,"bytes":1582521,"queriesPerRequest":4},{"name":"payments-default","url":"/payments?format=map","repetitions":3,"minMs":9.08,"medianMs":9.21,"maxMs":9.8,"bytes":184521,"queriesPerRequest":2},{"name":"patients-page-50","url":"/patients?limit=50","repetitions":3,"minMs":6.7,"medianMs":6.96,"maxMs":12.26,"bytes":157520,"queriesPerRequest":4},{"name":"patients-page-500","url":"/patients?limit=500","repetitions":3,"minMs":56.79,"medianMs":59,"maxMs":66.93,"bytes":1575020,"queriesPerRequest":4},{"name":"patients-page-max","url":"/patients?limit=5000","repetitions":3,"minMs":426.51,"medianMs":441.7,"maxMs":469.14,"bytes":15750020,"queriesPerRequest":4},{"name":"patient-exact-search","url":"/patients?search=Patient%2010000","repetitions":3,"minMs":11.07,"medianMs":12.03,"maxMs":12.43,"bytes":3170,"queriesPerRequest":4},{"name":"stays-complete","url":"/stays?format=map","repetitions":2,"minMs":460.3,"medianMs":460.3,"maxMs":518.08,"bytes":15851153,"queriesPerRequest":2},{"name":"attendance-day","url":"/attendance?date=2026-01-15&kind=attendance&format=map","repetitions":2,"minMs":76.95,"medianMs":76.95,"maxMs":81.98,"bytes":907789,"queriesPerRequest":2},{"name":"attendance-month","url":"/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map","repetitions":2,"minMs":2077.16,"medianMs":2077.16,"maxMs":2118.76,"bytes":27234091,"queriesPerRequest":2}],"patientLoad":{"requests":21,"uniquePatients":10000,"bytes":31627902,"durationMs":1546.05},"cursorPatientLoad":{"requests":20,"uniquePatients":10000,"bytes":31627900,"durationMs":1345.12},"paymentLoad":{"requests":11,"uniquePayments":50000,"totalCents":500000,"bytes":17483422,"durationMs":1965.5},"concurrent":[{"pageSize":50,"concurrency":20,"requests":20,"status200":20,"totalMs":403.76,"requestsPerSecond":49.53,"medianMs":276.94,"p95Ms":393.24,"bytes":3150400},{"pageSize":500,"concurrency":20,"requests":20,"status200":20,"totalMs":1242.17,"requestsPerSecond":16.1,"medianMs":748.9,"p95Ms":1191.29,"bytes":31500400}],"plans":[{"name":"patient-search","executionMs":10.755,"rootNode":"Limit"},{"name":"attendance-month","executionMs":329.086,"rootNode":"Gather Merge"}],"rssBytesAtEnd":762552320}
+
+stdout | tests/scalability.integration.test.ts > bounded synthetic PostgreSQL scalability evidence > attendance native date ordering and patient filtering remain correct at 300000 records
+SCALE_ATTENDANCE {"capturedAt":"2026-10-21T09:37:26.351Z","counts":{"patients":10000,"attendants":10000,"payments":50000,"stays":20000,"attendance":300000},"seedMs":12481.26,"before":301.141,"after":128.075,"patientPlan":0.083,"patientRequest":{"durationMs":3.04,"bytes":5641,"records":30},"monthRequest":{"durationMs":2195.77,"bytes":27234091,"records":300000},"patientPlanIndexes":["ix_attendance_patient_id"],"note":"Native DATE sorting preserves date strings while avoiding the output text expression; broad reads still return all requested rows."}
+
+ ✓ tests/scalability.integration.test.ts (4 tests) 58555ms
+   ✓ bounded synthetic PostgreSQL scalability evidence > 1000 patients: complete paginated reads, financial totals, filtered history and bounded concurrent reads 6269ms
+   ✓ bounded synthetic PostgreSQL scalability evidence > 10000 patients: complete paginated reads, financial totals, filtered history and bounded concurrent reads 34260ms
+   ✓ bounded synthetic PostgreSQL scalability evidence > cursor pages preserve tied timestamps and microseconds, survive deleted boundary rows, and reject malformed or cross-collection cursors 2075ms
+   ✓ bounded synthetic PostgreSQL scalability evidence > attendance native date ordering and patient filtering remain correct at 300000 records 15500ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  15:06:25
+   Duration  60.46s (transform 372ms, setup 0ms, collect 1.22s, tests 58.56s, environment 0ms, prepare 218ms)
+
+
+DISPOSABLE_SUITE settlement
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_settlement...
+
+stderr | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/settlement.integration.test.ts > isolated registration and settlement regressions
+Migrations (up) completed successfully.
+
+ ✓ tests/settlement.integration.test.ts (13 tests) 4297ms
+   ✓ isolated registration and settlement regressions > different patients competing for a bed never share a stay or partially register 336ms
+   ✓ isolated registration and settlement regressions > discharge rechecks attendance and the ledger after waiting on a conflicting patient write 584ms
+   ✓ isolated registration and settlement regressions > a bed-release failure rolls back stay closure, patient discharge and final billing 537ms
+   ✓ isolated registration and settlement regressions > reading a closed legacy invoice and rejecting an excess refund preserves historical charges 350ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:07:27
+   Duration  6.21s (transform 379ms, setup 0ms, collect 1.21s, tests 4.30s, environment 0ms, prepare 235ms)
+
+
+DISPOSABLE_SUITE auth_database
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_auth...
+
+stderr | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/auth_database.integration.test.ts > Firebase UID boundaries against disposable PostgreSQL
+Migrations (up) completed successfully.
+
+ ✓ tests/auth_database.integration.test.ts (3 tests) 764ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:07:33
+   Duration  3.10s (transform 479ms, setup 0ms, collect 1.70s, tests 764ms, environment 0ms, prepare 229ms)
+
+
+DISPOSABLE_SUITE migrations
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 001_initial_schema
+### MIGRATION 001_initial_schema (UP) ###
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 008_registration_identity (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (up) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+Can't determine timestamp for 002
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 009_widen_payment_ids
+### MIGRATION 009_widen_payment_ids (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 009
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 008_registration_identity
+### MIGRATION 008_registration_identity (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 007_erp_form_details
+### MIGRATION 007_erp_form_details (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 004
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 006_widen_stay_ids
+### MIGRATION 006_widen_stay_ids (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 005_firebase_uid_width
+### MIGRATION 005_firebase_uid_width (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 008
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 004_patient_write_versions
+### MIGRATION 004_patient_write_versions (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 003_preserve_photos_and_payment_retries
+### MIGRATION 003_preserve_photos_and_payment_retries (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+Can't determine timestamp for 002
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 005
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 001
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 002_integrity_hardening
+### MIGRATION 002_integrity_hardening (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (down) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 008
+Can't determine timestamp for 006
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 001_initial_schema
+### MIGRATION 001_initial_schema (DOWN) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (down) completed successfully.
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Running migrations (up) on 127.0.0.1:55439/ngo_audit_migrations...
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 002
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 002
+Can't determine timestamp for 004
+Can't determine timestamp for 003
+Can't determine timestamp for 005
+Can't determine timestamp for 004
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 008
+Can't determine timestamp for 007
+Can't determine timestamp for 009
+Can't determine timestamp for 008
+
+stderr | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Can't determine timestamp for 001
+Can't determine timestamp for 003
+Can't determine timestamp for 004
+Can't determine timestamp for 007
+Can't determine timestamp for 006
+Can't determine timestamp for 005
+Can't determine timestamp for 008
+Can't determine timestamp for 009
+Can't determine timestamp for 002
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+> Migrating files:
+> - 001_initial_schema
+> - 002_integrity_hardening
+> - 003_preserve_photos_and_payment_retries
+> - 004_patient_write_versions
+> - 005_firebase_uid_width
+> - 006_widen_stay_ids
+> - 007_erp_form_details
+> - 008_registration_identity
+> - 009_widen_payment_ids
+### MIGRATION 001_initial_schema (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 002_integrity_hardening (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 003_preserve_photos_and_payment_retries (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 004_patient_write_versions (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 005_firebase_uid_width (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 006_widen_stay_ids (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 007_erp_form_details (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+### MIGRATION 008_registration_identity (UP) ###
+### MIGRATION 009_widen_payment_ids (UP) ###
+
+stdout | tests/migrations.integration.test.ts > disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback
+Migrations (up) completed successfully.
+
+ ✓ tests/migrations.integration.test.ts (1 test) 2655ms
+   ✓ disposable PostgreSQL migration upgrade/rollback > reports pending, applies existing SQL format, upgrades initialized data, verifies constraints and guarded rollback 2514ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:07:37
+   Duration  3.77s (transform 152ms, setup 0ms, collect 400ms, tests 2.65s, environment 0ms, prepare 217ms)
+
+
+DISPOSABLE_SUITE persistence
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+stderr | tests/persistence.integration.test.ts > disposable PostgreSQL outage, recovery and persistence > returns safe503 during outage, recovers with the same pool and retains committed records after restart
+Unexpected error on idle PostgreSQL client pool { code: '57P01' }
+
+ ✓ tests/persistence.integration.test.ts (1 test) 7574ms
+   ✓ disposable PostgreSQL outage, recovery and persistence > returns safe503 during outage, recovers with the same pool and retains committed records after restart 7483ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:07:42
+   Duration  9.89s (transform 473ms, setup 0ms, collect 1.47s, tests 7.57s, environment 0ms, prepare 274ms)
+
+DISPOSABLE_MATRIX_COMPLETE: all suites executed; no opt-in files skipped
+waiting for server to shut down.... done
+server stopped

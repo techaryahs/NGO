@@ -1,0 +1,36 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart
+00:00 +0: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy automatic sync leaves all marks unchanged
+00:00 +1: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: recorded exit date stops billing for an active patient
+00:00 +2: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: an active stay without an exit date bills elapsed days beyond seven
+00:00 +3: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: active shifted segment without exit date gets its own estimate
+00:00 +4: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: present marks do not erase other unmarked patient days
+00:00 +5: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: patient marks do not create unmarked attendant charges
+00:00 +6: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: saved attendant mark updates billing even when the next read is stale
+00:00 +7: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: only manually present attendant days are charged
+00:00 +8: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: unmarked attendant days are not charged
+00:00 +9: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: general 60-day base plus extension uses the historical ₹250 rate
+00:00 +10: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: calendar billing tier counts attendance days, not extension metadata
+00:00 +11: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy approval quote shares attendance billing and performs no writes
+00:00 +12: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: extension estimates use the same category-specific long-stay rules
+00:00 +13: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: extension request IDs round-trip while legacy records remain readable
+00:00 +14: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: 9 AM checkout excludes last day and charges six attendant days
+00:00 +15: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy generated daily rate does not override attendant attendance
+00:00 +16: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy patient override does not replace attendance-aware stay bill
+00:00 +17: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: a gap between room segments does not charge the departed room
+00:00 +18: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: editing current room updates bed occupancy and patient placement atomically
+00:00 +19: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: unavailable room correction cannot release the original bed
+00:00 +20: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: four private days and three general days use their own rates
+00:00 +21: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: transfer day is billed once at the highest applicable rate
+00:00 +22: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: absent days are excluded from the correct room segment
+00:00 +23: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: overpayment and partial refund preserve receipt and refund totals
+00:00 +24: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund paid after rejoin remains in the previous admission
+00:00 +25: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy payment earlier on the admission day belongs to that cycle
+00:00 +26: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: active admission estimate uses both room segments
+00:00 +27: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: completed stay correction updates bill, refund and patient in one write
+00:00 +28: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: historical correction leaves a later rejoin patient profile intact
+00:00 +29: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund creates signed entries in both ledgers and settles excess
+00:00 +30: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund above excess does not write anything
+00:00 +31: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:01 +32: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: a failed quote keeps approval disabled
+00:02 +33: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: an older quote cannot overwrite a changed day selection
+00:02 +34: All tests passed!

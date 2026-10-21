@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { httpError } from '../validation.js';
 import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { z } from 'zod';
+import { persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
 
 export interface RawStayRow {
   id: string;
@@ -268,6 +269,24 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     return reply.send(formattedList);
   });
 
+  // Read-only quote. The existing authentication hook restricts this to staff
+  // and admins. Repeatable read keeps both invoice projections consistent.
+  fastify.get('/stays/extension-quote', async (request, reply) => {
+    const input = z.object({ stayId: z.string().min(1).max(128), additionalDays: z.coerce.number().int().min(1).max(3650) }).safeParse(request.query);
+    if (!input.success) throw httpError(400, 'Invalid stay extension quote');
+    const client = await getClient();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const stay = (await client.query('SELECT * FROM stays WHERE id=$1', [input.data.stayId])).rows[0];
+      if (!stay) throw httpError(404, 'Stay not found');
+      const patient = (await client.query('SELECT * FROM patients WHERE id=$1', [stay.patient_id])).rows[0];
+      const quote = await quoteStayExtension(client, patient, stay, input.data.additionalDays);
+      await client.query('COMMIT');
+      return reply.send(quote);
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+  });
+
   // ── GET /api/stays/* ───────────────────────────────────────────────────────
   fastify.get('/stays/*', async (request, reply) => {
     const id = (request.params as any)['*'] || (request.params as any).id;
@@ -320,12 +339,13 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
   fastify.put('/stays/*', async (request, reply) => {
     const id = (request.params as any)['*'] || (request.params as any).id;
     let body = request.body as Record<string, any>;
+    const extending = body.additionalDays !== undefined;
     const client = await getClient();
     try {
     await client.query('BEGIN');
     const original = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1', [id])).rows[0];
     if (!original) throw httpError(404, 'Stay not found');
-    await client.query('SELECT id FROM patients WHERE id=$1 FOR UPDATE', [original.patient_id]);
+    const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [original.patient_id])).rows[0];
     await client.query('SELECT id FROM rooms WHERE id=$1 FOR UPDATE', [original.room_id]);
     const old = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1 FOR UPDATE', [id])).rows[0];
     if (!old) throw httpError(404, 'Stay not found');
@@ -342,20 +362,17 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
         return reply.send(formatStay(old));
       }
       if (old.status !== 'active') throw httpError(409, 'Only active stays can be extended');
-      const settings = (await client.query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'")).rows;
-      const pricing = Object.fromEntries(settings.map(row => [row.settings_key, row.settings_value]));
-      const rate = (key: string, fallback: number) => Number(pricing[key] ?? fallback);
-      const cost = old.room_type === 'private'
-        ? additionalDays * (rate('privateRoomBasePrice', 700) + Math.max(0, old.attendant_count - rate('privateRoomIncludedAttendants', 1)) * rate('privateRoomExtraAttendantFee', 200))
-        : additionalDays * (1 + old.attendant_count) * rate('generalRoomBedPrice', 200);
-      body = { durationDays: old.duration_days + additionalDays,
+      const quote = await quoteStayExtension(client, patient, old, additionalDays);
+      const cost = quote.additionalCost;
+      body = { // duration_days remains the original admission period.
+        durationDays: old.duration_days,
         totalExtendedDays: old.total_extended_days + additionalDays,
         expectedDischargeDate: new Date(old.expected_discharge_date).getTime() + additionalDays * 86400000,
         expiryDate: new Date(old.expiry_date).getTime() + additionalDays * 86400000,
         totalCost: Number(old.total_cost) + cost,
-        extensions: [...entries, { requestId: extensionRequestId, additionalDays, reason, additionalCost: cost, extendedOn: Date.now() }],
+        extensions: [...entries, { ...quote, requestId: extensionRequestId, reason, extendedOn: Date.now() }],
       };
-      await client.query('UPDATE patients SET extension_days=extension_days+$2,extension_approved=true WHERE id=$1', [old.patient_id, additionalDays]);
+      await client.query("UPDATE patients SET extension_days=extension_days+$2,extension_approved=true,exit_date=exit_date+($2 * interval '1 day') WHERE id=$1", [old.patient_id, additionalDays]);
     }
     if ((body.bedId !== undefined && body.bedId !== old.bed_id) || (body.roomId && body.roomId !== old.room_id) || (body.patientId && body.patientId !== old.patient_id)) throw httpError(409, 'An existing stay assignment cannot be changed through this endpoint');
     if (old.status !== 'active' && body.status && body.status !== old.status) throw httpError(409, 'A completed or cancelled stay cannot be reopened');
@@ -433,9 +450,15 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     }
     await client.query('UPDATE patients SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [old.patient_id]);
     await refreshRoomOccupancy(client, old.room_id);
+    let responseStay = res.rows[0];
+    if (extending) {
+      const currentPatient = (await client.query('SELECT * FROM patients WHERE id=$1', [old.patient_id])).rows[0];
+      const projection = await persistBilling(client, await projectBilling(client, currentPatient));
+      responseStay = projection.stays.find(stay => stay.id === id) ?? responseStay;
+    }
     await client.query('COMMIT');
 
-    return reply.send(formatStay(res.rows[0]));
+    return reply.send(formatStay(responseStay));
     } catch (err) { await client.query('ROLLBACK'); throw err; }
     finally { client.release(); }
   });

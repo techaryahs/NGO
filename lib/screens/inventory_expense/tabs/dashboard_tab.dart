@@ -38,32 +38,36 @@ class _DashboardTabState extends State<DashboardTab> {
 
   void _subscribeStreams() {
     _itemsSub = _service.getInventoryItemsStream().listen((data) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _items = data;
           _loading = false;
         });
+      }
     });
     _purchasesSub = _service.getPurchasesStream().listen((data) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _purchases = data;
           _loading = false;
         });
+      }
     });
     _expensesSub = _service.getExpenseEntriesStream().listen((data) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _expenses = data;
           _loading = false;
         });
+      }
     });
     _salariesSub = _service.getSalariesStream().listen((data) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _salaries = data;
           _loading = false;
         });
+      }
     });
   }
 
@@ -204,7 +208,7 @@ class _DashboardTabState extends State<DashboardTab> {
               border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 6,
                   offset: const Offset(0, 3),
                 ),
@@ -366,7 +370,7 @@ class _DashboardTabState extends State<DashboardTab> {
             border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
               ),
@@ -410,7 +414,7 @@ class _DashboardTabState extends State<DashboardTab> {
             border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
               ),
@@ -527,7 +531,7 @@ class _DashboardTabState extends State<DashboardTab> {
             border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 6,
                 offset: const Offset(0, 3),
               ),
@@ -596,7 +600,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     ],
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ),
         );
@@ -631,7 +635,7 @@ class _DashboardTabState extends State<DashboardTab> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
+              color: color.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 20, color: color),
@@ -668,92 +672,6 @@ class _DashboardTabState extends State<DashboardTab> {
 }
 
 // ── KPI Stat Card Widget ──────────────────────────────────────────────────────
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final String subtitle;
-
-  const _StatCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 220),
-      child: Container(
-        height: 105,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFAFDF7),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.015),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF639922),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.08),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ── Custom Gradient Bar Chart ────────────────────────────────────────────────
 // class _CustomBarChart extends StatelessWidget {
@@ -794,7 +712,7 @@ class _StatCard extends StatelessWidget {
 //               height: barHeight,
 //               decoration: BoxDecoration(
 //                 gradient: LinearGradient(
-//                   colors: [themeColor, themeColor.withOpacity(0.45)],
+//                   colors: [themeColor, themeColor.withValues(alpha: 0.45)],
 //                   begin: Alignment.topCenter,
 //                   end: Alignment.bottomCenter,
 //                 ),
@@ -804,7 +722,7 @@ class _StatCard extends StatelessWidget {
 //                 ),
 //                 boxShadow: [
 //                   BoxShadow(
-//                     color: themeColor.withOpacity(0.12),
+//                     color: themeColor.withValues(alpha: 0.12),
 //                     blurRadius: 3,
 //                     offset: const Offset(0, 1.5),
 //                   ),
@@ -882,7 +800,10 @@ class _CustomBarChart extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [themeColor, themeColor.withOpacity(0.45)],
+                        colors: [
+                          themeColor,
+                          themeColor.withValues(alpha: 0.45),
+                        ],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
@@ -892,7 +813,7 @@ class _CustomBarChart extends StatelessWidget {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: themeColor.withOpacity(0.12),
+                          color: themeColor.withValues(alpha: 0.12),
                           blurRadius: 3,
                           offset: const Offset(0, 1.5),
                         ),

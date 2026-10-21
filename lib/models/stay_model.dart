@@ -340,8 +340,9 @@ class StayModel {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.fromMillisecondsSinceEpoch(0);
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is double)
+    if (value is double) {
       return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    }
     final parsed = int.tryParse(value.toString());
     return DateTime.fromMillisecondsSinceEpoch(parsed ?? 0);
   }
@@ -354,12 +355,14 @@ class StayModel {
 
 /// Extension record for tracking stay extensions.
 class StayExtension {
+  final String? requestId;
   final int additionalDays;
   final DateTime extendedOn;
   final String reason;
   final double additionalCost;
 
   StayExtension({
+    this.requestId,
     required this.additionalDays,
     required this.extendedOn,
     this.reason = '',
@@ -368,6 +371,7 @@ class StayExtension {
 
   Map<String, dynamic> toMap() {
     return {
+      if (requestId != null) 'requestId': requestId,
       'additionalDays': additionalDays,
       'extendedOn': extendedOn.millisecondsSinceEpoch,
       'reason': reason,
@@ -377,6 +381,7 @@ class StayExtension {
 
   factory StayExtension.fromMap(Map<String, dynamic> data) {
     return StayExtension(
+      requestId: data['requestId']?.toString(),
       additionalDays: data['additionalDays'] is int
           ? data['additionalDays']
           : int.tryParse(data['additionalDays']?.toString() ?? '0') ?? 0,

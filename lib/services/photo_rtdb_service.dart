@@ -40,6 +40,7 @@ class PhotoRtdbService {
     }
     return rtdb;
   }
+
   static const maxDimension = 720;
   static const jpegQuality = 78;
   static const maxSourceBytes = 8 * 1024 * 1024;
@@ -118,8 +119,9 @@ class PhotoRtdbService {
     required String photoPath,
     required Uint8List bytes,
   }) async {
-    if (!validPath(photoPath))
+    if (!validPath(photoPath)) {
       throw ArgumentError.value(photoPath, 'photoPath');
+    }
     final prepared = await Isolate.run(() => prepare(bytes));
     final version = DateTime.now().microsecondsSinceEpoch;
     final data = base64Encode(prepared.bytes);
@@ -176,8 +178,9 @@ class PhotoRtdbService {
     }
     if (value is! Map ||
         value['data'] is! String ||
-        value['contentType'] is! String)
+        value['contentType'] is! String) {
       return false;
+    }
     final bytes = decodeLegacyBase64(value['data'] as String);
     return bytes != null &&
         bytes.isNotEmpty &&
@@ -294,8 +297,9 @@ class PhotoRtdbService {
   }
 
   Future<void> deletePhoto(String photoPath) async {
-    if (!validPath(photoPath))
+    if (!validPath(photoPath)) {
       throw ArgumentError.value(photoPath, 'photoPath');
+    }
     final backendApi = _backendApi;
     if (backendApi != null) {
       final cleanPath = photoPath.startsWith('patientPhotos/')

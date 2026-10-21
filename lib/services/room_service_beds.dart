@@ -57,11 +57,7 @@ extension RoomServiceBeds on RoomService {
       });
       return BedModel.fromMap(res['id']?.toString() ?? bedId, res);
     }
-    final newBed = BedModel(
-      id: bedId,
-      bedLabel: bedLabel,
-      status: status,
-    );
+    final newBed = BedModel(id: bedId, bedLabel: bedLabel, status: status);
     final applied = await _updateRoomBedsWithCas(roomId, (room) {
       if (room.beds.any((b) => b.bedLabel == bedLabel || b.id == bedId)) {
         throw bedConflict('Bed $bedLabel already exists in room $roomId');
@@ -201,11 +197,13 @@ extension RoomServiceBeds on RoomService {
           throw bedConflict('Bed is no longer available');
         }
       }
-      if (bedIds.toSet().length != bedIds.length || stayIds.length != bedIds.length) {
+      if (bedIds.toSet().length != bedIds.length ||
+          stayIds.length != bedIds.length) {
         throw ArgumentError('Each selected bed requires a unique stay');
       }
       final stayByBed = <String, String>{
-        for (var index = 0; index < bedIds.length; index++) bedIds[index]: stayIds[index],
+        for (var index = 0; index < bedIds.length; index++)
+          bedIds[index]: stayIds[index],
       };
       final fixedBeds = room.beds.map((bed) {
         if (stayByBed.containsKey(bed.id)) {
@@ -222,8 +220,10 @@ extension RoomServiceBeds on RoomService {
         'beds': bedsToRtdbMap(fixedBeds),
         'occupiedBeds': occupied,
         if (room.isPrivate)
-          'currentAttendants': (room.currentAttendants + attendantCount)
-              .clamp(0, 999),
+          'currentAttendants': (room.currentAttendants + attendantCount).clamp(
+            0,
+            999,
+          ),
         'expectedVacancyDate': expectedDischargeDate?.millisecondsSinceEpoch,
         'status': occupied >= room.actualTotalBeds
             ? 'occupied'
@@ -232,13 +232,12 @@ extension RoomServiceBeds on RoomService {
             : 'partially_occupied',
         'lastUpdated': DateTime.now().millisecondsSinceEpoch,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        'version': (room.version ?? 0) + 1,
+        'version': room.version + 1,
       };
-      final applied = await rtdb.putIfMatch(
-        '$roomsPath/$roomId',
-        {...Map<String, dynamic>.from(snapshot.value), ...updates},
-        etag,
-      );
+      final applied = await rtdb.putIfMatch('$roomsPath/$roomId', {
+        ...Map<String, dynamic>.from(snapshot.value),
+        ...updates,
+      }, etag);
       if (applied) return room;
       // Another terminal changed the room; retry against the fresh state.
       await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -272,8 +271,8 @@ extension RoomServiceBeds on RoomService {
           final matchesReservation = ids == null
               ? bed.currentPatientId == patientId
               : bed.currentPatientId == patientId &&
-                  bed.currentStayId != null &&
-                  ids.contains(bed.currentStayId);
+                    bed.currentStayId != null &&
+                    ids.contains(bed.currentStayId);
           if (!matchesReservation) return bed;
           changed = true;
           return bed.copyWith(
@@ -297,19 +296,20 @@ extension RoomServiceBeds on RoomService {
               : 'partially_occupied',
           'lastUpdated': DateTime.now().millisecondsSinceEpoch,
           'updatedAt': DateTime.now().millisecondsSinceEpoch,
-          'version': (room.version ?? 0) + 1,
+          'version': room.version + 1,
         };
-        final applied = await rtdb.putIfMatch(
-          '$roomsPath/$roomId',
-          {...Map<String, dynamic>.from(snapshot.value), ...updates},
-          etag,
-        );
+        final applied = await rtdb.putIfMatch('$roomsPath/$roomId', {
+          ...Map<String, dynamic>.from(snapshot.value),
+          ...updates,
+        }, etag);
         if (applied) return;
       }
     } catch (error) {
       throw StateError('Could not release reserved beds: $error');
     }
-    throw StateError('Could not release reserved beds after concurrent updates');
+    throw StateError(
+      'Could not release reserved beds after concurrent updates',
+    );
   }
 
   /// CAS helper shared by the bed mutators. [transform] returns the new bed
@@ -337,8 +337,10 @@ extension RoomServiceBeds on RoomService {
         'beds': bedsToRtdbMap(fixedBeds),
         'occupiedBeds': occupied,
         if (room.isPrivate)
-          'currentAttendants': (room.currentAttendants + attendantDelta)
-              .clamp(0, 999),
+          'currentAttendants': (room.currentAttendants + attendantDelta).clamp(
+            0,
+            999,
+          ),
         'status': occupied == 0
             ? 'available'
             : occupied >= room.actualTotalBeds
@@ -346,13 +348,12 @@ extension RoomServiceBeds on RoomService {
             : 'partially_occupied',
         'lastUpdated': DateTime.now().millisecondsSinceEpoch,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
-        'version': (room.version ?? 0) + 1,
+        'version': room.version + 1,
       };
-      final applied = await rtdb.putIfMatch(
-        '$roomsPath/$roomId',
-        {...Map<String, dynamic>.from(snapshot.value), ...updates},
-        etag,
-      );
+      final applied = await rtdb.putIfMatch('$roomsPath/$roomId', {
+        ...Map<String, dynamic>.from(snapshot.value),
+        ...updates,
+      }, etag);
       if (applied) return true;
       await Future<void>.delayed(const Duration(milliseconds: 120));
     }

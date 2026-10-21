@@ -16,43 +16,54 @@ extension RoomServiceReconciliation on RoomService {
       final rawRoom = Map<String, dynamic>.from(snapshot.value);
       final room = RoomModel.fromMap(roomId, rawRoom);
       final rawStays = await rtdb.getByChildValue(
-        staysPath, child: 'roomId', value: roomId,
+        staysPath,
+        child: 'roomId',
+        value: roomId,
       );
-      final activeStays = parseStaysFromData(rawStays)
-          .where((stay) => stay.status == 'active').toList();
+      final activeStays = parseStaysFromData(
+        rawStays,
+      ).where((stay) => stay.status == 'active').toList();
       final activeIds = activeStays.map((stay) => stay.id).toSet();
-      final orphaned = room.beds.any((bed) =>
-          bed.currentStayId != null && !activeIds.contains(bed.currentStayId));
+      final orphaned = room.beds.any(
+        (bed) =>
+            bed.currentStayId != null && !activeIds.contains(bed.currentStayId),
+      );
       final lastChanged = rawRoom['lastUpdated'] is num
           ? (rawRoom['lastUpdated'] as num).toInt()
           : rawRoom['updatedAt'] is num
-              ? (rawRoom['updatedAt'] as num).toInt()
-              : 0;
-      if (orphaned && DateTime.now().millisecondsSinceEpoch - lastChanged <
-          reservationGrace.inMilliseconds) {
+          ? (rawRoom['updatedAt'] as num).toInt()
+          : 0;
+      if (orphaned &&
+          DateTime.now().millisecondsSinceEpoch - lastChanged <
+              reservationGrace.inMilliseconds) {
         return false;
       }
       final fixedBeds = room.beds.map((bed) {
-        if (bed.currentStayId == null || activeIds.contains(bed.currentStayId)) {
+        if (bed.currentStayId == null ||
+            activeIds.contains(bed.currentStayId)) {
           return bed;
         }
         return bed.copyWith(
-          status: 'available', clearPatientId: true, clearStayId: true,
+          status: 'available',
+          clearPatientId: true,
+          clearStayId: true,
         );
       }).toList();
       final occupied = fixedBeds.where((bed) => bed.isOccupied).length;
       final status = room.status == 'maintenance'
           ? 'maintenance'
           : occupied == 0
-              ? 'available'
-              : occupied >= room.actualTotalBeds
-                  ? 'occupied'
-                  : 'partially_occupied';
+          ? 'available'
+          : occupied >= room.actualTotalBeds
+          ? 'occupied'
+          : 'partially_occupied';
       final attendants = room.isPrivate
           ? activeStays.fold<int>(0, (sum, stay) => sum + stay.attendantCount)
           : room.currentAttendants;
-      if (!orphaned && room.status == status &&
-          room.currentAttendants == attendants && room.occupiedBeds == occupied) {
+      if (!orphaned &&
+          room.status == status &&
+          room.currentAttendants == attendants &&
+          room.occupiedBeds == occupied) {
         return false;
       }
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -64,7 +75,7 @@ extension RoomServiceReconciliation on RoomService {
         'status': status,
         'updatedAt': now,
         'lastUpdated': now,
-        'version': (room.version ?? 0) + 1,
+        'version': room.version + 1,
       };
       if (await rtdb.putIfMatch('$roomsPath/$roomId', next, snapshot.etag!)) {
         return true;

@@ -44,7 +44,7 @@ class PatientCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFC0DD97), width: 1),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF3B6D11).withOpacity(0.04),
+            color: const Color(0xFF3B6D11).withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -203,13 +203,6 @@ class PatientCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _getInitials(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 }
 

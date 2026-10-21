@@ -93,7 +93,7 @@ class PatientDetailsDialog extends StatelessWidget {
         width: 700,
         constraints: const BoxConstraints(maxHeight: 650),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.97),
+          color: Colors.white.withValues(alpha: 0.97),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
         ),
@@ -407,7 +407,7 @@ class PatientDetailsDialog extends StatelessWidget {
                                   padding: const EdgeInsets.only(bottom: 8.0),
                                   child: _PaymentHistoryTile(payment: payment),
                                 );
-                              }).toList(),
+                              }),
                             ],
                           ),
                         ),
@@ -603,7 +603,7 @@ class _InfoField extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFF3B6D11).withOpacity(0.1),
+              color: const Color(0xFF3B6D11).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(icon, size: 18, color: const Color(0xFF3B6D11)),
@@ -672,7 +672,9 @@ class _PaymentHistoryTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.5)),
+        border: Border.all(
+          color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         children: [

@@ -245,19 +245,16 @@ class StayBilling {
                   pricing: pricing,
                   patientBillable: patientBillable,
                 );
-            final extra = segment.roomType == 'private'
-                ? 200.0 +
-                      (dailyAttendants -
-                                  ((pricing['privateRoomIncludedAttendants']
-                                              as num?)
-                                          ?.toInt() ??
-                                      1))
-                              .clamp(0, 100) *
-                          100.0
-                : ((patientBillable ? 1 : 0) + dailyAttendants) * 50.0;
             final rate = billableDays <= 60
                 ? base
-                : segment.longStayDailyRate ?? (base + extra);
+                : segment.longStayDailyRate ??
+                      PricingHelper.calculateLongStayDailyCharge(
+                        segment.roomType == 'private',
+                        dailyAttendants,
+                        pricing: pricing,
+                        patientBillable: patientBillable,
+                        baseRateOverride: base,
+                      );
             return rate;
           }
 
@@ -276,20 +273,23 @@ class StayBilling {
           days[segment.id] = days[segment.id]! + 1;
         }
         for (final segment in segments) {
-          if (segment.costOverride != null)
+          if (segment.costOverride != null) {
             charges[segment.id] = segment.costOverride!;
+          }
         }
       }
       var total = charges.values.fold<double>(0, (a, b) => a + b);
-      if (segments.isEmpty)
+      if (segments.isEmpty) {
         total = patient.advanceBilledAmount + patient.attendanceCharges;
+      }
       // A patient-level override is legacy data from the old admission form.
       // Once stay segments exist, their calculated charges (or an explicit
       // stay costOverride) are authoritative so attendance can adjust totals.
       if (isCurrent &&
           segments.isEmpty &&
-          patient.billingAmountOverride != null)
+          patient.billingAmountOverride != null) {
         total = patient.billingAmountOverride!;
+      }
       var paid = 0.0;
       var refunded = 0.0;
       for (final payment in patient.payments ?? <PaymentModel>[]) {
@@ -300,8 +300,9 @@ class StayBilling {
           paid += payment.amount;
         }
       }
-      if (patient.payments == null && isCurrent)
+      if (patient.payments == null && isCurrent) {
         paid = patient.totalPaidAmount ?? 0;
+      }
       result.add(
         AdmissionBalance(
           group.key,

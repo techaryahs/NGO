@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ngo/models/room_model.dart';
 import 'package:ngo/screens/patients/widgets/add_patient_dialog.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
-import 'package:ngo/services/room_service.dart';
 import 'package:ngo/services/service_locator.dart';
 
 /// Test RTDB service allowing precise control over each endpoint's response.
@@ -14,7 +12,7 @@ class ConfigurableRTDBService extends FirebaseRTDBRestService {
   Future<dynamic> Function(String path)? getHandler;
   Stream<dynamic> Function(String path)? streamHandler;
   Stream<dynamic> Function(String path, {String? orderBy, dynamic equalTo})?
-      queryStreamHandler;
+  queryStreamHandler;
 
   @override
   Future<dynamic> get(String path) async {
@@ -65,11 +63,7 @@ void main() {
   });
 
   Widget buildTestDialog() {
-    return const MaterialApp(
-      home: Scaffold(
-        body: AddPatientDialog(),
-      ),
-    );
+    return const MaterialApp(home: Scaffold(body: AddPatientDialog()));
   }
 
   Future<void> selectFloorAndLobby(
@@ -89,7 +83,10 @@ void main() {
     // 2. Select floor
     await tester.tap(floorDropdown, warnIfMissed: false);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(DropdownMenuItem<String>, floor).last, warnIfMissed: false);
+    await tester.tap(
+      find.widgetWithText(DropdownMenuItem<String>, floor).last,
+      warnIfMissed: false,
+    );
     await tester.pumpAndSettle();
 
     // 3. Scroll to lobby dropdown
@@ -104,7 +101,10 @@ void main() {
     // 4. Select lobby
     await tester.tap(lobbyDropdown, warnIfMissed: false);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(DropdownMenuItem<String>, lobby).last, warnIfMissed: false);
+    await tester.tap(
+      find.widgetWithText(DropdownMenuItem<String>, lobby).last,
+      warnIfMissed: false,
+    );
     await tester.pumpAndSettle();
 
     // 5. Scroll to payment summary
@@ -150,7 +150,11 @@ void main() {
                 'basePrice': 200,
                 'status': 'available',
                 'beds': {
-                  'bed-1': {'id': 'room-101_bed1', 'bedLabel': 'Bed 1', 'status': 'available'},
+                  'bed-1': {
+                    'id': 'room-101_bed1',
+                    'bedLabel': 'Bed 1',
+                    'status': 'available',
+                  },
                 },
               },
             });
@@ -161,7 +165,9 @@ void main() {
         // Stays query fails with missing index (the exact production root cause)
         mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) {
           return Stream.error(
-            Exception('Index not defined, add ".indexOn": "status", for path "/stays"'),
+            Exception(
+              'Index not defined, add ".indexOn": "status", for path "/stays"',
+            ),
           );
         };
 
@@ -239,10 +245,7 @@ void main() {
         // Pricing succeeds
         mockRtdb.getHandler = (path) async {
           if (path.contains('pricing')) {
-            return {
-              'generalRoomBedPrice': 300,
-              'privateRoomBasePrice': 700,
-            };
+            return {'generalRoomBedPrice': 300, 'privateRoomBasePrice': 700};
           }
           return null;
         };
@@ -296,7 +299,11 @@ void main() {
               'basePrice': 200,
               'status': 'available',
               'beds': {
-                'bed-1': {'id': 'room-101_bed1', 'bedLabel': 'Bed 1', 'status': 'available'},
+                'bed-1': {
+                  'id': 'room-101_bed1',
+                  'bedLabel': 'Bed 1',
+                  'status': 'available',
+                },
               },
             },
           });
@@ -321,7 +328,10 @@ void main() {
 
         await tester.tap(floorDropdown, warnIfMissed: false);
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(DropdownMenuItem<String>, '1').last, warnIfMissed: false);
+        await tester.tap(
+          find.widgetWithText(DropdownMenuItem<String>, '1').last,
+          warnIfMissed: false,
+        );
         await tester.pumpAndSettle();
 
         // Room dropdown is available with hint "Select room"
@@ -341,60 +351,59 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Scenario 5: All requests succeed -> normal production flow',
-      (WidgetTester tester) async {
-        tester.view.physicalSize = const Size(1400, 1000);
-        addTearDown(() => tester.view.resetPhysicalSize());
+    testWidgets('Scenario 5: All requests succeed -> normal production flow', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      addTearDown(() => tester.view.resetPhysicalSize());
 
-        mockRtdb.getHandler = (path) async {
-          if (path.contains('pricing')) {
-            return {
-              'generalRoomBedPrice': 200,
-              'privateRoomBasePrice': 700,
-              'privateRoomIncludedAttendants': 1,
-              'privateRoomExtraAttendantFee': 200,
-            };
-          }
-          return null;
-        };
+      mockRtdb.getHandler = (path) async {
+        if (path.contains('pricing')) {
+          return {
+            'generalRoomBedPrice': 200,
+            'privateRoomBasePrice': 700,
+            'privateRoomIncludedAttendants': 1,
+            'privateRoomExtraAttendantFee': 200,
+          };
+        }
+        return null;
+      };
 
-        mockRtdb.streamHandler = (path) {
-          return Stream.value({
-            'room-101': {
-              'roomNumber': '101',
-              'roomIdentifier': '101',
-              'roomType': 'general',
-              'capacity': 4,
-              'floor': 1,
-              'basePrice': 200,
-              'status': 'available',
-            },
-          });
-        };
+      mockRtdb.streamHandler = (path) {
+        return Stream.value({
+          'room-101': {
+            'roomNumber': '101',
+            'roomIdentifier': '101',
+            'roomType': 'general',
+            'capacity': 4,
+            'floor': 1,
+            'basePrice': 200,
+            'status': 'available',
+          },
+        });
+      };
 
-        mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) {
-          return Stream.value({
-            'stay-1': {
-              'roomType': 'lobby',
-              'roomNumber': '1D Lobby 1',
-              'status': 'active',
-            },
-          });
-        };
+      mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) {
+        return Stream.value({
+          'stay-1': {
+            'roomType': 'lobby',
+            'roomNumber': '1D Lobby 1',
+            'status': 'active',
+          },
+        });
+      };
 
-        await tester.pumpWidget(buildTestDialog());
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(buildTestDialog());
+      await tester.pumpAndSettle();
 
-        // Select Floor 1 and Lobby 2 (since Lobby 1 is occupied)
-        await selectFloorAndLobby(tester, floor: '1', lobby: '1D Lobby 2');
+      // Select Floor 1 and Lobby 2 (since Lobby 1 is occupied)
+      await selectFloorAndLobby(tester, floor: '1', lobby: '1D Lobby 2');
 
-        // Normal production flow: pricing loaded, no fallback indicator, correct price
-        expect(find.text('PAYMENT SUMMARY'), findsOneWidget);
-        expect(find.text('Standard Rates'), findsNothing);
-        expect(find.text('₹1,400'), findsOneWidget);
-      },
-    );
+      // Normal production flow: pricing loaded, no fallback indicator, correct price
+      expect(find.text('PAYMENT SUMMARY'), findsOneWidget);
+      expect(find.text('Standard Rates'), findsNothing);
+      expect(find.text('₹1,400'), findsOneWidget);
+    });
 
     testWidgets(
       'Scenario 6: Timeout occurs on pricing -> bounded failure falls back to default pricing without infinite loading',
@@ -412,7 +421,8 @@ void main() {
         };
 
         mockRtdb.streamHandler = (path) => Stream.value({});
-        mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) => Stream.value({});
+        mockRtdb.queryStreamHandler = (path, {orderBy, equalTo}) =>
+            Stream.value({});
 
         await tester.pumpWidget(buildTestDialog());
         await tester.pump();

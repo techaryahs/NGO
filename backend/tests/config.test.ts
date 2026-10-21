@@ -11,7 +11,9 @@ describe('Configuration Module', () => {
     expect(config.POSTGRES_DB).toBeDefined();
     expect(config.POSTGRES_USER).toBeDefined();
     expect(config.POSTGRES_HOST).toBeDefined();
-    expect(config.POSTGRES_PORT).toBe(5432);
+    expect(config.POSTGRES_PORT).toBe(Number(process.env.POSTGRES_PORT ?? 5432));
+    expect(configSchema.parse({}).POSTGRES_PORT).toBe(5432);
+    expect(configSchema.parse({ POSTGRES_PORT: '55439' }).POSTGRES_PORT).toBe(55439);
   });
 
   it('should generate an effective database URL string', () => {

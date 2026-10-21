@@ -49,8 +49,13 @@ class PricingHelper {
   }) {
     double rate(String key, double fallback) {
       final value = pricing?[key];
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? fallback;
+      final parsed = value is num
+          ? value.toDouble()
+          : double.tryParse(value?.toString() ?? '') ?? fallback;
+      // ₹150 was the legacy built-in General/Lobby fallback. Pricing service
+      // reads migrate it to ₹200; keep pure billing calculations consistent
+      // when they receive an older raw settings map.
+      return key == 'generalRoomBedPrice' && parsed == 150 ? 200 : parsed;
     }
 
     int count(String key, int fallback) {
@@ -74,6 +79,63 @@ class PricingHelper {
     }
   }
 
+  /// Daily rate used after the 60th billable day.
+  ///
+  /// The historical billing engine treats this as the long-stay/approved
+  /// extension rate: General and Lobby add ₹50 for every billable person,
+  /// while Private adds ₹200 plus ₹100 for each attendant above the
+  /// configured included allowance.  [baseRateOverride] preserves a manual
+  /// stay rate while applying the same historical long-stay surcharge.
+  static double calculateLongStayDailyCharge(
+    bool isPrivate,
+    int attendantsCount, {
+    Map<String, dynamic>? pricing,
+    bool patientBillable = true,
+    double? baseRateOverride,
+  }) {
+    final base =
+        baseRateOverride ??
+        calculateDailyCharge(
+          isPrivate,
+          attendantsCount,
+          pricing: pricing,
+          patientBillable: patientBillable,
+        );
+    if (isPrivate) {
+      final included = _count(pricing, 'privateRoomIncludedAttendants', 1);
+      return base + 200.0 + (attendantsCount - included).clamp(0, 100) * 100.0;
+    }
+    return base + ((patientBillable ? 1 : 0) + attendantsCount) * 50.0;
+  }
+
+  /// Estimates an extension using the same 60-day threshold as billing.
+  ///
+  /// This is metadata/UI estimation only; final totals still come from the
+  /// admission billing calculation, which can use dated attendance records.
+  static double calculateExtensionCost(
+    bool isPrivate,
+    int attendantsCount,
+    int additionalDays, {
+    Map<String, dynamic>? pricing,
+    int priorBillableDays = 0,
+    double? longStayRateOverride,
+  }) {
+    if (additionalDays <= 0) return 0;
+    var total = 0.0;
+    for (var offset = 1; offset <= additionalDays; offset++) {
+      final billableDay = priorBillableDays + offset;
+      total += billableDay <= 60
+          ? calculateDailyCharge(isPrivate, attendantsCount, pricing: pricing)
+          : longStayRateOverride ??
+                calculateLongStayDailyCharge(
+                  isPrivate,
+                  attendantsCount,
+                  pricing: pricing,
+                );
+    }
+    return total;
+  }
+
   static double calculateAdvanceAmount(
     bool isPrivate,
     int attendantsCount, {
@@ -87,5 +149,11 @@ class PricingHelper {
           bedsCount: bedsCount,
         ) *
         advanceDays;
+  }
+
+  static int _count(Map<String, dynamic>? pricing, String key, int fallback) {
+    final value = pricing?[key];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 }

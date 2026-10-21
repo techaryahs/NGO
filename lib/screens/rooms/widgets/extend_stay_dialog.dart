@@ -16,13 +16,16 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
 
   int additionalDays = 7;
   bool isLoading = false;
-  Map<String, dynamic>? pricing;
+  bool isQuoteLoading = true;
+  String? quoteError;
+  int _quoteGeneration = 0;
   double additionalCost = 0;
+  String? _requestId;
 
   @override
   void initState() {
     super.initState();
-    _loadPricing();
+    _calculateCost();
   }
 
   @override
@@ -31,37 +34,29 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
     super.dispose();
   }
 
-  Future<void> _loadPricing() async {
+  Future<void> _calculateCost() async {
+    final generation = ++_quoteGeneration;
+    setState(() {
+      isQuoteLoading = true;
+      quoteError = null;
+    });
     try {
-      final roomService = ServiceLocator().roomService;
-      final pricingData = await roomService.getPricing();
+      final cost = await ServiceLocator().roomService.quoteStayExtension(
+        stayId: widget.stay.id,
+        additionalDays: additionalDays,
+      );
+      if (!mounted || generation != _quoteGeneration) return;
       setState(() {
-        pricing = pricingData;
-        _calculateCost();
+        additionalCost = cost;
+        isQuoteLoading = false;
       });
     } catch (e) {
-      // Use defaults if pricing fails to load
-    }
-  }
-
-  void _calculateCost() {
-    if (pricing == null) return;
-
-    if (widget.stay.roomType == 'private') {
-      final basePrice = (pricing!['privateRoomBasePrice'] ?? 700).toDouble();
-      final includedAttendants = pricing!['privateRoomIncludedAttendants'] ?? 1;
-      final extraFee = (pricing!['privateRoomExtraAttendantFee'] ?? 200)
-          .toDouble();
-
-      additionalCost = basePrice * additionalDays;
-      final chargedAttendants = widget.stay.attendantCount > includedAttendants
-          ? widget.stay.attendantCount - includedAttendants
-          : 0;
-      additionalCost += chargedAttendants * extraFee * additionalDays;
-    } else {
-      final bedPrice = (pricing!['generalRoomBedPrice'] ?? 200).toDouble();
-      additionalCost =
-          bedPrice * (1 + widget.stay.attendantCount) * additionalDays;
+      if (!mounted || generation != _quoteGeneration) return;
+      setState(() {
+        isQuoteLoading = false;
+        quoteError =
+            'Could not load the attendance-based quote. Retry before extending.';
+      });
     }
   }
 
@@ -70,9 +65,12 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
 
     try {
       final roomService = ServiceLocator().roomService;
+      _requestId ??=
+          'extend_${widget.stay.id}_${DateTime.now().microsecondsSinceEpoch}';
       await roomService.extendStay(
         stayId: widget.stay.id,
         additionalDays: additionalDays,
+        requestId: _requestId,
         reason: reasonController.text.trim().isEmpty
             ? "Extended by admin"
             : reasonController.text.trim(),
@@ -273,14 +271,16 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
               Row(
                 children: [
                   IconButton(
-                    onPressed: () {
-                      if (additionalDays > 1) {
-                        setState(() {
-                          additionalDays--;
-                          _calculateCost();
-                        });
-                      }
-                    },
+                    onPressed: isLoading || additionalDays <= 1
+                        ? null
+                        : () {
+                            if (additionalDays > 1) {
+                              setState(() {
+                                additionalDays--;
+                              });
+                              _calculateCost();
+                            }
+                          },
                     icon: const Icon(Icons.remove_circle_outline_rounded),
                     color: const Color(0xFF639922),
                   ),
@@ -317,12 +317,14 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                     ),
                   ),
                   IconButton(
-                    onPressed: () {
-                      setState(() {
-                        additionalDays++;
-                        _calculateCost();
-                      });
-                    },
+                    onPressed: isLoading || additionalDays >= 3650
+                        ? null
+                        : () {
+                            setState(() {
+                              additionalDays++;
+                            });
+                            _calculateCost();
+                          },
                     icon: const Icon(Icons.add_circle_outline_rounded),
                     color: const Color(0xFF639922),
                   ),
@@ -361,12 +363,12 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                         ),
                       ],
                     ),
-                    if (pricing != null)
+                    if (!isQuoteLoading && quoteError == null)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           const Text(
-                            "Additional Cost",
+                            "Estimated Cost",
                             style: TextStyle(
                               fontSize: 11,
                               color: Color(0xFF639922),
@@ -383,6 +385,20 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                         ],
                       ),
                   ],
+                ),
+              ),
+              if (isQuoteLoading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('Calculating from attendance...'),
+                ),
+              if (quoteError != null)
+                TextButton(onPressed: _calculateCost, child: Text(quoteError!)),
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Based on recorded attendance and stored rates. Unmarked patient days are projected as billable; unmarked attendants are not charged.',
+                  style: TextStyle(fontSize: 11),
                 ),
               ),
               const SizedBox(height: 20),
@@ -445,7 +461,9 @@ class _ExtendStayDialogState extends State<ExtendStayDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: isLoading ? null : _extendStay,
+                    onPressed: isLoading || isQuoteLoading || quoteError != null
+                        ? null
+                        : _extendStay,
                     icon: isLoading
                         ? const SizedBox(
                             width: 18,

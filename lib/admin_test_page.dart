@@ -27,7 +27,7 @@ class _AdminTestPageState extends State<AdminTestPage> {
         isLoading = false;
       });
     } catch (e) {
-      print(e);
+      debugPrint(e.toString());
       setState(() {
         isLoading = false;
       });
@@ -37,27 +37,23 @@ class _AdminTestPageState extends State<AdminTestPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Admin Users"),
-      ),
+      appBar: AppBar(title: const Text("Admin Users")),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : admins.isEmpty
-          ? const Center(
-        child: Text("No admin found"),
-      )
+          ? const Center(child: Text("No admin found"))
           : ListView.builder(
-        itemCount: admins.length,
-        itemBuilder: (context, index) {
-          final admin = admins[index];
+              itemCount: admins.length,
+              itemBuilder: (context, index) {
+                final admin = admins[index];
 
-          return ListTile(
-            title: Text(admin['name'] ?? 'No Name'),
-            subtitle: Text(admin['email'] ?? 'No Email'),
-            trailing: Text(admin['role']),
-          );
-        },
-      ),
+                return ListTile(
+                  title: Text(admin['name'] ?? 'No Name'),
+                  subtitle: Text(admin['email'] ?? 'No Email'),
+                  trailing: Text(admin['role']),
+                );
+              },
+            ),
     );
   }
 }

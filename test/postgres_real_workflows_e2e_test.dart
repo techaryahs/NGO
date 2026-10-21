@@ -10,6 +10,7 @@ import 'package:ngo/cache/cache_database.dart';
 import 'package:ngo/cache/persistent_cache.dart';
 import 'package:ngo/config/app_config.dart';
 import 'package:ngo/models/patient_model.dart';
+import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/screens/attendance/attendance_service.dart';
 import 'package:ngo/services/backend_api_service.dart';
 import 'package:ngo/services/patient_service.dart';
@@ -17,7 +18,259 @@ import 'package:ngo/services/payment_service.dart';
 import 'package:ngo/services/registration_number_service.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/utils/stay_billing.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+
+Future<String?> _firstExecutableOnPath(String executable) async {
+  final result = await Process.run(Platform.isWindows ? 'where.exe' : 'which', [
+    executable,
+  ]);
+  if (result.exitCode != 0) return null;
+  for (final line in result.stdout.toString().split(RegExp(r'\r?\n'))) {
+    final candidate = line.trim();
+    if (candidate.isNotEmpty && File(candidate).existsSync()) return candidate;
+  }
+  return null;
+}
+
+Future<String?> _resolvePostgresExecutable(String executable) async {
+  final environmentKey = switch (executable) {
+    'pg_ctl' => 'AUDIT_PG_CTL',
+    'initdb' => 'AUDIT_PG_INITDB',
+    'createdb' => 'AUDIT_PG_CREATEDB',
+    _ => 'AUDIT_PG_${executable.toUpperCase()}',
+  };
+  final requested = Platform.environment[environmentKey];
+  if (requested != null && requested.isNotEmpty) {
+    if (File(requested).existsSync()) return requested;
+    throw StateError(
+      'AUDIT_PG_${executable.toUpperCase()} does not exist: $requested',
+    );
+  }
+
+  final binDir =
+      Platform.environment['AUDIT_PG_BIN_DIR'] ??
+      Platform.environment['PG_BIN_DIR'];
+  if (binDir != null && binDir.isNotEmpty) {
+    final candidate = p.join(
+      binDir,
+      Platform.isWindows ? '$executable.exe' : executable,
+    );
+    if (File(candidate).existsSync()) return candidate;
+    throw StateError(
+      'PostgreSQL executable not found in AUDIT_PG_BIN_DIR/PG_BIN_DIR: $candidate',
+    );
+  }
+
+  final onPath = await _firstExecutableOnPath(executable);
+  if (onPath != null) return onPath;
+
+  if (Platform.isWindows) {
+    for (final root in [
+      Platform.environment['ProgramFiles'],
+      Platform.environment['ProgramFiles(x86)'],
+    ].whereType<String>()) {
+      final postgresRoot = Directory(p.join(root, 'PostgreSQL'));
+      if (!postgresRoot.existsSync()) continue;
+      final versions = postgresRoot.listSync().whereType<Directory>().toList()
+        ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+      for (final version in versions) {
+        final candidate = p.join(version.path, 'bin', '$executable.exe');
+        if (File(candidate).existsSync()) return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+Future<void> _runPostgresCommand(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) async {
+  final result = await Process.run(
+    executable,
+    arguments,
+    workingDirectory: workingDirectory,
+  );
+  if (result.exitCode != 0) {
+    throw StateError(
+      'PostgreSQL command failed (${p.basename(executable)} ${arguments.join(' ')}): '
+      '${result.stdout} ${result.stderr}',
+    );
+  }
+}
+
+Future<void> _runDetachedPostgresCommand(
+  String executable,
+  List<String> arguments,
+) async {
+  final process = await Process.start(
+    executable,
+    arguments,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  final exitCode = await process.exitCode;
+  if (exitCode != 0) {
+    throw StateError(
+      'PostgreSQL lifecycle command failed (${p.basename(executable)} '
+      '${arguments.join(' ')}): exit $exitCode',
+    );
+  }
+}
+
+Future<({String dataDir, String pgCtl, bool ownsDataDir, bool startedByTest})>
+_ensureDisposablePostgres() async {
+  final pgCtl = await _resolvePostgresExecutable('pg_ctl');
+  final initdb = await _resolvePostgresExecutable('initdb');
+  final psql = await _resolvePostgresExecutable('psql');
+  final createdb = await _resolvePostgresExecutable('createdb');
+  if (pgCtl == null || initdb == null || psql == null || createdb == null) {
+    throw StateError(
+      'Disposable PostgreSQL 16 is unavailable. Set AUDIT_PG_BIN_DIR (or '
+      'AUDIT_PG_CTL/AUDIT_PG_INITDB/AUDIT_PG_PSQL/AUDIT_PG_CREATEDB) to '
+      'PostgreSQL 16 binaries, or put pg_ctl, initdb, psql and createdb on PATH. '
+      'No external database was used.',
+    );
+  }
+
+  final requestedDir = Platform.environment['AUDIT_PG_DATA_DIR'];
+  final ownsDataDir = requestedDir == null || requestedDir.isEmpty;
+  final dataDir = requestedDir != null && requestedDir.isNotEmpty
+      ? p.normalize(p.absolute(requestedDir))
+      : (await Directory.systemTemp.createTemp('ngo-audit-pg16-e2e-')).path;
+  if (!p.isWithin(Directory.systemTemp.path, dataDir) ||
+      !p.basename(dataDir).startsWith('ngo-audit-pg16-')) {
+    throw StateError('Refusing non-temporary audit cluster: $dataDir');
+  }
+  final dataDirectory = Directory(dataDir);
+  var startedByTest = false;
+  try {
+    if (!dataDirectory.existsSync()) {
+      await dataDirectory.create(recursive: true);
+    }
+    final versionFile = File(p.join(dataDir, 'PG_VERSION'));
+    if (!versionFile.existsSync()) {
+      if (!ownsDataDir && !p.isWithin(Directory.systemTemp.path, dataDir)) {
+        throw StateError(
+          'AUDIT_PG_DATA_DIR is not an initialized PostgreSQL cluster and is outside '
+          'the system temp directory: $dataDir',
+        );
+      }
+      if (dataDirectory.listSync().isNotEmpty) {
+        throw StateError(
+          'PostgreSQL data directory is non-empty but uninitialized: $dataDir',
+        );
+      }
+      await _runPostgresCommand(initdb, [
+        '-D',
+        dataDir,
+        '-U',
+        'ngo_audit',
+        '--auth=trust',
+        '--encoding=UTF8',
+        '--locale=C',
+      ]);
+    }
+
+    if (versionFile.readAsStringSync().trim() != '16') {
+      throw StateError('Disposable PostgreSQL cluster must use version 16');
+    }
+    final status = await Process.run(pgCtl, ['-D', dataDir, 'status']);
+    if (status.exitCode != 0) {
+      await _runDetachedPostgresCommand(pgCtl, [
+        '-D',
+        dataDir,
+        '-l',
+        p.join(dataDir, 'server.log'),
+        '-o',
+        '-p 55439 -h 127.0.0.1',
+        '-w',
+        '-t',
+        '30',
+        'start',
+      ]);
+      startedByTest = true;
+    }
+    final identity = await Process.run(psql, [
+      '-h',
+      '127.0.0.1',
+      '-p',
+      '55439',
+      '-U',
+      'ngo_audit',
+      '-d',
+      'postgres',
+      '-tA',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      "SHOW data_directory",
+    ]);
+    if (identity.exitCode != 0 ||
+        p.normalize(identity.stdout.toString().trim()) !=
+            p.normalize(dataDir)) {
+      throw StateError(
+        'Disposable PostgreSQL server identity mismatch; no tests ran',
+      );
+    }
+    final databaseProbe = await Process.run(psql, [
+      '-h',
+      '127.0.0.1',
+      '-p',
+      '55439',
+      '-U',
+      'ngo_audit',
+      '-d',
+      'postgres',
+      '-tA',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      "SELECT 1 FROM pg_database WHERE datname = 'ngo_flutter_e2e'",
+    ]);
+    if (databaseProbe.exitCode != 0) {
+      throw StateError(
+        'Could not inspect disposable database catalog: '
+        '${databaseProbe.stdout} ${databaseProbe.stderr}',
+      );
+    }
+    if (databaseProbe.stdout.toString().trim() != '1') {
+      await _runPostgresCommand(createdb, [
+        '-h',
+        '127.0.0.1',
+        '-p',
+        '55439',
+        '-U',
+        'ngo_audit',
+        'ngo_flutter_e2e',
+      ]);
+    }
+    return (
+      dataDir: dataDir,
+      pgCtl: pgCtl,
+      ownsDataDir: ownsDataDir,
+      startedByTest: startedByTest,
+    );
+  } catch (_) {
+    if (startedByTest) {
+      await _runDetachedPostgresCommand(pgCtl, [
+        '-D',
+        dataDir,
+        '-w',
+        '-t',
+        '30',
+        '-m',
+        'fast',
+        'stop',
+      ]);
+    }
+    if (ownsDataDir && dataDirectory.existsSync()) {
+      await dataDirectory.delete(recursive: true);
+    }
+    rethrow;
+  }
+}
 
 class _DiagnosticE2eClient extends http.BaseClient {
   final http.Client _inner = http.Client();
@@ -72,6 +325,10 @@ void main() {
   late PatientService patientService;
   late RegistrationNumberService regNumService;
   late AttendanceService attendanceService;
+  String? disposableDataDir;
+  String? disposablePgCtl;
+  var ownsDisposableDataDir = false;
+  var startedDisposablePostgres = false;
 
   Future<Map<String, dynamic>> execSql(
     String sql, [
@@ -134,44 +391,40 @@ void main() {
     rawHttp = http.Client();
     final externalOrigin = Platform.environment['E2E_SERVER_ORIGIN'];
     if (externalOrigin != null && externalOrigin.isNotEmpty) {
+      final target = Uri.parse(externalOrigin);
+      if (Platform.environment['E2E_ALLOW_EXTERNAL_DISPOSABLE'] != '1' ||
+          target.scheme != 'http' ||
+          !['127.0.0.1', 'localhost', '::1'].contains(target.host)) {
+        throw StateError(
+          'External E2E server requires explicit disposable loopback opt-in',
+        );
+      }
       serverOrigin = externalOrigin;
       apiBaseUrl = '$serverOrigin/api';
       return;
     }
 
-    // Ensure disposable PostgreSQL 16 instance on 127.0.0.1:55439 is running.
-    final pgBin = r'C:\Program Files\PostgreSQL\16\bin';
-    final pgData =
-        Platform.environment['AUDIT_PG_DATA_DIR'] ??
-        '${Platform.environment['TEMP']}\\ngo-audit-pg16-e2e';
-    final statusResult = await Process.run('$pgBin\\pg_ctl.exe', [
-      '-D',
-      pgData,
-      'status',
-    ]);
-    if (statusResult.exitCode != 0) {
-      final startResult = await Process.run('$pgBin\\pg_ctl.exe', [
-        '-D',
-        pgData,
-        '-l',
-        '$pgData\\server.log',
-        '-o',
-        '-p 55439 -h 127.0.0.1',
-        '-w',
-        'start',
-      ]);
-      if (startResult.exitCode != 0) {
-        throw StateError(
-          'Failed to start disposable PostgreSQL 16: ${startResult.stdout} ${startResult.stderr}',
-        );
-      }
-    }
+    final disposable = await _ensureDisposablePostgres();
+    disposableDataDir = disposable.dataDir;
+    disposablePgCtl = disposable.pgCtl;
+    ownsDisposableDataDir = disposable.ownsDataDir;
+    startedDisposablePostgres = disposable.startedByTest;
+    // ignore: avoid_print
+    print(
+      'E2E_DISPOSABLE_POSTGRES_READY dataDir=${disposable.dataDir} '
+      'pgCtl=${disposable.pgCtl} startedByTest=${disposable.startedByTest}',
+    );
 
-    final npxCmd = Platform.isWindows ? 'npx.cmd' : 'npx';
+    final node = await _firstExecutableOnPath('node');
+    if (node == null) {
+      throw StateError(
+        'Node.js 20+ is required on PATH for the disposable E2E API',
+      );
+    }
     serverProcess = await Process.start(
-      npxCmd,
-      ['tsx', 'tests/helpers/e2e_server.ts'],
-      workingDirectory: '${Directory.current.path}\\backend',
+      node,
+      ['--import', 'tsx', 'tests/helpers/e2e_server.ts'],
+      workingDirectory: p.join(Directory.current.path, 'backend'),
       environment: {
         ...Platform.environment,
         'NODE_ENV': 'test',
@@ -183,6 +436,8 @@ void main() {
         'DATABASE_URL': 'postgres://ngo_audit@127.0.0.1:55439/ngo_flutter_e2e',
       },
     );
+    // ignore: avoid_print
+    print('E2E_SERVER_PROCESS_STARTED');
 
     final readyCompleter = Completer<String>();
     final stderrBuffer = StringBuffer();
@@ -227,6 +482,25 @@ void main() {
         onTimeout: () => 0,
       );
     }
+    if (startedDisposablePostgres &&
+        disposablePgCtl != null &&
+        disposableDataDir != null) {
+      await _runDetachedPostgresCommand(disposablePgCtl!, [
+        '-D',
+        disposableDataDir!,
+        '-w',
+        '-m',
+        'fast',
+        'stop',
+      ]);
+    }
+    if (ownsDisposableDataDir && disposableDataDir != null) {
+      final path = p.normalize(disposableDataDir!);
+      if (p.isWithin(Directory.systemTemp.path, path) &&
+          p.basename(path).startsWith('ngo-audit-pg16-e2e-')) {
+        await Directory(path).delete(recursive: true);
+      }
+    }
   });
 
   setUp(() async {
@@ -268,6 +542,150 @@ void main() {
     ServiceLocator().dispose();
     dotenv.loadFromString(isOptional: true, envString: '');
   });
+
+  test(
+    'historical extension audit validates actual disposable schema read-only',
+    () async {
+      final columns = await queryRows(
+        "SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='stays' AND column_name IN ('duration_days','total_extended_days','extensions') ORDER BY column_name",
+      );
+      expect(columns, [
+        {'column_name': 'duration_days', 'data_type': 'integer'},
+        {'column_name': 'extensions', 'data_type': 'jsonb'},
+        {'column_name': 'total_extended_days', 'data_type': 'integer'},
+      ]);
+      final source = await File(
+        p.join(
+          Directory.current.path,
+          'audit',
+          'release-readiness-20261021',
+          'historical-extension-audit.sql',
+        ),
+      ).readAsString();
+      final select = source
+          .split('-- AUDIT_COUNTS_BEGIN')
+          .last
+          .split('-- AUDIT_COUNTS_END')
+          .first
+          .trim();
+      final counts = (await queryRows(select)).single;
+      expect(counts, {
+        'stays_examined': 0,
+        'extended_stays': 0,
+        'possible_double_count': 0,
+        'consistent_separate_duration': 0,
+        'date_formula_requires_review': 0,
+        'extension_ledger_mismatch': 0,
+      });
+    },
+  );
+
+  test(
+    'Flutter quote, stored extension and final invoice agree on billable days',
+    () async {
+      await roomService.addRoom(
+        id: 'quote_room',
+        roomNumber: 'Quote QA',
+        roomIdentifier: '1A',
+        floor: 1,
+        roomType: 'general',
+        totalBeds: 1,
+        bedLabels: ['Q1'],
+      );
+      final room = (await roomService.getRoomDirect('quote_room'))!;
+      await patientService.addPatient(
+        id: 'quote_patient',
+        fullName: 'Synthetic quote',
+        dateOfBirth: DateTime(1990),
+        gender: 'Other',
+        contactNumber: '000',
+        emergencyContact: '000',
+        emergencyContactName: 'Synthetic',
+        medicalCondition: 'Synthetic',
+        admissionDate: DateTime(2026, 1, 1),
+        exitDate: DateTime(2026, 1, 60, 9),
+        registrationNumber: 'quote_patient',
+        createdBy: 'test-uid-admin',
+        initialStays: [
+          {
+            'id': 'quote_stay',
+            'roomId': room.id,
+            'bedId': room.beds.single.id,
+            'admissionDate': DateTime(2026, 1, 1).millisecondsSinceEpoch,
+            'durationDays': 60,
+            'expectedDischargeDate': DateTime(
+              2026,
+              1,
+              61,
+              9,
+            ).millisecondsSinceEpoch,
+          },
+        ],
+      );
+      final absent = <String, String>{};
+      for (var day = 1; day <= 10; day++) {
+        final key = StayBilling.dateKey(DateTime(2026, 1, day));
+        absent[key] = 'Absent';
+        await backendApi.post('attendance', {
+          'patientId': 'quote_patient',
+          'date': key,
+          'payload': {'status': 'Absent'},
+        });
+      }
+      expect(
+        await roomService.quoteStayExtension(
+          stayId: 'quote_stay',
+          additionalDays: 10,
+        ),
+        2000,
+      );
+      await roomService.extendStay(
+        stayId: 'quote_stay',
+        additionalDays: 10,
+        requestId: 'quote-approval',
+        reason: 'Approved',
+      );
+      await roomService.extendStay(
+        stayId: 'quote_stay',
+        additionalDays: 10,
+        requestId: 'quote-approval',
+        reason: 'Approved',
+      );
+      final saved = (await queryRows(
+        "SELECT duration_days,total_extended_days,total_cost::text,extensions FROM stays WHERE id='quote_stay'",
+      )).single;
+      expect(saved['duration_days'], 60);
+      expect(saved['total_extended_days'], 10);
+      expect(saved['total_cost'], '12000.00');
+      expect((saved['extensions'] as List).single['additionalCost'], 2000);
+      final snapshot = await backendApi.financialSnapshot('quote_patient');
+      final rawPatient = Map<String, dynamic>.from(snapshot['patient'] as Map);
+      expect(rawPatient['advanceBilledAmount'], 12000);
+      expect(rawPatient['currentDueAmount'], 12000);
+      final stays = (snapshot['stays'] as List)
+          .map(
+            (raw) =>
+                StayModel.fromMap(raw['id'], Map<String, dynamic>.from(raw)),
+          )
+          .toList();
+      expect(
+        StayBilling.calculate(
+          patient: PatientModel.fromMap('quote_patient', rawPatient),
+          stays: stays,
+          pricing: {'generalRoomBedPrice': 200},
+          attendance: absent,
+          calendarDayBilling: true,
+        ).single.total,
+        12000,
+      );
+      expect(
+        (await queryRows(
+          "SELECT COUNT(*)::int AS count FROM payments WHERE patient_id='quote_patient'",
+        )).single['count'],
+        0,
+      );
+    },
+  );
 
   test(
     'October 19 planned registration stays Unmarked through retries, extension and disk cache reopen',
@@ -523,7 +941,7 @@ void main() {
       final saved = (await queryRows(
         "SELECT duration_days,total_extended_days,extensions FROM stays WHERE id='extend_stay'",
       )).single;
-      expect(saved['duration_days'], 7);
+      expect(saved['duration_days'], 2);
       expect(saved['total_extended_days'], 5);
       expect(saved['extensions'] as List, hasLength(2));
       expect(await queryRows('SELECT * FROM attendance_records'), isEmpty);
@@ -1603,7 +2021,7 @@ void main() {
       );
       final stays2 = await roomService.getStaysByPatientStream(p2Id).first;
       final trackedStay2 = stays2.firstWhere((s) => s.id == stay2Id);
-      expect(trackedStay2.durationDays, 4);
+      expect(trackedStay2.durationDays, 2);
       expect(trackedStay2.bedId, bed2Id);
 
       // Workflow F (Part 1): Test mid-discharge failure rollback using a PostgreSQL trigger
@@ -2124,8 +2542,9 @@ void main() {
       var injected = false;
       var financialPuts = 0;
       diagnosticClient.beforeSend = (request) async {
-        if (request.method != 'POST' || request.url.path != '/api/payments')
+        if (request.method != 'POST' || request.url.path != '/api/payments') {
           return;
+        }
         financialPuts++;
         if (injected) return;
         injected = true;

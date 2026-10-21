@@ -4,7 +4,7 @@ import 'package:ngo/models/room_model.dart';
 import 'package:ngo/widgets/animated_counter.dart';
 
 /// Census Summary Widget - Real-time in-house analytics
-/// 
+///
 /// Displays:
 /// - Total Patients (count of all occupied beds)
 /// - Total Attendants (sum from all active Private Room stays)
@@ -24,18 +24,22 @@ class CensusSummaryWidget extends StatelessWidget {
         return StreamBuilder<Map<String, dynamic>>(
           stream: roomService.getFullCensusStream(),
           builder: (context, censusSnapshot) {
-            if ((roomsSnapshot.connectionState == ConnectionState.waiting || 
-                 censusSnapshot.connectionState == ConnectionState.waiting) &&
-                !roomsSnapshot.hasData && !censusSnapshot.hasData) {
+            if ((roomsSnapshot.connectionState == ConnectionState.waiting ||
+                    censusSnapshot.connectionState ==
+                        ConnectionState.waiting) &&
+                !roomsSnapshot.hasData &&
+                !censusSnapshot.hasData) {
               return const _LoadingCard();
             }
 
-            final census = censusSnapshot.data ?? {
-              'totalPatients': 0,
-              'totalAttendants': 0,
-              'totalInHouse': 0,
-              'vacantBeds': 0,
-            };
+            final census =
+                censusSnapshot.data ??
+                {
+                  'totalPatients': 0,
+                  'totalAttendants': 0,
+                  'totalInHouse': 0,
+                  'vacantBeds': 0,
+                };
 
             final rooms = roomsSnapshot.data ?? [];
 
@@ -43,11 +47,23 @@ class CensusSummaryWidget extends StatelessWidget {
             final floor1Rooms = rooms.where((r) => r.floor == 1).toList();
             final floor2Rooms = rooms.where((r) => r.floor == 2).toList();
 
-            final floor1Patients = floor1Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-            final floor1VacantBeds = floor1Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+            final floor1Patients = floor1Rooms.fold(
+              0,
+              (sum, r) => sum + r.actualOccupiedBeds,
+            );
+            final floor1VacantBeds = floor1Rooms.fold(
+              0,
+              (sum, r) => sum + r.actualAvailableBeds,
+            );
 
-            final floor2Patients = floor2Rooms.fold(0, (sum, r) => sum + r.actualOccupiedBeds);
-            final floor2VacantBeds = floor2Rooms.fold(0, (sum, r) => sum + r.actualAvailableBeds);
+            final floor2Patients = floor2Rooms.fold(
+              0,
+              (sum, r) => sum + r.actualOccupiedBeds,
+            );
+            final floor2VacantBeds = floor2Rooms.fold(
+              0,
+              (sum, r) => sum + r.actualAvailableBeds,
+            );
 
             return Container(
               padding: const EdgeInsets.all(20),
@@ -57,7 +73,7 @@ class CensusSummaryWidget extends StatelessWidget {
                 border: Border.all(color: const Color(0xFFC0DD97), width: 1),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: Colors.black.withValues(alpha: 0.03),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -143,10 +159,7 @@ class CensusSummaryWidget extends StatelessWidget {
                     const SizedBox(height: 20),
 
                     // Divider
-                    Container(
-                      height: 1,
-                      color: const Color(0xFFC0DD97),
-                    ),
+                    Container(height: 1, color: const Color(0xFFC0DD97)),
                     const SizedBox(height: 16),
 
                     // Per-Floor Breakdown
@@ -209,7 +222,9 @@ class _CensusStatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isHighlighted ? color.withOpacity(0.1) : const Color(0xFFF4F9F0),
+        color: isHighlighted
+            ? color.withValues(alpha: 0.1)
+            : const Color(0xFFF4F9F0),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isHighlighted ? color : const Color(0xFFC0DD97),
@@ -286,15 +301,15 @@ class _FloorCensusCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: floor == 1 
-                            ? const Color(0xFF3B6D11).withOpacity(0.1)
-                            : const Color(0xFF639922).withOpacity(0.1),
+                        color: floor == 1
+                            ? const Color(0xFF3B6D11).withValues(alpha: 0.1)
+                            : const Color(0xFF639922).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Icon(
                         Icons.layers_rounded,
                         size: 16,
-                        color: floor == 1 
+                        color: floor == 1
                             ? const Color(0xFF3B6D11)
                             : const Color(0xFF639922),
                       ),
@@ -318,10 +333,7 @@ class _FloorCensusCard extends StatelessWidget {
               // Room identifiers
               Text(
                 rooms.join(", "),
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF97C459),
-                ),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF97C459)),
               ),
             ],
           ),
@@ -335,11 +347,7 @@ class _FloorCensusCard extends StatelessWidget {
                   color: const Color(0xFF3B6D11),
                 ),
               ),
-              Container(
-                width: 1,
-                height: 30,
-                color: const Color(0xFFC0DD97),
-              ),
+              Container(width: 1, height: 30, color: const Color(0xFFC0DD97)),
               Expanded(
                 child: _FloorStatItem(
                   label: "Vacant",
@@ -380,10 +388,7 @@ class _FloorStatItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Color(0xFF639922),
-          ),
+          style: const TextStyle(fontSize: 10, color: Color(0xFF639922)),
         ),
       ],
     );

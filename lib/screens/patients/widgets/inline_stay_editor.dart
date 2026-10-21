@@ -166,7 +166,9 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
       } else {
         rooms = await ServiceLocator().roomService.getRoomsStream().first;
       }
-      final stays = await ServiceLocator().roomService.getActiveStaysStream().first;
+      final stays = await ServiceLocator().roomService
+          .getActiveStaysStream()
+          .first;
       occupiedLobbies = {
         for (final stay in stays)
           if (stay.roomType == 'lobby' &&
@@ -243,16 +245,12 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
   Widget _photoEditor(
     String title,
     String? data,
-    void Function(String?) assign,
-    {String? photoRef}
-  ) {
+    void Function(String?) assign, {
+    String? photoRef,
+  }) {
     Widget image = photoRef != null
         ? PatientPhoto(photoRef: photoRef, size: 88)
-        : const Icon(
-      Icons.person_outline,
-      size: 36,
-      color: Color(0xFF639922),
-    );
+        : const Icon(Icons.person_outline, size: 36, color: Color(0xFF639922));
     if (data?.isNotEmpty == true) {
       try {
         image = Image.memory(
@@ -438,10 +436,11 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
         current.hour,
         current.minute,
       );
-      if (beginning)
+      if (beginning) {
         start = value;
-      else
+      } else {
         end = value;
+      }
     });
   }
 
@@ -472,22 +471,25 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
     double? parse(TextEditingController controller) {
       if (controller.text.trim().isEmpty) return null;
       final value = double.tryParse(controller.text);
-      if (value == null || !value.isFinite || value < 0)
+      if (value == null || !value.isFinite || value < 0) {
         throw ArgumentError('Enter a valid amount, zero or greater');
+      }
       return value;
     }
 
     try {
-      if (name.text.trim().isEmpty || roomNumber.text.trim().isEmpty)
+      if (name.text.trim().isEmpty || roomNumber.text.trim().isEmpty) {
         throw ArgumentError('Patient name and room/lobby are required');
+      }
       if (roomType != 'lobby' &&
           (bedId == null ||
               bedId!.trim().isEmpty ||
               bedLabel.text.trim().isEmpty)) {
         throw ArgumentError('Select a bed before saving the stay');
       }
-      if (attendants.any((a) => a.name.text.trim().isEmpty))
+      if (attendants.any((a) => a.name.text.trim().isEmpty)) {
         throw ArgumentError('Enter a name for each attendant');
+      }
       for (var i = 0; i < attendants.length; i++) {
         final phone = attendants[i].mobile.text.trim();
         if (phone.isNotEmpty && !RegExp(r'^\d{10}$').hasMatch(phone)) {
@@ -521,11 +523,14 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
         if (attendant.photo != null && attendant.photo!.isNotEmpty) {
           final bytes = PhotoRtdbService.decodeLegacyBase64(attendant.photo);
           if (bytes == null) throw FormatException('Invalid attendant photo');
-          attendant.photoRef = await ServiceLocator().photoRtdbService.uploadPhoto(
-            photoPath: PhotoRtdbService.attendantPath(
-                widget.stay.patientId, 'stay_${widget.stay.id}_$i'),
-            bytes: bytes,
-          );
+          attendant.photoRef = await ServiceLocator().photoRtdbService
+              .uploadPhoto(
+                photoPath: PhotoRtdbService.attendantPath(
+                  widget.stay.patientId,
+                  'stay_${widget.stay.id}_$i',
+                ),
+                bytes: bytes,
+              );
         } else if (attendant.photoChanged) {
           attendant.photoRef = null;
         }
@@ -567,7 +572,8 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
         'attendantCount': attendants.length,
         'attendantLabels': attendants.map((a) => a.name.text.trim()).toList(),
         'dailyRate': parse(daily),
-        'dailyRateIsManual': parse(daily) != null &&
+        'dailyRateIsManual':
+            parse(daily) != null &&
             (widget.stay.dailyRateIsManual ||
                 (parse(daily)! - (widget.stay.dailyRate ?? 0)).abs() > 0.01),
         'longStayDailyRate': parse(longDaily),
@@ -936,12 +942,13 @@ class _InlineStayEditorState extends State<InlineStayEditor> {
                       const SizedBox(height: 6),
                       const Text(
                         'This amount is the charge for this room or lobby segment. Changing it overrides the automatic calculation.',
-                        style: TextStyle(color: Color(0xFF66735D), fontSize: 12),
+                        style: TextStyle(
+                          color: Color(0xFF66735D),
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 14),
-                      _grid([
-                        _field('Charged amount', total, number: true),
-                      ]),
+                      _grid([_field('Charged amount', total, number: true)]),
                     ],
                   ),
                 ),

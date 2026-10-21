@@ -31,8 +31,9 @@ double _patientPaymentTotal(
     payment,
   ) {
     if (from != null && payment.cycleId != null) {
-      if (payment.cycleId != from.millisecondsSinceEpoch.toString())
+      if (payment.cycleId != from.millisecondsSinceEpoch.toString()) {
         return total;
+      }
     } else if (from != null &&
         DateUtils.dateOnly(payment.date).isBefore(DateUtils.dateOnly(from))) {
       return total;
@@ -72,13 +73,6 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  String _getInitials(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts[0][0].toUpperCase();
-    return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 
   Uint8List? _decodePhoto(String? dataUrl) {
@@ -144,15 +138,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   }
 
   Future<void> _downloadPatientInfo(PatientModel patient) async {
-    print("INSIDE DOWNLOAD FUNCTION");
-
     try {
-      print("STEP 1");
-
       final dateFmt = DateFormat('dd/MM/yyyy');
       final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
-
-      print("STEP 2");
 
       final attendants = patient.attendants ?? [];
 
@@ -171,8 +159,6 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
 
       final totalAmount =
           patient.advanceBilledAmount + patient.attendanceCharges;
-
-      print("STEP 3 - Creating Excel");
 
       final excel = Excel.createExcel();
 
@@ -341,45 +327,30 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
 
       excel.setDefaultSheet('Patient Details');
 
-      print("STEP 4 - Before Save");
-
       final bytes = excel.save();
-
-      print("STEP 5 - After Save");
 
       if (bytes == null) {
         throw Exception('Could not create Excel file');
       }
-
-      print("STEP 6 - Bytes length: ${bytes.length}");
 
       final safeName = patient.fullName
           .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
           .replaceAll(RegExp(r'^_+|_+$'), '')
           .toLowerCase();
 
-      print("STEP 7 - Opening Save Dialog");
-
       final savedLocation = await savePatientInfoWorkbook(
         bytes: bytes,
         fileName: 'patient_${safeName.isEmpty ? patient.id : safeName}',
       );
 
-      print("STEP 8 - Dialog Returned");
-      print(savedLocation);
-
       if (savedLocation == null) {
-        print("STEP 9 - User Cancelled");
-
-        if (context.mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Download cancelled')));
         }
         return;
       }
-
-      print("STEP 10 - Success");
 
       if (!mounted) return;
 
@@ -390,8 +361,8 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         ),
       );
     } catch (e, st) {
-      print("DOWNLOAD ERROR: $e");
-      print(st);
+      debugPrint("DOWNLOAD ERROR: $e");
+      debugPrintStack(stackTrace: st);
 
       if (!mounted) return;
 
@@ -637,7 +608,6 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                               // onPressed: () =>
                               //     _downloadPatientInfo(currentPatient),
                               onPressed: () {
-                                print("DOWNLOAD BUTTON CLICKED");
                                 _downloadPatientInfo(currentPatient);
                               },
                               icon: const Icon(
@@ -1573,12 +1543,16 @@ class _OverviewTab extends StatelessWidget {
 
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: const Color(0xFFC0DD97).withOpacity(0.6)),
+            side: BorderSide(
+              color: const Color(0xFFC0DD97).withValues(alpha: 0.6),
+            ),
           ),
 
           collapsedShape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: const Color(0xFFC0DD97).withOpacity(0.6)),
+            side: BorderSide(
+              color: const Color(0xFFC0DD97).withValues(alpha: 0.6),
+            ),
           ),
 
           title: Row(
@@ -1681,7 +1655,9 @@ class _InfoField extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.5)),
+        border: Border.all(
+          color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         children: [
@@ -1832,10 +1808,11 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
       );
       if (mounted) setState(() => _paymentOverrides.remove(payment['id']));
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not delete payment: $error')),
         );
+      }
     }
   }
 
@@ -1912,7 +1889,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: selectedCycle,
+                  initialValue: selectedCycle,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Apply payment to admission',
@@ -2130,14 +2107,14 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                 Icon(
                   Icons.account_balance_wallet_outlined,
                   size: 64,
-                  color: const Color(0xFF639922).withOpacity(0.3),
+                  color: const Color(0xFF639922).withValues(alpha: 0.3),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   "No payment history found",
                   style: TextStyle(
                     fontSize: 16,
-                    color: const Color(0xFF639922).withOpacity(0.6),
+                    color: const Color(0xFF639922).withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -2196,7 +2173,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF3B6D11).withOpacity(0.15),
+                      color: const Color(0xFF3B6D11).withValues(alpha: 0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -2282,7 +2259,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: const Color(0xFFC0DD97).withOpacity(0.4),
+                        color: const Color(0xFFC0DD97).withValues(alpha: 0.4),
                       ),
                     ),
                     child: Row(
@@ -2514,59 +2491,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     return result;
   }
 
-  Map<String, dynamic> _computeSummaries(
-    Map<String, Map<String, dynamic>> attendanceMap,
-  ) {
-    int totalPresent = 0;
-    int totalAbsent = 0;
-
-    final monthly = <String, Map<String, int>>{};
-    final yearly = <String, Map<String, int>>{};
-
-    attendanceMap.forEach((dateStr, record) {
-      final status = record['status']?.toString() ?? '';
-      if (status != 'Present' && status != 'Absent') return;
-      final isPresent = status == 'Present';
-
-      if (isPresent) {
-        totalPresent++;
-      } else {
-        totalAbsent++;
-      }
-
-      try {
-        final date = DateTime.parse(dateStr);
-        final monthStr = DateFormat('MMMM yyyy').format(date);
-        final yearStr = date.year.toString();
-
-        monthly.putIfAbsent(monthStr, () => {'present': 0, 'absent': 0});
-        yearly.putIfAbsent(yearStr, () => {'present': 0, 'absent': 0});
-
-        if (isPresent) {
-          monthly[monthStr]!['present'] = monthly[monthStr]!['present']! + 1;
-          yearly[yearStr]!['present'] = yearly[yearStr]!['present']! + 1;
-        } else {
-          monthly[monthStr]!['absent'] = monthly[monthStr]!['absent']! + 1;
-          yearly[yearStr]!['absent'] = yearly[yearStr]!['absent']! + 1;
-        }
-      } catch (_) {}
-    });
-
-    final totalDays = totalPresent + totalAbsent;
-    final rate = totalDays > 0
-        ? (totalPresent / totalDays * 100).toStringAsFixed(1)
-        : '0.0';
-
-    return {
-      'totalPresent': totalPresent,
-      'totalAbsent': totalAbsent,
-      'totalDays': totalDays,
-      'rate': rate,
-      'monthly': monthly,
-      'yearly': yearly,
-    };
-  }
-
   // @override
   // Widget build(BuildContext context) {
   //   return FutureBuilder<Map<String, Map<String, dynamic>>>(
@@ -2637,7 +2561,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
   //                     color: Colors.white,
   //                     borderRadius: BorderRadius.circular(12),
   //                     border: Border.all(
-  //                       color: const Color(0xFFC0DD97).withOpacity(0.5),
+  //                       color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
   //                     ),
   //                   ),
   //                   child: Column(
@@ -2685,7 +2609,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
   //                     color: Colors.white,
   //                     borderRadius: BorderRadius.circular(12),
   //                     border: Border.all(
-  //                       color: const Color(0xFFC0DD97).withOpacity(0.5),
+  //                       color: const Color(0xFFC0DD97).withValues(alpha: 0.5),
   //                     ),
   //                   ),
   //                   child: Column(
@@ -2763,7 +2687,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                 attendant.name: [0, 0],
             };
             attendantData.forEach((date, attendants) {
-              if (attendants is Map)
+              if (attendants is Map) {
                 attendants.forEach((key, val) {
                   if (val is Map) {
                     final name =
@@ -2773,6 +2697,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                     if (val['status'] == 'Absent') count[1]++;
                   }
                 });
+              }
             });
 
             return SingleChildScrollView(
@@ -3098,9 +3023,9 @@ class _CompactAttendanceStat extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
     decoration: BoxDecoration(
-      color: color.withOpacity(.09),
+      color: color.withValues(alpha: .09),
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: color.withOpacity(.22)),
+      border: Border.all(color: color.withValues(alpha: .22)),
     ),
     child: Text.rich(
       TextSpan(
@@ -3121,70 +3046,6 @@ class _CompactAttendanceStat extends StatelessWidget {
 }
 
 // ── Micro Stat Item Card ──
-class _StatItemCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _StatItemCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFC0DD97).withOpacity(0.5)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF639922),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ── 4. Stays Tab ──
 class _AttendantCard extends StatelessWidget {
@@ -3660,6 +3521,7 @@ class _CalendarViewState extends State<_CalendarView> {
           runSpacing: 4,
           children: [
             _LegendItem(
+              label: "Present",
               child: Container(
                 width: 16,
                 height: 16,
@@ -3674,9 +3536,9 @@ class _CalendarViewState extends State<_CalendarView> {
                   ),
                 ),
               ),
-              label: "Present",
             ),
             _LegendItem(
+              label: "Absent",
               child: Container(
                 width: 16,
                 height: 16,
@@ -3694,23 +3556,22 @@ class _CalendarViewState extends State<_CalendarView> {
                   ),
                 ),
               ),
-              label: "Absent",
             ),
             const _LegendItem(
+              label: "Joined / Rejoined",
               child: Icon(
                 Icons.login_rounded,
                 size: 16,
                 color: Color(0xFF3B6D11),
               ),
-              label: "Joined / Rejoined",
             ),
             const _LegendItem(
+              label: "Exited",
               child: Icon(
                 Icons.exit_to_app,
                 size: 16,
                 color: Color(0xFFD32F2F),
               ),
-              label: "Exited",
             ),
           ],
         ),
@@ -3788,7 +3649,7 @@ class _DateDetailCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFC0DD97)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -3918,42 +3779,6 @@ class _LegendItem extends StatelessWidget {
           style: const TextStyle(fontSize: 11, color: Color(0xFF639922)),
         ),
       ],
-    );
-  }
-}
-
-class _CountChip extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-  const _CountChip({
-    required this.label,
-    required this.count,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(label, style: TextStyle(fontSize: 11, color: color)),
-        ],
-      ),
     );
   }
 }

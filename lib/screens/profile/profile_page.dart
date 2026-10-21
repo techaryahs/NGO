@@ -23,7 +23,7 @@ class ProfilePage extends StatelessWidget {
             border: Border.all(color: const Color(0xFFC0DD97), width: 1),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF3B6D11).withOpacity(0.08),
+                color: const Color(0xFF3B6D11).withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 4),
               ),
@@ -46,7 +46,7 @@ class ProfilePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              
+
               // User Info
               _ProfileInfoRow(
                 label: "Email",
@@ -65,9 +65,9 @@ class ProfilePage extends StatelessWidget {
                 value: "Super Admin",
                 icon: Icons.admin_panel_settings_outlined,
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // Actions
               Row(
                 children: [
@@ -76,7 +76,9 @@ class ProfilePage extends StatelessWidget {
                       onPressed: () {
                         // TODO: Implement edit profile
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Edit profile coming soon")),
+                          const SnackBar(
+                            content: Text("Edit profile coming soon"),
+                          ),
                         );
                       },
                       icon: const Icon(Icons.edit_outlined, size: 18),

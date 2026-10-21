@@ -48,13 +48,15 @@ class _VendorsTabState extends State<VendorsTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6D11)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF3B6D11)),
+      );
     }
 
     final filteredVendors = _vendors.where((v) {
       return v.name.toLowerCase().contains(_searchQuery) ||
-             v.contactPerson.toLowerCase().contains(_searchQuery) ||
-             v.mobileNumber.contains(_searchQuery);
+          v.contactPerson.toLowerCase().contains(_searchQuery) ||
+          v.mobileNumber.contains(_searchQuery);
     }).toList();
 
     return Padding(
@@ -64,20 +66,24 @@ class _VendorsTabState extends State<VendorsTab> {
           // Search & Action Row
           _buildActionBar(context),
           const SizedBox(height: 20),
-          
+
           // Vendor Grid
           Expanded(
             child: filteredVendors.isEmpty
                 ? const Center(
-                    child: Text("No supplier vendors registered", style: TextStyle(color: Color(0xFF639922))),
+                    child: Text(
+                      "No supplier vendors registered",
+                      style: TextStyle(color: Color(0xFF639922)),
+                    ),
                   )
                 : GridView.builder(
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 340,
-                      mainAxisExtent: 220,
-                      crossAxisSpacing: 15,
-                      mainAxisSpacing: 15,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 340,
+                          mainAxisExtent: 220,
+                          crossAxisSpacing: 15,
+                          mainAxisSpacing: 15,
+                        ),
                     itemCount: filteredVendors.length,
                     itemBuilder: (context, index) {
                       final vendor = filteredVendors[index];
@@ -106,21 +112,37 @@ class _VendorsTabState extends State<VendorsTab> {
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: "Search vendor name or contact person...",
-                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF639922), size: 20),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFF639922),
+                  size: 20,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 12,
+                ),
                 fillColor: const Color(0xFFF4F9F0),
                 filled: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFC0DD97),
+                    width: 0.5,
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFFC0DD97), width: 0.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFC0DD97),
+                    width: 0.5,
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF3B6D11), width: 1.0),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF3B6D11),
+                    width: 1.0,
+                  ),
                 ),
               ),
             ),
@@ -134,7 +156,9 @@ class _VendorsTabState extends State<VendorsTab> {
               backgroundColor: const Color(0xFF3B6D11),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],
@@ -151,7 +175,7 @@ class _VendorsTabState extends State<VendorsTab> {
         border: Border.all(color: const Color(0xFFC0DD97), width: 0.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.015),
+            color: Colors.black.withValues(alpha: 0.015),
             blurRadius: 5,
             offset: const Offset(0, 2),
           ),
@@ -179,7 +203,11 @@ class _VendorsTabState extends State<VendorsTab> {
               Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF639922)),
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      size: 16,
+                      color: Color(0xFF639922),
+                    ),
                     onPressed: () => _showFormDialog(context, vendor: vendor),
                     constraints: const BoxConstraints(),
                     padding: EdgeInsets.zero,
@@ -187,7 +215,11 @@ class _VendorsTabState extends State<VendorsTab> {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFC62828)),
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      size: 16,
+                      color: Color(0xFFC62828),
+                    ),
                     onPressed: () => _confirmDelete(vendor),
                     constraints: const BoxConstraints(),
                     padding: EdgeInsets.zero,
@@ -198,41 +230,67 @@ class _VendorsTabState extends State<VendorsTab> {
             ],
           ),
           const SizedBox(height: 8),
-          
+
           // Contact Details
-          _buildInfoRow(Icons.person_outline_rounded, vendor.contactPerson.isNotEmpty ? vendor.contactPerson : "N/A"),
+          _buildInfoRow(
+            Icons.person_outline_rounded,
+            vendor.contactPerson.isNotEmpty ? vendor.contactPerson : "N/A",
+          ),
           const SizedBox(height: 5),
-          _buildInfoRow(Icons.phone_rounded, vendor.mobileNumber.isNotEmpty ? vendor.mobileNumber : "N/A"),
+          _buildInfoRow(
+            Icons.phone_rounded,
+            vendor.mobileNumber.isNotEmpty ? vendor.mobileNumber : "N/A",
+          ),
           const SizedBox(height: 5),
-          _buildInfoRow(Icons.email_outlined, vendor.email.isNotEmpty ? vendor.email : "N/A"),
+          _buildInfoRow(
+            Icons.email_outlined,
+            vendor.email.isNotEmpty ? vendor.email : "N/A",
+          ),
           const SizedBox(height: 5),
-          _buildInfoRow(Icons.pin_rounded, vendor.address.isNotEmpty ? vendor.address : "N/A"),
-          
+          _buildInfoRow(
+            Icons.pin_rounded,
+            vendor.address.isNotEmpty ? vendor.address : "N/A",
+          ),
+
           const Spacer(),
           const Divider(color: Color(0xFFC0DD97), height: 10, thickness: 0.5),
-          
+
           // GST details or notes
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                vendor.gstNumber.isNotEmpty ? "GSTIN: ${vendor.gstNumber}" : "GSTIN: Unregistered",
+                vendor.gstNumber.isNotEmpty
+                    ? "GSTIN: ${vendor.gstNumber}"
+                    : "GSTIN: Unregistered",
                 style: TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
-                  color: vendor.gstNumber.isNotEmpty ? const Color(0xFF3B6D11) : Colors.grey.shade600,
+                  color: vendor.gstNumber.isNotEmpty
+                      ? const Color(0xFF3B6D11)
+                      : Colors.grey.shade600,
                 ),
               ),
               if (vendor.notes.isNotEmpty)
                 Tooltip(
                   message: vendor.notes,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFEAF3DE),
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Text("Notes", style: TextStyle(fontSize: 9, color: Color(0xFF27500A), fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      "Notes",
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF27500A),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -264,7 +322,9 @@ class _VendorsTabState extends State<VendorsTab> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Delete Vendor"),
-        content: Text("Are you sure you want to permanently delete supplier '${vendor.name}'? This action cannot be undone."),
+        content: Text(
+          "Are you sure you want to permanently delete supplier '${vendor.name}'? This action cannot be undone.",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -276,11 +336,17 @@ class _VendorsTabState extends State<VendorsTab> {
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Vendor successfully deleted'), backgroundColor: Color(0xFF3B6D11)),
+                  const SnackBar(
+                    content: Text('Vendor successfully deleted'),
+                    backgroundColor: Color(0xFF3B6D11),
+                  ),
                 );
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFC62828), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC62828),
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Delete"),
           ),
         ],
@@ -291,7 +357,9 @@ class _VendorsTabState extends State<VendorsTab> {
   void _showFormDialog(BuildContext context, {VendorModel? vendor}) {
     final formKey = GlobalKey<FormState>();
     final nameCtrl = TextEditingController(text: vendor?.name ?? "");
-    final contactCtrl = TextEditingController(text: vendor?.contactPerson ?? "");
+    final contactCtrl = TextEditingController(
+      text: vendor?.contactPerson ?? "",
+    );
     final phoneCtrl = TextEditingController(text: vendor?.mobileNumber ?? "");
     final emailCtrl = TextEditingController(text: vendor?.email ?? "");
     final gstCtrl = TextEditingController(text: vendor?.gstNumber ?? "");
@@ -301,7 +369,9 @@ class _VendorsTabState extends State<VendorsTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(vendor == null ? "Register Supplier Vendor" : "Edit Vendor Details"),
+        title: Text(
+          vendor == null ? "Register Supplier Vendor" : "Edit Vendor Details",
+        ),
         content: SizedBox(
           width: 480,
           child: Form(
@@ -312,8 +382,11 @@ class _VendorsTabState extends State<VendorsTab> {
                 children: [
                   TextFormField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: "Company/Vendor Name *"),
-                    validator: (val) => val == null || val.isEmpty ? "Enter vendor name" : null,
+                    decoration: const InputDecoration(
+                      labelText: "Company/Vendor Name *",
+                    ),
+                    validator: (val) =>
+                        val == null || val.isEmpty ? "Enter vendor name" : null,
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -321,14 +394,18 @@ class _VendorsTabState extends State<VendorsTab> {
                       Expanded(
                         child: TextFormField(
                           controller: contactCtrl,
-                          decoration: const InputDecoration(labelText: "Contact Person"),
+                          decoration: const InputDecoration(
+                            labelText: "Contact Person",
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: TextFormField(
                           controller: phoneCtrl,
-                          decoration: const InputDecoration(labelText: "Mobile Number"),
+                          decoration: const InputDecoration(
+                            labelText: "Mobile Number",
+                          ),
                           keyboardType: TextInputType.phone,
                         ),
                       ),
@@ -340,7 +417,9 @@ class _VendorsTabState extends State<VendorsTab> {
                       Expanded(
                         child: TextFormField(
                           controller: emailCtrl,
-                          decoration: const InputDecoration(labelText: "Email Address"),
+                          decoration: const InputDecoration(
+                            labelText: "Email Address",
+                          ),
                           keyboardType: TextInputType.emailAddress,
                         ),
                       ),
@@ -348,7 +427,9 @@ class _VendorsTabState extends State<VendorsTab> {
                       Expanded(
                         child: TextFormField(
                           controller: gstCtrl,
-                          decoration: const InputDecoration(labelText: "GSTIN Number (Optional)"),
+                          decoration: const InputDecoration(
+                            labelText: "GSTIN Number (Optional)",
+                          ),
                           textCapitalization: TextCapitalization.characters,
                         ),
                       ),
@@ -357,13 +438,17 @@ class _VendorsTabState extends State<VendorsTab> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: addressCtrl,
-                    decoration: const InputDecoration(labelText: "Vendor Address"),
+                    decoration: const InputDecoration(
+                      labelText: "Vendor Address",
+                    ),
                     maxLines: 2,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: notesCtrl,
-                    decoration: const InputDecoration(labelText: "Additional Notes"),
+                    decoration: const InputDecoration(
+                      labelText: "Additional Notes",
+                    ),
                     maxLines: 2,
                   ),
                 ],
@@ -372,7 +457,10 @@ class _VendorsTabState extends State<VendorsTab> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
           ElevatedButton(
             onPressed: () async {
               if (formKey.currentState!.validate()) {
@@ -404,14 +492,21 @@ class _VendorsTabState extends State<VendorsTab> {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(vendor == null ? 'Vendor registered successfully' : 'Vendor updated successfully'),
+                      content: Text(
+                        vendor == null
+                            ? 'Vendor registered successfully'
+                            : 'Vendor updated successfully',
+                      ),
                       backgroundColor: const Color(0xFF3B6D11),
                     ),
                   );
                 }
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6D11), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B6D11),
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Save"),
           ),
         ],

@@ -303,6 +303,21 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if ('type' in body && body.type !== existing.type) throw httpError(400, 'Payment type is immutable');
       const amount = body.amount != null ? cents(body.amount) : cents(existing.amount);
       if (amount === 0 || (existing.type === 'refund' ? amount >= 0 : amount <= 0)) throw httpError(400, 'Payments must be positive and refunds negative');
+      const nextTransactionId = 'transactionId' in body
+        ? typeof body.transactionId === 'string' && body.transactionId.trim().length > 0
+          ? body.transactionId.trim()
+          : null
+        : existing.transaction_id;
+      // Migration 009 permits historical split receipts sharing a reference.
+      // Preserve those identities on ordinary edits; reject a newly assigned
+      // reference that would collide with another ledger entry.
+      if (nextTransactionId != null && nextTransactionId !== existing.transaction_id) {
+        const conflict = await client.query(
+          'SELECT id FROM payments WHERE patient_id=$1 AND transaction_id=$2 AND id<>$3 LIMIT 1',
+          [existing.patient_id, nextTransactionId, id],
+        );
+        if (conflict.rowCount) throw httpError(409, 'Transaction reference already belongs to another payment for this patient');
+      }
       const fields: [string, string, 'money' | 'date' | 'text'][] = [
         ['cycleId', 'cycle_id', 'text'], ['amount', 'amount', 'money'], ['totalAmount', 'total_amount', 'money'],
         ['paidAmount', 'paid_amount', 'money'], ['pendingAmount', 'pending_amount', 'money'], ['paymentStatus', 'payment_status', 'text'],
@@ -315,7 +330,15 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       for (const [key, column, kind] of fields) {
         if (!(key in body) || (kind === 'money' && body[key] == null)) continue;
         const previous = (existing as any)[column];
-        const value = kind === 'money' ? decimal(cents(body[key])) : kind === 'date' ? new Date(body[key]) : body[key] === '' && ['transactionId', 'receiptNumber', 'checkNumber', 'bankName'].includes(key) ? null : body[key];
+        const value = kind === 'money'
+          ? decimal(cents(body[key]))
+          : kind === 'date'
+            ? new Date(body[key])
+            : key === 'transactionId' && typeof body[key] === 'string'
+              ? body[key].trim() || null
+              : body[key] === '' && ['receiptNumber', 'checkNumber', 'bankName'].includes(key)
+                ? null
+                : body[key];
         const same = kind === 'money' ? cents(value) === cents(previous) : kind === 'date' ? new Date(value as Date).getTime() === new Date(previous).getTime() : value === previous;
         if (same) continue;
         values.push(value); assignments.push(`${column}=$${values.length}`);

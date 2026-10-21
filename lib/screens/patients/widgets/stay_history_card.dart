@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'photo_preview_dialog.dart';
 import 'package:intl/intl.dart';
@@ -107,7 +106,7 @@ class _StayHistoryCardState extends State<StayHistoryCard> {
         },
       );
     }
-    if (_draftSource != null)
+    if (_draftSource != null) {
       return InlineStayEditor(
         key: ValueKey('edit-${_draftSource!.id}'),
         stay: _draftSource!,
@@ -123,6 +122,7 @@ class _StayHistoryCardState extends State<StayHistoryCard> {
           ).showSnackBar(const SnackBar(content: Text('Stay saved.')));
         },
       );
+    }
     return _StayHistoryCardView(
       stay: widget.stay,
       patient: widget.patient,
@@ -217,38 +217,6 @@ class _StayHistoryCardView extends StatelessWidget {
     ),
   );
 
-  Widget _photo(BuildContext context, String label, dynamic source) {
-    if (source is! String || source.isEmpty) return const SizedBox.shrink();
-    try {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(50),
-            onTap: () => showPhotoPreview(
-              context,
-              photoBytes: base64Decode(source.split(',').last),
-              title: label,
-            ),
-            child: ClipOval(
-              child: Image.memory(
-                base64Decode(source.split(',').last),
-                width: 96,
-                height: 96,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Color(0xFF27500A))),
-        ],
-      );
-    } catch (_) {
-      return const SizedBox.shrink();
-    }
-  }
-
   Widget _attendant(BuildContext context, dynamic raw, String fallback) {
     final map = raw is Map ? raw : const {};
     final name = map['name']?.toString().trim();
@@ -295,7 +263,7 @@ class _StayHistoryCardView extends StatelessWidget {
                     final bytes = source?.isNotEmpty == true
                         ? decodeLegacyPhoto(source)
                         : await ServiceLocator().photoRtdbService
-                            .downloadPhotoCached(ref!);
+                              .downloadPhotoCached(ref!);
                     if (!context.mounted || bytes == null) return;
                     showPhotoPreview(context, photoBytes: bytes, title: label);
                   }
@@ -304,10 +272,19 @@ class _StayHistoryCardView extends StatelessWidget {
               radius: 18,
               backgroundColor: const Color(0xFFEAF3E1),
               child: hasPhoto
-                  ? ClipOval(child: PatientPhoto(photoRef: ref,
-                      legacyDataUrl: source, size: 36, fallbackText: name))
-                  : const Icon(Icons.person_outline, size: 20,
-                      color: Color(0xFF639922)),
+                  ? ClipOval(
+                      child: PatientPhoto(
+                        photoRef: ref,
+                        legacyDataUrl: source,
+                        size: 36,
+                        fallbackText: name,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.person_outline,
+                      size: 20,
+                      color: Color(0xFF639922),
+                    ),
             ),
           ),
           const SizedBox(width: 9),
@@ -403,7 +380,8 @@ class _StayHistoryCardView extends StatelessWidget {
           ]
         : stay.attendantLabels;
     final hasPatientPhoto =
-        (stay.patientSnapshot['photoDataUrl']?.toString().isNotEmpty ?? false) ||
+        (stay.patientSnapshot['photoDataUrl']?.toString().isNotEmpty ??
+            false) ||
         (stay.patientSnapshot['photoRef']?.toString().isNotEmpty ?? false) ||
         (patient.photoRef?.isNotEmpty ?? false);
     final isShiftSegment =
@@ -644,9 +622,16 @@ class _StayHistoryCardView extends StatelessWidget {
                             height: 64,
                             child: PatientPhoto(
                               size: 64,
-                              legacyDataUrl: stay.patientSnapshot['photoDataUrl']?.toString(),
-                              photoRef: stay.patientSnapshot['photoRef']?.toString() ?? patient.photoRef,
-                              fallbackText: stay.patientName.isEmpty ? '?' : stay.patientName[0],
+                              legacyDataUrl: stay
+                                  .patientSnapshot['photoDataUrl']
+                                  ?.toString(),
+                              photoRef:
+                                  stay.patientSnapshot['photoRef']
+                                      ?.toString() ??
+                                  patient.photoRef,
+                              fallbackText: stay.patientName.isEmpty
+                                  ? '?'
+                                  : stay.patientName[0],
                             ),
                           ),
                         ),

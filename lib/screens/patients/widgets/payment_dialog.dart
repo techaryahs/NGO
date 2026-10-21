@@ -114,8 +114,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         patientName: widget.patientName,
         payment: payment,
       );
-      if (mounted)
+      if (mounted) {
         Navigator.pop(context, PaymentDialogResult(recordedPaymentId: id));
+      }
     } catch (e) {
       if (mounted) setState(() => _error = 'Payment could not be recorded: $e');
     } finally {
@@ -156,8 +157,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                       labelText: 'Amount to collect (₹)',
                     ),
                     validator: (value) {
-                      if (!validAmount)
+                      if (!validAmount) {
                         return 'Enter a positive amount within the pending balance.';
+                      }
                       if (!RegExp(
                         r'^\d+(?:\.\d{1,2})?$',
                       ).hasMatch(value!.trim())) {

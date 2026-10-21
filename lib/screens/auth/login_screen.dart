@@ -143,10 +143,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: 380,
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.88),
+                    color: Colors.white.withValues(alpha: 0.88),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: const Color(0xFF639922).withOpacity(0.2),
+                      color: const Color(0xFF639922).withValues(alpha: 0.2),
                       width: 0.5,
                     ),
                   ),
@@ -382,7 +382,7 @@ class _NatureInputField extends StatelessWidget {
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-              color: const Color(0xFF97C459).withOpacity(0.8),
+              color: const Color(0xFF97C459).withValues(alpha: 0.8),
               fontSize: 14,
             ),
             prefixIcon: Icon(icon, color: const Color(0xFF639922), size: 20),
@@ -550,7 +550,7 @@ class _LeafBlob extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(size * 0.5),
             bottomRight: Radius.circular(size * 0.5),

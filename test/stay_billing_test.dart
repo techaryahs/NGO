@@ -6,6 +6,7 @@ import 'package:ngo/services/firebase_rtdb_rest_service.dart';
 import 'package:ngo/services/payment_service.dart';
 import 'package:ngo/services/patient_service.dart';
 import 'package:ngo/services/stay_history_service.dart';
+import 'package:ngo/utils/pricing_helper.dart';
 import 'package:ngo/utils/stay_billing.dart';
 
 int stamp(int day, [int hour = 9]) =>
@@ -348,6 +349,177 @@ void main() {
     ).single;
     expect(bill.total, 400);
   });
+
+  test('general 60-day base plus extension uses the historical ₹250 rate', () {
+    final data = segment('general', 'general', 1, 71, status: 'active');
+    final bill = StayBilling.calculate(
+      patient: patient(status: 'active', exit: 71),
+      stays: [StayModel.fromMap('general', data)],
+      pricing: {'generalRoomBedPrice': 200},
+    ).single;
+
+    expect(bill.days['general'], 70);
+    expect(bill.total, 60 * 200 + 10 * 250);
+  });
+
+  test(
+    'calendar billing tier counts attendance days, not extension metadata',
+    () {
+      final data = segment('general', 'general', 1, 72, status: 'active');
+      data['durationDays'] = 60;
+      data['totalExtendedDays'] = 10;
+      final absent = <String, String>{
+        for (var day = 1; day <= 10; day++)
+          StayBilling.dateKey(DateTime(2026, 1, day)): 'Absent',
+      };
+      final sixty = StayBilling.calculate(
+        patient: patient(status: 'active', exit: 70),
+        stays: [StayModel.fromMap('general', data)],
+        pricing: {},
+        attendance: absent,
+        calendarDayBilling: true,
+      ).single;
+      final sixtyOne = StayBilling.calculate(
+        patient: patient(status: 'active', exit: 71),
+        stays: [StayModel.fromMap('general', data)],
+        pricing: {},
+        attendance: absent,
+        calendarDayBilling: true,
+      ).single;
+      expect(sixty.days['general'], 60);
+      expect(sixty.total, 12000);
+      expect(sixtyOne.total, 12250);
+      expect(StayModel.fromMap('general', data).totalDays, 70);
+    },
+  );
+
+  test(
+    'legacy approval quote shares attendance billing and performs no writes',
+    () async {
+      final data = segment('general', 'general', 1, 61, status: 'active');
+      data['durationDays'] = 60;
+      final db = TestDatabase({
+        'patients': {'p': patient(status: 'active', exit: 61).toMap()},
+        'stays': {'general': data},
+        'admin_settings': {
+          'pricing': {'generalRoomBedPrice': 200},
+        },
+        'attendance': {
+          'daily': {
+            for (var day = 1; day <= 10; day++)
+              StayBilling.dateKey(DateTime(2026, 1, day)): {
+                'p': {'status': 'Absent'},
+              },
+          },
+        },
+      });
+      final service = PaymentService(db);
+      final stay = StayModel.fromMap('general', data);
+      expect(await service.quoteLegacyStayExtension(stay, 10), 2000);
+      expect(await service.quoteLegacyStayExtension(stay, 11), 2250);
+      expect(db.writes, 0);
+    },
+  );
+
+  test(
+    'extension estimates use the same category-specific long-stay rules',
+    () {
+      expect(
+        PricingHelper.calculateExtensionCost(
+          false,
+          0,
+          10,
+          pricing: {'generalRoomBedPrice': 200},
+          priorBillableDays: 60,
+        ),
+        2500,
+      );
+      expect(
+        PricingHelper.calculateExtensionCost(
+          false,
+          0,
+          10,
+          pricing: {'generalRoomBedPrice': 200},
+          priorBillableDays: 0,
+        ),
+        2000,
+      );
+      expect(
+        PricingHelper.calculateExtensionCost(
+          false,
+          0,
+          1,
+          pricing: {'generalRoomBedPrice': 200},
+          priorBillableDays: 60,
+          longStayRateOverride: 300,
+        ),
+        300,
+      );
+      expect(
+        PricingHelper.calculateExtensionCost(
+          false,
+          0,
+          10,
+          pricing: {'generalRoomBedPrice': 150},
+          priorBillableDays: 0,
+        ),
+        2000,
+      );
+      expect(
+        PricingHelper.calculateExtensionCost(
+          true,
+          2,
+          1,
+          pricing: {
+            'privateRoomBasePrice': 700,
+            'privateRoomIncludedAttendants': 1,
+            'privateRoomExtraAttendantFee': 200,
+          },
+          priorBillableDays: 60,
+        ),
+        1200,
+      );
+      expect(
+        StayBilling.calculate(
+          patient: patient(status: 'active', exit: 71),
+          stays: [
+            StayModel.fromMap(
+              'lobby',
+              segment('lobby', 'lobby', 1, 71, status: 'active'),
+            ),
+          ],
+          pricing: {'generalRoomBedPrice': 200},
+        ).single.total,
+        60 * 200 + 10 * 250,
+        reason: 'Lobby uses the verified General pricing path',
+      );
+    },
+  );
+
+  test(
+    'extension request IDs round-trip while legacy records remain readable',
+    () {
+      final legacy = StayExtension.fromMap({
+        'additionalDays': 3,
+        'extendedOn': stamp(2),
+        'reason': 'legacy',
+        'additionalCost': 600,
+      });
+      expect(legacy.requestId, isNull);
+
+      final current = StayExtension(
+        requestId: 'extension-retry-1',
+        additionalDays: 10,
+        extendedOn: DateTime(2026, 1, 1),
+        reason: 'approved',
+        additionalCost: 2500,
+      );
+      expect(
+        StayExtension.fromMap(current.toMap()).requestId,
+        'extension-retry-1',
+      );
+    },
+  );
 
   test('9 AM checkout excludes last day and charges six attendant days', () {
     final data = segment('lobby', 'lobby', 1, 8, status: 'active');

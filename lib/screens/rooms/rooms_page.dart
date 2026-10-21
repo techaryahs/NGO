@@ -448,7 +448,7 @@ class _RoomsPageState extends State<RoomsPage> {
                                     size: 64,
                                     color: const Color(
                                       0xFF639922,
-                                    ).withOpacity(0.3),
+                                    ).withValues(alpha: 0.3),
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
@@ -457,7 +457,7 @@ class _RoomsPageState extends State<RoomsPage> {
                                       fontSize: 16,
                                       color: const Color(
                                         0xFF639922,
-                                      ).withOpacity(0.6),
+                                      ).withValues(alpha: 0.6),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -746,7 +746,7 @@ class _RoomsPageState extends State<RoomsPage> {
         side: BorderSide(color: Colors.red.shade200, width: 1),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        backgroundColor: Colors.red.shade50.withOpacity(0.4),
+        backgroundColor: Colors.red.shade50.withValues(alpha: 0.4),
       ),
     );
   }
@@ -865,7 +865,7 @@ class _LobbyFloorColumn extends StatelessWidget {
         border: Border.all(color: const Color(0xFFD5E8C2)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF27500A).withOpacity(0.06),
+            color: const Color(0xFF27500A).withValues(alpha: 0.06),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
@@ -888,7 +888,7 @@ class _LobbyFloorColumn extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.16),
+                    color: Colors.white.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(Icons.layers_rounded, color: Colors.white),
@@ -922,7 +922,7 @@ class _LobbyFloorColumn extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.16),
+                    color: Colors.white.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -986,7 +986,7 @@ class _LobbyPlacementCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFD5E8C2)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF27500A).withOpacity(0.045),
+            color: const Color(0xFF27500A).withValues(alpha: 0.045),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -1353,7 +1353,7 @@ class _StatCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFC0DD97), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.01),
+            color: Colors.black.withValues(alpha: 0.01),
             blurRadius: 4,
             offset: const Offset(0, 1),
           ),
@@ -1365,7 +1365,7 @@ class _StatCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 24),
@@ -1435,7 +1435,7 @@ class _FloorStatCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF3B6D11).withOpacity(0.06)
+              ? const Color(0xFF3B6D11).withValues(alpha: 0.06)
               : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
@@ -1446,7 +1446,7 @@ class _FloorStatCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.01),
+              color: Colors.black.withValues(alpha: 0.01),
               blurRadius: 4,
               offset: const Offset(0, 1),
             ),
@@ -1619,7 +1619,7 @@ class _RoomStatisticsSidebar extends StatelessWidget {
         border: Border.all(color: const Color(0xFFC0DD97), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),

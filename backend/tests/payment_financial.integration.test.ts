@@ -184,6 +184,14 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     expect((await record('other', '3.00', { transactionId: 'UNIQUE' })).statusCode).toBe(409);
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 3, currentDueAmount: 7, version: before.version });
   });
+  it('preserves imported split-reference identities on metadata and amount edits', async () => {
+    await seed();
+    await query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date,transaction_id,source) VALUES('legacy-a','p1',$1,1,'2026-01-02','SHARED','firebase'),('legacy-b','p1',$1,2,'2026-01-02','SHARED','firebase')", [cycle]);
+    expect((await send('PATCH', '/payments/legacy-a', { notes: 'corrected legacy receipt' })).statusCode).toBe(200);
+    expect((await send('PATCH', '/payments/legacy-a', { transactionId: 'SHARED', amount: '1.50' })).statusCode).toBe(200);
+    expect(await getPatient()).toMatchObject({ totalPaidAmount: 3.5, currentDueAmount: 6.5 });
+    expect((await query("SELECT COUNT(*)::int AS count FROM payments WHERE transaction_id='SHARED'")).rows[0].count).toBe(2);
+  });
   it.each(['PATCH', 'DELETE'])('%s failure rolls back the ledger and patient version together', async method => {
     await seed(); await record('rollback', '3.00'); const before = await getPatient();
     await query("CREATE FUNCTION payment_accuracy_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER payment_accuracy_fail BEFORE UPDATE ON patients FOR EACH ROW EXECUTE FUNCTION payment_accuracy_fail()");
