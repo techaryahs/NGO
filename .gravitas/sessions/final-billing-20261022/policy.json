@@ -1,0 +1,11 @@
+{
+  "context_depth": "dependency",
+  "verification_depth": "impact",
+  "reason_codes": [
+    "shared financial engine",
+    "cross-layer fanout",
+    "finalization integrity"
+  ],
+  "delegation": "conditional impact-auditor and reviewer",
+  "planning": "deep"
+}

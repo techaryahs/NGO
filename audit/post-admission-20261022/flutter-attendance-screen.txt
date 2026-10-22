@@ -1,0 +1,3 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_attendance_screen_test.dart
+00:00 +0: retained Monthly Attendance receives post-edit roster; search, room filter, save and month return keep its independent mark
+00:02 +1: All tests passed!

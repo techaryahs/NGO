@@ -1,0 +1,15 @@
+
+> ngo-backend@1.0.0 test
+> vitest run --reporter=dot tests/client_billing_rules.test.ts tests/billing_pricing.test.ts
+
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+ ✓ tests/billing_pricing.test.ts (17 tests) 125ms
+ ✓ tests/client_billing_rules.test.ts (29 tests) 112ms
+
+ Test Files  2 passed (2)
+      Tests  46 passed (46)
+   Start at  11:09:25
+   Duration  2.56s (transform 630ms, setup 0ms, collect 1.14s, tests 237ms, environment 1ms, prepare 774ms)
+

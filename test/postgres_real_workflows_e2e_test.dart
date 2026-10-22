@@ -544,6 +544,176 @@ void main() {
     dotenv.loadFromString(isOptional: true, envString: '');
   });
 
+  test(
+    '3800 General bill: partial 1400 and remaining 2400 through real Flutter services retain both receipts and dashboard/profile balances',
+    () async {
+      final pid = AttendantModel.generateId(),
+          rid = AttendantModel.generateId(),
+          sid = AttendantModel.generateId();
+      final admission = DateTime(2026, 10, 1);
+      final cycle = admission.millisecondsSinceEpoch.toString();
+      await roomService.addRoom(
+        id: rid,
+        roomNumber: 'Collection QA',
+        roomIdentifier: '1D',
+        floor: 1,
+        roomType: 'general',
+        totalBeds: 1,
+        bedLabels: ['QA'],
+      );
+      final room = (await roomService.getRoomDirect(rid))!;
+      await patientService.addPatient(
+        id: pid,
+        fullName: 'Collection $pid',
+        dateOfBirth: DateTime(1990),
+        gender: 'Other',
+        contactNumber: '',
+        emergencyContact: '',
+        emergencyContactName: '',
+        medicalCondition: '',
+        admissionDate: admission,
+        registrationDate: admission,
+        exitDate: DateTime(2026, 10, 19, 9),
+        createdBy: 'test-uid-admin',
+        attendants: [],
+        initialStays: [
+          {
+            'id': sid,
+            'roomId': rid,
+            'bedId': room.beds.single.id,
+            'admissionDate': admission.millisecondsSinceEpoch,
+            'durationDays': 19,
+            'cycleId': cycle,
+          },
+        ],
+      );
+      final partial = PaymentModel(
+        id: AttendantModel.generateId(),
+        amount: 1400,
+        method: 'ONLINE',
+        date: DateTime.now(),
+        cycleId: cycle,
+        transactionId: 'abcd123456789',
+        totalAmount: 3800,
+        paidAmount: 1400,
+        pendingAmount: 2400,
+      );
+      await paymentService.recordPayment(
+        patientId: pid,
+        patientName: 'Collection $pid',
+        payment: partial,
+        collectOutstanding: true,
+      );
+      final balance = await paymentService.collectionBalance(pid);
+      expect(balance.total, 3800);
+      expect(balance.paid, 1400);
+      expect(balance.due, 2400);
+      final settled = Completer<void>();
+      final dashboard = <PatientModel>[];
+      final subscription = patientService.getPatientsStream().listen((
+        patients,
+      ) {
+        dashboard
+          ..clear()
+          ..addAll(patients);
+        if (patients.any(
+              (p) =>
+                  p.id == pid &&
+                  p.totalPaidAmount == 3800 &&
+                  p.currentDueAmount == 0,
+            ) &&
+            !settled.isCompleted) {
+          settled.complete();
+        }
+      });
+      try {
+        final payment = PaymentModel(
+          id: AttendantModel.generateId(),
+          amount: balance.due,
+          method: 'ONLINE',
+          date: DateTime.now(),
+          cycleId: balance.cycleId,
+          transactionId: DateTime.now().microsecondsSinceEpoch.toString(),
+          totalAmount: balance.total,
+          paidAmount: 3800,
+          pendingAmount: 0,
+        );
+        await expectLater(
+          paymentService.recordPayment(
+            patientId: pid,
+            patientName: 'Collection $pid',
+            collectOutstanding: true,
+            payment: PaymentModel(
+              id: AttendantModel.generateId(),
+              amount: 2400,
+              method: 'ONLINE',
+              date: DateTime.now(),
+              transactionId: partial.transactionId,
+              cycleId: cycle,
+              totalAmount: 3800,
+              paidAmount: 3800,
+            ),
+          ),
+          throwsA(isA<PaymentReferenceException>()),
+        );
+        expect(
+          (await queryRows(
+            'SELECT count(*)::int AS n FROM payments WHERE patient_id=\$1',
+            [pid],
+          )).single['n'],
+          1,
+        );
+        expect((await paymentService.collectionBalance(pid)).due, 2400);
+        final id = await paymentService.recordPayment(
+          patientId: pid,
+          patientName: 'Collection $pid',
+          payment: payment,
+          collectOutstanding: true,
+        );
+        expect(
+          await paymentService.recordPayment(
+            patientId: pid,
+            patientName: 'Collection $pid',
+            payment: payment,
+            collectOutstanding: true,
+          ),
+          id,
+        );
+        await backendApi.refresh('patients');
+        await settled.future.timeout(const Duration(seconds: 5));
+        final profile = (await patientService.getPatient(pid))!;
+        expect(profile.payments, hasLength(2));
+        expect(profile.payments!.map((p) => p.amount).toList()..sort(), [
+          1400,
+          2400,
+        ]);
+        expect(profile.totalPaidAmount, 3800);
+        expect(profile.currentDueAmount, 0);
+        expect(
+          dashboard.singleWhere((p) => p.id == pid).totalPaidAmount,
+          profile.totalPaidAmount,
+        );
+        expect(
+          dashboard.singleWhere((p) => p.id == pid).currentDueAmount,
+          profile.currentDueAmount,
+        );
+        expect(
+          await backendApi.refresh('payments?patientId=$pid&format=map'),
+          hasLength(2),
+        );
+        expect(
+          (await queryRows(
+            'SELECT count(*)::int AS n,sum(amount)::text AS paid FROM payments WHERE patient_id=\$1',
+            [pid],
+          )).single,
+          {'n': 2, 'paid': '3800.00'},
+        );
+      } finally {
+        await subscription.cancel();
+      }
+    },
+  );
+
   for (final arrivalDay in [1, 6]) {
     test(
       'post-admission Flutter lifecycle: attendee arrives day $arrivalDay, attendance and remaining payment survive reload',

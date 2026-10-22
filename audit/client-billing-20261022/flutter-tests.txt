@@ -1,0 +1,830 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart
+00:00 +0: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: createStaysForBeds uses deterministic stay IDs when provided
+00:00 +1: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: createLobbyStay uses deterministic stay ID when provided
+00:00 +2: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: persisted admission stay estimate uses projected long-stay pricing
+00:00 +3: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: reserveBeds allows retry for the same patient without throwing conflict
+00:00 +4: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: reserveBeds rejects different patient trying to reserve the occupied bed
+00:00 +5: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_idempotent_admission_test.dart: stays patientId query is never called during stay creation
+00:02 +6: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +7: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +8: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +9: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +10: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +11: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +12: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +13: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +14: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +15: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +16: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +17: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +18: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +19: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +20: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +21: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +22: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +23: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +24: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +25: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:05 +26: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:05 +27: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] active stays load failed: Exception: Index not defined, add ".indexOn": "status", for path "/stays"
+00:06 +28: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests A. Lobby selected: room dropdown disabled and shows "Clear lobby to select a room"
+00:06 +29: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests A. Lobby selected: room dropdown disabled and shows "Clear lobby to select a room"
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+00:06 +30: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +31: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +32: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +33: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +34: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +35: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +36: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +36: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 1. Database-derived initialization computes sequence tail from RTDB
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5213
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5214
+00:07 +37: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +37: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 2-5. Production fixture: tail at 5217 with Lata (8959) allocates 5218, never 8000 or 8960
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +38: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +38: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 6. Existing registration 8959 remains reserved and is skipped when sequence reaches it
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: persistent counter found: 8958
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=8960
+00:07 +39: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +39: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 7. Historical gaps are never filled or reused (5097, 5099, 5213 -> 5214, not 5098)
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5213
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5214
+00:07 +40: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +40: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 8. Malformed, null, and nonnumeric registration values do not break initialization
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5213
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5214
+00:07 +41: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +41: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 9. Duplicate historical registrations are reported but never silently rewritten
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +42: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +42: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 10. Live preview does not consume or increment registration numbers
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +43: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+00:07 +43: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 11. Second-client allocation advances the live preview stream in real-time
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +44: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] pricing load failed: Exception: Failed to fetch pricing: Exception: RTDB 500 Internal Server Error
+00:07 +44: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 12. Concurrent allocation between simultaneous clients is collision-free
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+[RegistrationNumberService] CAS retry=1
+00:07 +44: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+[ADD PATIENT] using fallback pricing
+00:07 +45: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +45: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 12. Concurrent allocation between simultaneous clients is collision-free
+[RegistrationNumberService] allocation attempt=2
+[RegistrationNumberService] allocated=5219
+00:07 +46: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +46: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 13. ETag/CAS retry behavior handles HTTP 412 conflicts and recovers
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] CAS retry=1
+[RegistrationNumberService] allocation attempt=2
+[RegistrationNumberService] CAS retry=2
+00:07 +47: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +47: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 13. ETag/CAS retry behavior handles HTTP 412 conflicts and recovers
+[RegistrationNumberService] allocation attempt=3
+[RegistrationNumberService] allocated=5218
+00:07 +48: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +48: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 14. Counter never moves backwards even if a lower number is requested
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5220
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5221
+00:07 +49: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +49: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 15. Counter self-heals upward if persisted counter is behind canonical established sequence
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +50: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +50: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 16. Stale local/SQLite cache cannot reset the authoritative RTDB counter
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +51: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +51: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 17. PatientService rejects blank/random registrations and enforces automatic numbering
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +52: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+00:07 +52: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 18. Newly created stay and snapshot receive exactly the patient allocated registration number
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:07 +53: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests B. Lobby cleared: room dropdown becomes enabled and displays "Select room"
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+00:08 +54: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 3: Rooms loading fails -> pricing still loads independently
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] rooms load failed: Exception: Network error fetching rooms
+00:08 +55: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +55: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests C. Active-stays request fails: room list still loads without hanging
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] active stays load failed: Exception: Index not defined, add ".indexOn": "status", for path "/stays"
+00:09 +56: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +57: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +57: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 4: Active stays query fails -> room selection remains available without infinite loading
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] active stays load failed: Exception: Missing index on stays
+00:09 +58: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +58: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 5: All requests succeed -> normal production flow
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+00:09 +59: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +60: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +61: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +62: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +63: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +64: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +65: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +66: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +67: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +68: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +69: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +70: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +71: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +72: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +73: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +74: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +75: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +76: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +77: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +78: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +79: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +80: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +81: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +82: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +83: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +84: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +85: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +86: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +87: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:09 +88: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +89: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +90: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +91: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +92: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +93: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +94: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +95: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +96: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +97: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +98: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +99: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +100: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +101: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +102: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +103: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +104: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +105: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +106: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +107: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +107: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_room_selection_test.dart: AddPatient Room Selection & Error Replay Regression Tests E. Room data successfully loads: floor filtering and room selection still work
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+00:10 +108: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +109: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +110: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +111: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +112: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +113: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +114: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +115: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +115: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_regression_test.dart: stream errors reach both current and late subscribers
+[BackendApiService] Stream poll failed
+00:10 +116: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +117: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +118: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +119: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +120: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +120: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_regression_test.dart: dispose closes active streams and cancels their polling
+[BackendApiService] Stream poll failed
+00:10 +121: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +121: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 6: Timeout occurs on pricing -> bounded failure falls back to default pricing without infinite loading
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] pricing load failed: TimeoutException after 0:00:06.000000: Future not completed
+[ADD PATIENT] using fallback pricing
+00:10 +122: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+00:10 +123: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 19. Reopening or rebuilding AddPatientDialog does not consume numbers
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[ADD PATIENT] rooms load failed: TimeoutException after 0:00:08.000000: Future not completed
+[ADD PATIENT] active stays load failed: TimeoutException after 0:00:08.000000: Future not completed
+[ADD PATIENT] rooms load failed: TimeoutException after 0:00:08.000000: Future not completed
+[ADD PATIENT] active stays load failed: TimeoutException after 0:00:08.000000: Future not completed
+00:11 +124: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 20. Application restart preserves the persisted RTDB counter
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5218
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5219
+00:11 +125: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite Immutability: existing patient registration number cannot be altered via update
+00:11 +126: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Automatic Registration Number Allocation Suite 21. Counter parked on outlier baseline (e.g. 8960 from prior naive run) heals to established tail 5217 and allocates 5218
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] Healing outlier counter 8960 to 5217
+[RegistrationNumberService] bootstrap completed: counter healed to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5219
+00:11 +127: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E1. Multiple peek calls perform zero Firebase requests after initialization
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+00:11 +128: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E2. Multiple AddPatientDialog rebuilds perform zero Firebase requests
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+[ADD PATIENT] rooms load failed: TimeoutException after 0:00:08.000000: Future not completed
+[ADD PATIENT] active stays load failed: TimeoutException after 0:00:08.000000: Future not completed
+00:11 +129: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests checkHealth returns true when backend responds with 200
+00:11 +130: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests checkHealth returns true when backend responds with 200
+00:11 +130: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E4. Multiple listeners share one counter stream
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+00:11 +131: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests checkHealth returns true when backend responds with 200
+00:11 +131: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E5. Concurrent initialization calls share one Future
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+00:11 +132: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests checkHealth returns true when backend responds with 200
+00:11 +133: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E6. /patients bootstrap scan happens at most once
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+00:11 +134: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E6. /patients bootstrap scan happens at most once
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 5217
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5218
+00:11 +135: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests get maps RTDB patients path to /api/patients and injects Bearer token
+00:11 +135: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E7. Allocation after bootstrap never scans /patients
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=5227
+00:11 +136: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests get maps RTDB patients path to /api/patients and injects Bearer token
+00:11 +136: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E8. Preview never scans /patients
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+00:11 +137: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_api_service_test.dart: BackendApiService Tests get maps RTDB patients path to /api/patients and injects Bearer token
+00:11 +137: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E9-10. CAS 412 performs bounded counter retries and does NOT download /patients
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] CAS retry=1
+00:11 +138: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E9-10. CAS 412 performs bounded counter retries and does NOT download /patients
+00:11 +139: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E9-10. CAS 412 performs bounded counter retries and does NOT download /patients
+[RegistrationNumberService] allocation attempt=2
+[RegistrationNumberService] CAS retry=2
+[RegistrationNumberService] allocation attempt=3
+[RegistrationNumberService] CAS retry=3
+[RegistrationNumberService] allocation attempt=4
+[RegistrationNumberService] allocated=5227
+00:11 +140: C:/Users/sahil/OneDrive/Desktop/NGO/test/automatic_registration_number_test.dart: Section 21: Production Network-Efficiency Tests E11. No polling timer exists for registration numbers
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap completed: persistent counter found: 5226
+00:11 +141: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +142: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +143: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +144: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +145: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +146: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +147: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +148: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +149: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +150: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +151: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +152: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +153: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:12 +154: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:13 +155: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:13 +156: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patients reads all 1201 records in ordered bounded pages
+00:13 +157: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +158: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +159: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +160: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +161: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +162: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +163: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +164: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +165: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +166: C:/Users/sahil/OneDrive/Desktop/NGO/test/billing_schedule_latency_test.dart: disposing a scheduler cancels a pass already waiting on earlier billing
+00:13 +167: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: payments reads all 1201 records in ordered bounded pages
+00:13 +168: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: payments reads all 1201 records in ordered bounded pages
+00:13 +169: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: payments reads all 1201 records in ordered bounded pages
+00:13 +170: C:/Users/sahil/OneDrive/Desktop/NGO/test/calendar_billing_alignment_test.dart: planned estimate remains separate from eight Present and five Absent dates
+00:13 +171: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:13 +172: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:13 +173: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:13 +174: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:13 +175: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:13 +176: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +177: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +178: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +179: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +180: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +181: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +182: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: paymentHistory reads all 1201 records in ordered bounded pages
+00:14 +183: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +184: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +185: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +186: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +187: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +188: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +189: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor marker ends an exactly full final page without extra GET
+00:14 +190: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: filtered array collection keeps filters and representation on every page
+00:14 +191: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: explicit page query limit=7 remains one caller-controlled request
+00:14 +192: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: explicit page query offset=7 remains one caller-controlled request
+00:14 +193: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: explicit page query limit=7&offset=21 remains one caller-controlled request
+00:14 +194: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: explicit page query cursor=manual remains one caller-controlled request
+00:14 +195: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +196: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +197: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +198: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +199: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +200: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +201: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +202: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +203: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +204: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +205: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +206: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +207: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +208: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +209: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +210: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +211: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +212: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +213: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +214: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +215: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +216: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +217: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +218: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +219: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +220: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +221: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: legacy offset pages overlap to verify boundaries and retain ordering
+00:15 +222: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: PatientService with PostgreSQL Backend getPatientsStream maps backend map response to Patient objects
+00:15 +223: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +224: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +225: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +226: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +227: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +228: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +229: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +230: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +231: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: cursor continues after the boundary row is deleted between pages
+00:15 +232: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: PaymentService with PostgreSQL Backend loadStays queries /api/stays by patientId
+00:15 +233: C:/Users/sahil/OneDrive/Desktop/NGO/test/erp_form_roundtrip_test.dart: expense form preserves nullable details and clears them on edit
+00:15 +234: C:/Users/sahil/OneDrive/Desktop/NGO/test/erp_form_roundtrip_test.dart: expense form preserves nullable details and clears them on edit
+00:15 +235: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: RegistrationNumberService with PostgreSQL Backend allocateNextRegistrationNumber calls /api/counters/registrationNumber/next
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] postgres allocated=101
+00:15 +236: C:/Users/sahil/OneDrive/Desktop/NGO/test/erp_form_roundtrip_test.dart: salary form roundtrips employee, month, pay and payment details
+00:15 +237: C:/Users/sahil/OneDrive/Desktop/NGO/test/erp_form_roundtrip_test.dart: salary form roundtrips employee, month, pay and payment details
+00:15 +238: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: SettingsService with PostgreSQL Backend reads and updates settings categories and keys
+00:15 +239: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: SettingsService with PostgreSQL Backend reads and updates settings categories and keys
+00:15 +240: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: SettingsService with PostgreSQL Backend reads and updates settings categories and keys
+00:15 +241: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: SettingsService with PostgreSQL Backend reads and updates settings categories and keys
+00:15 +242: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: server ignoring cursor pagination fails instead of looping
+00:15 +243: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: PhotoRtdbService with PostgreSQL Backend upload, download, and delete photos via BackendApiService
+00:16 +244: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: PhotoRtdbService with PostgreSQL Backend upload, download, and delete photos via BackendApiService
+00:16 +245: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: PhotoRtdbService with PostgreSQL Backend upload, download, and delete photos via BackendApiService
+00:16 +246: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: acknowledged mutation during paging keeps its newer SQLite representation
+00:16 +246: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: ServiceLocator Fail-Closed Safety Guarantees USE_POSTGRES_BACKEND=true prevents RTDB access with StateError
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      new CacheDatabase.open (package:ngo/cache/cache_database.dart:159:35)
+#6      new PersistentCache.open (package:ngo/cache/persistent_cache.dart:43:44)
+#7      ServiceLocator.initialize (package:ngo/services/service_locator.dart:62:40)
+#8      main.<anonymous closure>.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart:522:17)
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:19)
+<asynchronous suspension>
+00:16 +247: C:/Users/sahil/OneDrive/Desktop/NGO/test/domain_service_postgres_integration_test.dart: ServiceLocator Fail-Closed Safety Guarantees USE_POSTGRES_BACKEND=true prevents RTDB access with StateError
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:16 +248: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patient-filtered attendance ranges SQLite filters the patient before decoding other patient payloads
+00:16 +249: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patient-filtered attendance ranges reconciles only the selected patient within the requested date window
+00:16 +250: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patient-filtered attendance ranges offline read returns only the selected patient and requested dates
+00:16 +251: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patient-filtered attendance ranges financial attendance read surfaces HTTP 403 despite cached records
+00:16 +252: C:/Users/sahil/OneDrive/Desktop/NGO/test/backend_collection_pagination_test.dart: patient-filtered attendance ranges financial attendance read surfaces HTTP 503 despite cached records
+00:16 +253: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +254: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +255: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +256: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +257: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +258: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +259: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +260: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +261: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +262: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +263: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +264: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +265: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +266: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +267: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +268: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +269: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +270: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +271: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +272: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:17 +273: C:/Users/sahil/OneDrive/Desktop/NGO/test/extend_stay_quote_test.dart: approval waits for the server attendance quote
+00:18 +274: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +275: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +276: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +277: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +278: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +279: C:/Users/sahil/OneDrive/Desktop/NGO/test/history_regression_test.dart: attendance scrolls vertically and keeps names aligned
+00:18 +280: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +281: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +282: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +283: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +284: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +285: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +286: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +287: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +288: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +289: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +290: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +291: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +292: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: editing is inline, uses real bed label, and Cancel discards the draft
+00:20 +293: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap queued PATCH keeps its type when a PUT header arrives before execution
+00:20 +294: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +295: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +296: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +297: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +298: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +299: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +300: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +301: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +302: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +303: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: Save persists once, then returns to the normal card with saved values
+00:21 +304: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap paused full snapshot cannot overwrite an ACK in memory or SQLite
+00:21 +305: C:/Users/sahil/OneDrive/Desktop/NGO/test/persistent_cache_test.dart: failed server write is not persisted locally
+00:21 +306: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:21 +307: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:21 +308: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:21 +309: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:21 +310: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:22 +311: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:22 +312: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:22 +313: C:/Users/sahil/OneDrive/Desktop/NGO/test/inline_stay_editor_test.dart: a failed save retains the draft and allows cancellation
+00:22 +314: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap two PatientService consumers replay and receive the same complete add
+00:22 +315: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: new photo is optimized, separate, and verified
+00:22 +316: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: new photo is optimized, separate, and verified
+00:23 +317: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: new photo is optimized, separate, and verified
+00:23 +318: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +319: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +320: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +321: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +322: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +323: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +324: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +325: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +326: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +327: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +328: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +329: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +330: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +331: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap actual Add Patient service, stay/payment ACKs, SSE and hydration: 109 to 110 to 111
+00:23 +332: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: failed fetch does not poison cache
+00:23 +333: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap concurrent mutation billing coalesces and only changes targeted records
+00:23 +334: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap concurrent mutation billing coalesces and only changes targeted records
+00:23 +334: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: new patient without photo writes metadata only
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 0
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=1
+00:23 +335: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap concurrent mutation billing coalesces and only changes targeted records
+00:23 +335: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: new patient with photo writes targeted RTDB record first
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] bootstrap source: persistent counter uninitialized
+[RegistrationNumberService] bootstrap source: one-time /patients read
+[RegistrationNumberService] bootstrap completed: counter initialized to 0
+[RegistrationNumberService] allocation attempt=1
+[RegistrationNumberService] allocated=1
+00:23 +336: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap concurrent mutation billing coalesces and only changes targeted records
+00:23 +337: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: real REST/SSE/SQLite overlap concurrent mutation billing coalesces and only changes targeted records
+00:23 +338: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: avatar without a photo makes no photo request
+00:23 +339: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: avatar without a photo makes no photo request
+00:23 +340: C:/Users/sahil/OneDrive/Desktop/NGO/test/photo_rtdb_test.dart: avatar without a photo makes no photo request
+00:24 +341: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:24 +342: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +343: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +344: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +345: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +346: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +347: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +347: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 2 & 3. ServiceLocator Initialization & Complete RTDB Retirement in PostgreSQL Mode ServiceLocator initializes all services in PostgreSQL mode and blocks rtdbService access
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      new CacheDatabase.open (package:ngo/cache/cache_database.dart:159:35)
+#6      new PersistentCache.open (package:ngo/cache/persistent_cache.dart:43:44)
+#7      ServiceLocator.initialize (package:ngo/services/service_locator.dart:62:40)
+#8      main.<anonymous closure>.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart:317:28)
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:19)
+<asynchronous suspension>
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:25 +348: C:/Users/sahil/OneDrive/Desktop/NGO/test/patient_collection_consistency_test.dart: Overview renders optional gender null safely
+00:25 +349: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +350: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +351: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +352: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +353: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +354: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +355: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +356: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +357: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +358: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:25 +358: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 5. Attendance Sync, Payment, and Discharge Lifecycle in PostgreSQL Mode Instruments client-side ServiceLocator initialization, SQLite PersistentCache, and model decoding latency
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      new CacheDatabase.open (package:ngo/cache/cache_database.dart:159:35)
+#6      new PersistentCache.open (package:ngo/cache/persistent_cache.dart:43:44)
+#7      ServiceLocator.initialize (package:ngo/services/service_locator.dart:62:40)
+#8      main.<anonymous closure>.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart:815:26)
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:19)
+<asynchronous suspension>
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+{"benchmark":"FLUTTER_CLIENT_SQLITE_DECODE_US","serviceLocatorInitUs":1190,"sqliteFullAttendanceReplaceUs":1027,"sqliteBounded5DayAttendanceWriteUs":39300,"sqlitePatients25WriteUs":38641,"sqlitePatients25ReadUs":3971,"decodePatients25ModelsUs":2953}
+00:25 +359: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +360: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +361: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +362: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +363: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +364: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +365: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +366: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +367: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +368: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:27 +369: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +370: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +371: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +372: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +373: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +374: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +375: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +376: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +377: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +378: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +379: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +380: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +381: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +382: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +383: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +384: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +385: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +386: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +387: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +388: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +389: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +390: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +391: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +392: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +393: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +394: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +395: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +396: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +397: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +398: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +399: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:28 +400: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:29 +401: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:29 +402: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:29 +403: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:29 +404: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +405: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +406: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +407: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +408: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +409: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +410: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +411: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +412: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +413: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +414: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +415: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +416: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +417: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +418: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +419: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +420: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +421: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +422: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +423: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +424: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +425: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +426: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +427: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +428: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +429: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +430: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +431: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +432: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +433: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:30 +434: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +435: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +436: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +437: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +438: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +439: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +440: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +441: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:31 +442: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +443: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +444: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +445: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +446: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +447: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +448: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +449: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +450: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +451: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +452: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +453: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+00:32 +454: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (setUpAll)
+Shell: waiting for server to start.... done
+Shell: server started
+E2E_DISPOSABLE_POSTGRES_READY dataDir=C:\Users\sahil\AppData\Local\Temp\ngo-audit-pg16-e2e-4628053e pgCtl=C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe startedByTest=true
+E2E_SERVER_PROCESS_STARTED
+00:38 +454: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: client billing exposure audit validates the disposable schema without modifying records
+00:38 +455: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Flutter general estimate, stored costs and final invoice agree at day 70 with 2 beds and late=false
+00:39 +456: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Flutter private estimate, stored costs and final invoice agree at day 70 with 1 beds and late=false
+00:40 +457: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Flutter general estimate, stored costs and final invoice agree at day 61 with 1 beds and late=true
+00:41 +458: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: historical extension audit validates actual disposable schema read-only
+00:41 +459: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Flutter quote, stored extension and final invoice agree on billable days
+00:41 +460: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: October 19 planned registration stays Unmarked through retries, extension and disk cache reopen
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      main.<anonymous closure>.openCache (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart:1019:39)
+#6      main.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart:1025:24)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:9)
+<asynchronous suspension>
+#8      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#9      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      main.<anonymous closure>.openCache (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart:1019:39)
+#6      main.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart:1035:22)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:9)
+<asynchronous suspension>
+#8      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#9      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:42 +461: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: concurrent stay extensions retain both increments and never initialize attendance
+00:42 +462: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: billing failure rolls back patient and stay totals together
+E2E_HTTP_FAILURE POST /api/patients/billing_patient/recalculate-billing status=500 fields=[] response={"statusCode":500,"error":"InternalServerError","message":"An unexpected error occurred"}
+00:42 +463: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: room transfer preserves original placement if the selected destination is taken
+E2E_HTTP_FAILURE POST /api/patients/transfer_p0/transfer status=409 fields=[requestId,expectedStayIds,roomId,roomNumber,roomType,bedId,shiftedAt,exitDate] response={"statusCode":409,"error":"Conflict","message":"Bed is unavailable or does not belong to this room"}
+00:43 +464: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Environment & Safety Verification: PostgreSQL 16 schema and default feature flag
+00:43 +465: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow A: Room & Bed Management (Create, Retrieve, Add/Update Bed, Reject Duplicates/Invalid, Cache Sync)
+E2E_HTTP_FAILURE POST /api/rooms/room_101/beds status=409 fields=[id,bedLabel,status] response={"statusCode":409,"error":"Conflict","message":"The request conflicts with database constraints or contains invalid data"}
+E2E_HTTP_FAILURE PUT /api/rooms/non_existent_room/beds/room_101_bed_3 status=404 fields=[bedLabel] response={"statusCode":404,"error":"BadRequest","message":"Bed not found in room"}
+00:43 +466: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow B: Patient Registration (Allocation, Attendants, Search, Cache Consistency, Duplicate/Invalid Rejection)
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] postgres allocated=1
+[RegistrationNumberService] postgres allocated=2
+E2E_HTTP_FAILURE POST /api/patients/register status=409 fields=[id,fullName,searchKey,dateOfBirth,age,gender,contactNumber,emergencyContact,emergencyContactName,medicalCondition,allergies,bloodType,admissionDate,status,roomId,roomNumber,floor,bedIds,bedLabels,photoRef,photoFileName,notes,address,lobby,exitDate,createdAt,updatedAt,createdBy,registrationNumber,registrationDate,panCardNumber,aadhaarCardNumber,receiptNumber,modeOfPayment,utiNumber,paymentPending,paymentStatus,totalPaidAmount,currentDueAmount,refundDueAmount,totalRefundDueAmount,totalRefundedAmount,admissionBalances,paymentDueDate,isAdvancePeriod,advanceBilledAmount,billingAmountOverride,attendanceCharges,totalPresentDays,totalAbsentDays,attendants,payments,dischargeDate,maxStayDays,extensionApproved,extensionDays,extensionReason,approvedBy,approvedDate] response={"statusCode":409,"error":"Conflict","message":"Registration number \"1\" is already assigned to another patient."}
+E2E_HTTP_FAILURE POST /api/patients status=400 fields=[id] response={"statusCode":400,"error":"BadRequest","message":"Invalid request: fullName: Required; dateOfBirth: Invalid input; gender: Required; contactNumber: Required; emergencyContact: Required; emergencyContactName: Required; medicalCondition: Required; admissionDate: Invalid input"}
+00:44 +467: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Atomic Flutter registration persists placement and attendants without attendance, preserves retries, and rolls back a conflicting second bed
+E2E_HTTP_FAILURE POST /api/patients/register status=409 fields=[id,fullName,searchKey,dateOfBirth,age,gender,contactNumber,emergencyContact,emergencyContactName,medicalCondition,allergies,bloodType,admissionDate,status,roomId,roomNumber,floor,bedIds,bedLabels,photoRef,photoFileName,notes,address,lobby,exitDate,createdAt,updatedAt,createdBy,registrationNumber,registrationDate,panCardNumber,aadhaarCardNumber,receiptNumber,modeOfPayment,utiNumber,paymentPending,paymentStatus,totalPaidAmount,currentDueAmount,refundDueAmount,totalRefundDueAmount,totalRefundedAmount,admissionBalances,paymentDueDate,isAdvancePeriod,advanceBilledAmount,billingAmountOverride,attendanceCharges,totalPresentDays,totalAbsentDays,attendants,payments,dischargeDate,maxStayDays,extensionApproved,extensionDays,extensionReason,approvedBy,approvedDate,stays] response={"statusCode":409,"error":"Conflict","message":"Patient ID already exists with a different registration. Update admissions through the stay lifecycle."}
+E2E_HTTP_FAILURE POST /api/patients/register status=409 fields=[id,fullName,searchKey,dateOfBirth,age,gender,contactNumber,emergencyContact,emergencyContactName,medicalCondition,allergies,bloodType,admissionDate,status,roomId,roomNumber,floor,bedIds,bedLabels,photoRef,photoFileName,notes,address,lobby,exitDate,createdAt,updatedAt,createdBy,registrationNumber,registrationDate,panCardNumber,aadhaarCardNumber,receiptNumber,modeOfPayment,utiNumber,paymentPending,paymentStatus,totalPaidAmount,currentDueAmount,refundDueAmount,totalRefundDueAmount,totalRefundedAmount,admissionBalances,paymentDueDate,isAdvancePeriod,advanceBilledAmount,billingAmountOverride,attendanceCharges,totalPresentDays,totalAbsentDays,attendants,payments,dischargeDate,maxStayDays,extensionApproved,extensionDays,extensionReason,approvedBy,approvedDate,stays] response={"statusCode":409,"error":"Conflict","message":"Bed is unavailable or does not belong to this room"}
+FLUTTER_ATOMIC_POSTGRES_E2E registrationMs=36 patient=p_atomic_flutter occupiedBeds=1 attendants=2 attendanceRows=0 identicalRetry=preserved differentBed=409 secondBedFailure=rolledBack
+00:44 +468: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow C: Admission & Bed Allocation (Single Bed, Second Patient, Conflict 409, Concurrent Race, Atomic Multi-Bed Batch)
+E2E_HTTP_FAILURE POST /api/stays status=409 fields=[id,patientId,patientName,patientSnapshot,cycleId,roomId,roomNumber,roomType,admissionDate,durationDays,expectedDischargeDate,expiryDate,attendantCount,attendantLabels,totalCost,baseCost,extraAttendantCost,status,bedId,bedLabel,notes,createdBy] response={"statusCode":409,"error":"Conflict","message":"Bed is unavailable or does not belong to this room"}
+E2E_HTTP_FAILURE POST /api/stays status=409 fields=[id,patientId,patientName,patientSnapshot,cycleId,roomId,roomNumber,roomType,admissionDate,durationDays,expectedDischargeDate,expiryDate,attendantCount,attendantLabels,totalCost,baseCost,extraAttendantCost,status,bedId,bedLabel,notes,createdBy] response={"statusCode":409,"error":"Conflict","message":"Bed is unavailable or does not belong to this room"}
+00:45 +469: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow D: Attendance (Mark Present/Absent, Upsert, Range Query, Attendant JSONB Merge, Calendar Date Preservation, Invalid Rejection)
+E2E_HTTP_FAILURE POST /api/attendance/bulk status=400 fields=[date,kind,records] response={"error":"BadRequest","message":"Invalid bulk attendance records"}
+E2E_HTTP_FAILURE POST /api/attendance/bulk status=409 fields=[date,kind,records] response={"statusCode":409,"error":"Conflict","message":"Patient not found"}
+00:45 +470: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow E & F: Track Patient/Stay, Extend Stay, and Discharge Patient (Partial Room Occupancy, Full Discharge, Repeat Safety, Mid-Discharge Rollback)
+E2E_HTTP_FAILURE PUT /api/stays/stay_1792648307375_915018 status=409 fields=[status,completedAt,updatedAt] response={"statusCode":409,"error":"Conflict","message":"Resolve 3 pending patient/attendant attendance record(s) before discharge"}
+00:45 +471: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Workflow G: Cash & UPI QR Payments (Balances, Idempotency, Exact Decimal Arithmetic, Concurrency, Rollback on Failure)
+E2E_HTTP_FAILURE POST /api/payments status=500 fields=[id,patientId,amount,method] response={"statusCode":500,"error":"InternalServerError","message":"An unexpected error occurred"}
+00:46 +472: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Receipt retry, refund, edit and delete keep authoritative balances exact
+E2E_HTTP_FAILURE GET /api/payments/accuracy_cash status=404 fields=[] response={"error":"NotFound","message":"Payment 'accuracy_cash' not found"}
+E2E_HTTP_FAILURE DELETE /api/payments/upi_99189e300073d1399152bdbd54a3e52724867707beaca16b3a4cd0391b43 status=409 fields=[] response={"statusCode":409,"error":"Conflict","message":"Payment change would make financial balances negative"}
+00:46 +473: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Attendance at configured 200 rate corrects charges without duplicate days
+00:47 +474: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Receipt reconciliation reads the current server ledger and acknowledged receipt survives refresh outage
+E2E_HTTP_FAILURE GET /api/patients/p_receipt_race status=503 fields=[] response={"statusCode":503,"error":"Service Unavailable","message":"Simulated database outage for E2E failure testing"}
+E2E_HTTP_FAILURE GET /api/patients/p_receipt_race status=503 fields=[] response={"statusCode":503,"error":"Service Unavailable","message":"Simulated database outage for E2E failure testing"}
+[PaymentService] Receipt saved; billing refresh needs retry
+00:47 +475: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Combined End-to-End Lifecycle 1 (Full Patient Journey & Bed Reuse) and Lifecycle 2 (Multi-Bed Room Concurrency)
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] postgres allocated=1
+[RegistrationNumberService] postgres allocated=2
+E2E_HTTP_FAILURE POST /api/stays status=409 fields=[id,patientId,patientName,patientSnapshot,cycleId,roomId,roomNumber,roomType,admissionDate,durationDays,expectedDischargeDate,expiryDate,attendantCount,attendantLabels,totalCost,baseCost,extraAttendantCost,status,bedId,bedLabel,notes,createdBy] response={"statusCode":409,"error":"Conflict","message":"Bed is unavailable or does not belong to this room"}
+00:48 +476: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Combined End-to-End Lifecycle 1 (Full Patient Journey & Bed Reuse) and Lifecycle 2 (Multi-Bed Room Concurrency)
+[BackendApiService] Stream poll failed
+00:48 +476: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: Regression & Failure Testing: Auth 401/403, DB Outage 503 & Recovery, Stale Cache Refresh, Failed Write Cache Integrity
+E2E_HTTP_FAILURE GET /api/patients status=401 fields=[] response={"statusCode":401,"error":"Unauthorized","message":"Invalid or expired Firebase ID token"}
+E2E_HTTP_FAILURE GET /api/patients status=403 fields=[] response={"statusCode":403,"error":"Forbidden","message":"Insufficient permissions"}
+E2E_HTTP_FAILURE PUT /api/settings/security/twoFactorAuth status=403 fields=[] response={"statusCode":403,"error":"Forbidden","message":"Insufficient permissions"}
+E2E_HTTP_FAILURE POST /api/patients status=503 fields=[id,fullName,dateOfBirth,gender,contactNumber,emergencyContact,emergencyContactName,medicalCondition,admissionDate] response={"statusCode":503,"error":"Service Unavailable","message":"Simulated database outage for E2E failure testing"}
+00:48 +477: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart: (tearDownAll)
+Shell: waiting for server to shut down..... done
+Shell: server stopped
+00:50 +477: All tests passed!

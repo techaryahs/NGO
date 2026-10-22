@@ -1,0 +1,30 @@
+{
+  "mode": "implement",
+  "objective": "Implement approved pricing, attendance, checkout and atomic lifecycle rules without production access or commits",
+  "acceptance_criteria": [
+    "per-person category and long-stay rates agree across Flutter and backend",
+    "pending attendance blocks finalization and stable attendant identities are preserved",
+    "actual checkout and tiered General adjustment are persisted idempotently",
+    "transfers reconcile transactionally and rejoin supports explicit confirmed/unknown exit atomically",
+    "historical finances and security baseline are preserved",
+    "required tests and builds have exact recorded outcomes"
+  ],
+  "non_goals": [
+    "no commit push deploy VPS or production data access",
+    "no historical backfill",
+    "preserve pre-existing installer and platform changes"
+  ],
+  "risk": "high",
+  "budget": "deep",
+  "allowed_write_scope": [
+    "backend/src/",
+    "backend/tests/",
+    "backend/migrations/",
+    "lib/",
+    "test/",
+    "audit/client-billing-20261022/",
+    ".gravitas/sessions/client-billing-20261022/",
+    "tool/global_billing_restatement.dart"
+  ],
+  "verification": "full"
+}

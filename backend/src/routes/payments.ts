@@ -200,7 +200,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       transactionId: trimmedTx, source: body.source || 'manual', notes: body.notes || null,
     })).digest('hex');
     const reuse = (existing: RawPaymentRow, patientName: string) => {
-      if (existing.request_fingerprint !== fingerprint) throw httpError(409, 'Idempotency key already belongs to a different or imported payment');
+      if (existing.request_fingerprint !== fingerprint) throw httpError(409, 'This reference or payment ID is already recorded for another payment. Enter the new transfer\'s UTR / UPI reference.');
       return formatPayment({ ...existing, patient_name: patientName } as RawPaymentRow);
     };
 

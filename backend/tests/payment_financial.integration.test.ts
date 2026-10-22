@@ -54,6 +54,24 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 0.3, currentDueAmount: 9.7, paymentStatus: 'Partially Paid', paymentPending: true, version: before.version + 2 });
     expect((await query("SELECT sum(amount)::text AS amount FROM payments")).rows[0].amount).toBe('0.30');
   });
+  it('3800 bill accepts 1400 then a distinct 2400 collection; reused original UTR rejects without changing balance', async () => {
+    await seed({ advanceBilledAmount: 3800, currentDueAmount: 3800 });
+    const partial = { collectOutstanding:true, method:'ONLINE',transactionId:'ABCD123456789',totalAmount:3800,paidAmount:1400,pendingAmount:2400 };
+    expect((await record('first-collection','1400.00',partial)).statusCode).toBe(201);
+    const duplicate = await record('different-collection','2400.00',{...partial,paidAmount:3800,pendingAmount:0});
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json().message).toContain("Enter the new transfer's UTR");
+    expect(duplicate.headers['x-request-id']).toBeTruthy();
+    expect(duplicate.json().requestId).toBe(duplicate.headers['x-request-id']);
+    expect(await getPatient()).toMatchObject({totalPaidAmount:1400,currentDueAmount:2400,payments:[{amount:1400}]});
+    const remaining = {...partial,transactionId:'NEWTR123456789',paidAmount:3800,pendingAmount:0};
+    expect((await record('remaining-collection','2400.00',remaining)).statusCode).toBe(201);
+    expect((await record('remaining-collection','2400.00',remaining)).statusCode).toBe(200);
+    expect(await getPatient()).toMatchObject({totalPaidAmount:3800,currentDueAmount:0,paymentPending:false});
+    expect((await getPatient()).payments).toHaveLength(2);
+    expect((await send('GET','/payments?patientId=p1')).json()).toHaveLength(2);
+    expect((await send('GET','/patients/p1/financials')).json().patient).toMatchObject({totalPaidAmount:3800,currentDueAmount:0});
+  });
   it('collects partial and remaining balances through the application path and persists both history and ledger', async () => {
     await seed();
     const partial = { collectOutstanding: true, method: 'ONLINE', transactionId: 'OUTSTANDING-PARTIAL', receiptNumber: 'partial receipt' };

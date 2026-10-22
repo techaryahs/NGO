@@ -1,0 +1,45 @@
+
+> ngo-backend@1.0.0 test
+> vitest run --reporter=dot --exclude=**/*.integration.test.ts
+
+
+ RUN  v2.1.9 C:/Users/sahil/OneDrive/Desktop/NGO/backend
+
+ ✓ tests/client_billing_rules.test.ts (39 tests) 164ms
+ ✓ tests/billing_pricing.test.ts (17 tests) 189ms
+{"level":30,"time":1792666063120,"pid":4688,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/patients","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666063215,"pid":4688,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/patients","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666063294,"pid":4688,"hostname":"Evo08","reqId":"req-1","req":{"method":"DELETE","url":"/api/patients/p_123","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+ ✓ tests/firebase_verifier.test.ts (10 tests) 185ms
+{"level":30,"time":1792666063382,"pid":4688,"hostname":"Evo08","reqId":"req-1","req":{"method":"POST","url":"/api/counters/registrationNumber/next","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666063492,"pid":4688,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/rooms","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666063148,"pid":4688,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":401},"responseTime":11.152300000190735,"msg":"request completed"}
+{"level":30,"time":1792666063231,"pid":4688,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":15.528900027275085,"msg":"request completed"}
+{"level":30,"time":1792666063296,"pid":4688,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":403},"responseTime":1.9495999813079834,"msg":"request completed"}
+{"level":30,"time":1792666063385,"pid":4688,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":1.9569000005722046,"msg":"request completed"}
+{"level":30,"time":1792666063495,"pid":4688,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":3.322700023651123,"msg":"request completed"}
+ ✓ tests/domain_routes.test.ts (5 tests) 575ms
+ ✓ tests/patient_deletion.test.ts (7 tests) 729ms
+ ✓ tests/refund_fix.test.ts (11 tests) 1009ms
+ ✓ tests/attendance_identity_isolation.test.ts (2 tests) 322ms
+ ✓ tests/security_audit.test.ts (22 tests) 1392ms
+ ✓ tests/auth.test.ts (32 tests) 1636ms
+ ✓ tests/config.test.ts (10 tests) 17ms
+ ✓ tests/importer.test.ts (9 tests) 368ms
+{"level":30,"time":1792666066763,"pid":2536,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/health","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666066799,"pid":2536,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/api/health","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666066825,"pid":2536,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/ready","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666066849,"pid":2536,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/ready","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666066867,"pid":2536,"hostname":"Evo08","reqId":"req-1","req":{"method":"GET","url":"/","hostname":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+{"level":30,"time":1792666066770,"pid":2536,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":5.574099898338318,"msg":"request completed"}
+{"level":30,"time":1792666066800,"pid":2536,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.8910999298095703,"msg":"request completed"}
+{"level":30,"time":1792666066826,"pid":2536,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.7715998888015747,"msg":"request completed"}
+{"level":30,"time":1792666066850,"pid":2536,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":503},"responseTime":0.3522000312805176,"msg":"request completed"}
+{"level":30,"time":1792666066868,"pid":2536,"hostname":"Evo08","reqId":"req-1","res":{"statusCode":200},"responseTime":0.6514999866485596,"msg":"request completed"}
+ ✓ tests/health.test.ts (5 tests) 192ms
+
+ Test Files  12 passed (12)
+      Tests  169 passed (169)
+   Start at  16:17:37
+   Duration  9.28s (transform 7.44s, setup 0ms, collect 27.01s, tests 6.78s, environment 5ms, prepare 7.33s)
+

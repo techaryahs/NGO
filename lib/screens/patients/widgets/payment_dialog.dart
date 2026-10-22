@@ -4,6 +4,7 @@ import '../../../services/service_locator.dart';
 import '../../../utils/pricing_helper.dart';
 import '../../../utils/upi_payment.dart';
 import '../../../models/patient_model.dart';
+import '../../../services/backend_api_service.dart';
 
 class PaymentDialogResult {
   final bool payLater;
@@ -22,24 +23,28 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
   bool showPayLater = false,
   double? totalBillOverride,
   String? patientId,
-}) => showDialog<PaymentDialogResult>(
-  context: context,
-  barrierDismissible: false,
-  builder: (_) => _PatientPaymentDialog(
-    patientName: patientName,
-    patientId: patientId,
-    total:
-        totalBillOverride ??
-        PricingHelper.calculateAdvanceAmount(
-          (roomIdentifier ?? '').toUpperCase().endsWith('A') ||
-              (roomIdentifier ?? '').toUpperCase().endsWith('B'),
-          attendantsCount,
-          bedsCount: bedsCount,
-        ),
-    alreadyPaid: alreadyPaid,
-    showPayLater: showPayLater,
-  ),
-);
+}) {
+  final attemptKey = UniqueKey();
+  return showDialog<PaymentDialogResult>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _PatientPaymentDialog(
+      key: attemptKey,
+      patientName: patientName,
+      patientId: patientId,
+      total:
+          totalBillOverride ??
+          PricingHelper.calculateAdvanceAmount(
+            (roomIdentifier ?? '').toUpperCase().endsWith('A') ||
+                (roomIdentifier ?? '').toUpperCase().endsWith('B'),
+            attendantsCount,
+            bedsCount: bedsCount,
+          ),
+      alreadyPaid: alreadyPaid,
+      showPayLater: showPayLater,
+    ),
+  );
+}
 
 class _PatientPaymentDialog extends StatefulWidget {
   final String patientName;
@@ -48,6 +53,7 @@ class _PatientPaymentDialog extends StatefulWidget {
   final double alreadyPaid;
   final bool showPayLater;
   const _PatientPaymentDialog({
+    super.key,
     required this.patientName,
     required this.patientId,
     required this.total,
@@ -61,21 +67,62 @@ class _PatientPaymentDialog extends StatefulWidget {
 class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   final _form = GlobalKey<FormState>();
   final _amount = TextEditingController();
-  final _reference = TextEditingController();
-  final _receipt = TextEditingController();
+  final _reference = TextEditingController(text: '');
+  final _receipt = TextEditingController(text: '');
   final _notes = TextEditingController();
   bool _submitting = false;
   // Keep retry metadata stable when a response is lost after server commit.
   final DateTime _paymentDate = DateTime.now();
   String? _error;
-  double get _pending =>
-      (widget.total - widget.alreadyPaid).clamp(0, double.infinity);
+  late double _total, _paid, _pending;
+  String? _cycleId;
+  bool _loadingBalance = false;
+  bool _balanceReady = false;
   double? get _paying => double.tryParse(_amount.text.trim());
   @override
   void initState() {
     super.initState();
+    _total = widget.total;
+    _paid = widget.alreadyPaid;
+    _pending = (_total - _paid).clamp(0, double.infinity);
     _amount.text = _pending.toStringAsFixed(2);
     _amount.addListener(_amountChanged);
+    if (widget.patientId != null) {
+      _loadBalance();
+    } else {
+      _balanceReady = true;
+    }
+  }
+
+  Future<void> _loadBalance({bool preserveError = false}) async {
+    setState(() {
+      _loadingBalance = true;
+      _balanceReady = false;
+      if (!preserveError) _error = null;
+    });
+    try {
+      final balance = await ServiceLocator().paymentService.collectionBalance(
+        widget.patientId!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _total = balance.total;
+        _paid = balance.paid;
+        _pending = balance.due;
+        _cycleId = balance.cycleId;
+        _amount.text = _pending.toStringAsFixed(2);
+        _balanceReady = true;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Could not load the current outstanding balance. Retry before collecting payment.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingBalance = false);
+    }
   }
 
   void _amountChanged() => setState(() {});
@@ -89,7 +136,12 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   }
 
   Future<void> _confirm() async {
-    if (_submitting || !_form.currentState!.validate()) return;
+    if (_submitting ||
+        _loadingBalance ||
+        !_balanceReady ||
+        !_form.currentState!.validate()) {
+      return;
+    }
     if (widget.patientId == null) {
       setState(() => _error = 'Save the admission before recording payment.');
       return;
@@ -104,11 +156,12 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         amount: double.parse(UpiPayment.formatAmount(_paying!)),
         method: 'ONLINE',
         date: _paymentDate,
+        cycleId: _cycleId,
         transactionId: _reference.text.trim().toUpperCase(),
         receiptNumber: _receipt.text.trim(),
         notes: _notes.text.trim(),
-        totalAmount: widget.total,
-        paidAmount: widget.alreadyPaid + _paying!,
+        totalAmount: _total,
+        paidAmount: _paid + _paying!,
         pendingAmount: (_pending - _paying!).clamp(0, double.infinity),
       );
       final id = await ServiceLocator().paymentService.recordPayment(
@@ -122,6 +175,11 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Payment could not be recorded: $e');
+      // A server rejection is definitive. A transport failure may follow COMMIT:
+      // retain its amount/date/snapshot so retry can recover that same receipt.
+      if (e is BackendApiException && e.statusCode == 409 && mounted) {
+        await _loadBalance(preserveError: true);
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -131,6 +189,8 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   Widget build(BuildContext context) {
     final amount = _paying;
     final validAmount =
+        _balanceReady &&
+        !_loadingBalance &&
         amount != null &&
         amount.isFinite &&
         amount >= 0.01 &&
@@ -148,7 +208,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(widget.patientName),
-                  Text('Pending: ₹${_pending.toStringAsFixed(2)}'),
+                  if (_loadingBalance) const LinearProgressIndicator(),
+                  if (_balanceReady)
+                    Text('Pending: ₹${_pending.toStringAsFixed(2)}'),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _amount,
@@ -202,14 +264,21 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                   ),
                   TextFormField(
                     controller: _reference,
+                    autofillHints: null,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     enabled: !_submitting,
                     decoration: const InputDecoration(
                       labelText: 'UTR / UPI reference',
+                      helperText: 'Enter the UTR for this new transfer.',
                     ),
                     validator: UpiPayment.validateReference,
                   ),
                   TextFormField(
                     controller: _receipt,
+                    autofillHints: null,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     enabled: !_submitting,
                     decoration: const InputDecoration(
                       labelText: 'Receipt number (optional)',
@@ -236,6 +305,11 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
           ),
         ),
         actions: [
+          if (!_balanceReady && !_loadingBalance && widget.patientId != null)
+            TextButton(
+              onPressed: _loadBalance,
+              child: const Text('Retry balance'),
+            ),
           TextButton(
             onPressed: _submitting ? null : () => Navigator.pop(context),
             child: const Text('Cancel'),
@@ -251,7 +325,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
               child: const Text('Pay Later'),
             ),
           FilledButton(
-            onPressed: _submitting ? null : _confirm,
+            onPressed: _submitting || _loadingBalance || !_balanceReady
+                ? null
+                : _confirm,
             child: Text(
               _submitting ? 'Recording…' : 'Confirm received payment',
             ),

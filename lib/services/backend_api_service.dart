@@ -12,6 +12,7 @@ class BackendApiException extends HttpException {
     String operation, {
     this.serverMessage,
     this.responseBody,
+    this.requestId,
   }) : super(
          serverMessage != null && serverMessage.isNotEmpty
              ? '$operation failed (HTTP $statusCode): $serverMessage'
@@ -21,6 +22,7 @@ class BackendApiException extends HttpException {
   final int statusCode;
   final String? serverMessage;
   final String? responseBody;
+  final String? requestId;
 
   static String? extractMessage(String body) {
     try {
@@ -1047,11 +1049,13 @@ class BackendApiService {
   /// POST request returning the decoded Map representation
   Future<Map<String, dynamic>> post(
     String path,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    String? requestId,
+  }) async {
     final url = _mapPathToApiUrl(path);
     final accountGeneration = persistentCache?.accountGeneration;
     final headers = await _headers();
+    if (requestId != null) headers['X-Request-Id'] = requestId;
     if (_disposed || accountGeneration != persistentCache?.accountGeneration) {
       throw StateError('Account changed during request');
     }
@@ -1059,6 +1063,12 @@ class BackendApiService {
     final response = await _client
         .post(Uri.parse(url), headers: headers, body: json.encode(data))
         .timeout(const Duration(seconds: 10));
+
+    if (requestId != null) {
+      debugPrint(
+        '[Payment] requestId=$requestId phase=response status=${response.statusCode}',
+      );
+    }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final decoded = json.decode(response.body);
@@ -1078,6 +1088,7 @@ class BackendApiService {
         'POST',
         serverMessage: BackendApiException.extractMessage(response.body),
         responseBody: response.body,
+        requestId: response.headers['x-request-id'] ?? requestId,
       );
     }
   }
@@ -1718,9 +1729,10 @@ class BackendApiService {
   // ── Payments ───────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> createPayment(
-    Map<String, dynamic> paymentData,
-  ) async {
-    return post('payments', paymentData);
+    Map<String, dynamic> paymentData, {
+    String? requestId,
+  }) async {
+    return post('payments', paymentData, requestId: requestId);
   }
 
   // ── Settings ───────────────────────────────────────────────────────────────

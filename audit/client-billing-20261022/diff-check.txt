@@ -1,0 +1,5 @@
+warning: in the working copy of 'backend/src/routes/settlement.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/billing_pricing.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'macos/Flutter/GeneratedPluginRegistrant.swift', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugin_registrant.cc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugins.cmake', LF will be replaced by CRLF the next time Git touches it

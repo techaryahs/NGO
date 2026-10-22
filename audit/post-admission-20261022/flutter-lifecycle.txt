@@ -1,0 +1,16 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_real_workflows_e2e_test.dart
+00:00 +0: (setUpAll)
+Shell: waiting for server to start.... done
+Shell: server started
+E2E_DISPOSABLE_POSTGRES_READY dataDir=C:\Users\sahil\AppData\Local\Temp\ngo-audit-pg16-e2e-3c353e61 pgCtl=C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe startedByTest=true
+E2E_SERVER_PROCESS_STARTED
+00:09 +0: post-admission Flutter lifecycle: attendee arrives day 1, attendance and remaining payment survive reload
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] postgres allocated=1
+00:10 +1: post-admission Flutter lifecycle: attendee arrives day 6, attendance and remaining payment survive reload
+[RegistrationNumberService] bootstrap started
+[RegistrationNumberService] postgres allocated=1
+00:11 +2: (tearDownAll)
+Shell: waiting for server to shut down.... done
+Shell: server stopped
+00:12 +2: All tests passed!

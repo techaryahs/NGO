@@ -1,0 +1,734 @@
+{
+  "capturedAt": "2026-10-22T11:39:14.188Z",
+  "phase": "release",
+  "environment": {
+    "node": "v24.11.1",
+    "postgresMajor": 16,
+    "target": "127.0.0.1:55439/ngo_audit_scale",
+    "transport": "Fastify.inject in process (no HTTP/TLS network)",
+    "poolMax": 20
+  },
+  "limits": [
+    "Synthetic local warm-cache benchmark; timings are descriptive, not production SLOs.",
+    "No photos, real personal data, external Firebase, VPS or existing application database involved.",
+    "Seed bypasses API workflows; correctness assertions exercise production read routes.",
+    "Concurrent users on WAN, Flutter rendering and sustained multi-hour load were not measured."
+  ],
+  "stages": [
+    {
+      "counts": {
+        "patients": 1000,
+        "attendants": 1000,
+        "payments": 5000,
+        "stays": 2000,
+        "attendance": 30000
+      },
+      "seedMs": 2266.14,
+      "measurements": [
+        {
+          "name": "patients-default",
+          "url": "/patients?format=map",
+          "repetitions": 3,
+          "minMs": 82.83,
+          "medianMs": 90.4,
+          "maxMs": 99.86,
+          "bytes": 1572521,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "payments-default",
+          "url": "/payments?format=map",
+          "repetitions": 3,
+          "minMs": 10.86,
+          "medianMs": 11.26,
+          "maxMs": 18.14,
+          "bytes": 182521,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "patients-page-50",
+          "url": "/patients?limit=50",
+          "repetitions": 3,
+          "minMs": 12.6,
+          "medianMs": 12.71,
+          "maxMs": 14.18,
+          "bytes": 156570,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patients-page-500",
+          "url": "/patients?limit=500",
+          "repetitions": 3,
+          "minMs": 75.94,
+          "medianMs": 78.16,
+          "maxMs": 84.19,
+          "bytes": 1565520,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patients-page-max",
+          "url": "/patients?limit=5000",
+          "repetitions": 3,
+          "minMs": 102.96,
+          "medianMs": 158.55,
+          "maxMs": 170.91,
+          "bytes": 3128968,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patient-exact-search",
+          "url": "/patients?search=Patient%2001000",
+          "repetitions": 3,
+          "minMs": 3.64,
+          "medianMs": 3.68,
+          "maxMs": 4.81,
+          "bytes": 3151,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "stays-complete",
+          "url": "/stays?format=map",
+          "repetitions": 2,
+          "minMs": 58.47,
+          "medianMs": 58.47,
+          "maxMs": 85.82,
+          "bytes": 1577145,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "attendance-day",
+          "url": "/attendance?date=2026-01-15&kind=attendance&format=map",
+          "repetitions": 2,
+          "minMs": 7.67,
+          "medianMs": 7.67,
+          "maxMs": 8.51,
+          "bytes": 88787,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "attendance-month",
+          "url": "/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map",
+          "repetitions": 2,
+          "minMs": 287.09,
+          "medianMs": 287.09,
+          "maxMs": 294.8,
+          "bytes": 2664031,
+          "queriesPerRequest": 2
+        }
+      ],
+      "patientLoad": {
+        "requests": 3,
+        "uniquePatients": 1000,
+        "bytes": 3142864,
+        "durationMs": 230.48
+      },
+      "cursorPatientLoad": {
+        "requests": 2,
+        "uniquePatients": 1000,
+        "bytes": 3142862,
+        "durationMs": 159.48
+      },
+      "paymentLoad": {
+        "requests": 2,
+        "uniquePayments": 5000,
+        "totalCents": 50000,
+        "bytes": 1733398,
+        "durationMs": 167.79
+      },
+      "concurrent": [
+        {
+          "pageSize": 50,
+          "concurrency": 20,
+          "requests": 20,
+          "status200": 20,
+          "totalMs": 626.04,
+          "requestsPerSecond": 31.95,
+          "medianMs": 403.78,
+          "p95Ms": 612.49,
+          "bytes": 3131400
+        },
+        {
+          "pageSize": 500,
+          "concurrency": 20,
+          "requests": 20,
+          "status200": 20,
+          "totalMs": 1539.17,
+          "requestsPerSecond": 12.99,
+          "medianMs": 1064.35,
+          "p95Ms": 1492.91,
+          "bytes": 31310400
+        }
+      ],
+      "plans": [
+        {
+          "name": "patient-search",
+          "explain": [
+            {
+              "Plan": {
+                "Node Type": "Limit",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 54.51,
+                "Total Cost": 54.52,
+                "Plan Rows": 1,
+                "Plan Width": 3069,
+                "Actual Startup Time": 0.865,
+                "Actual Total Time": 0.866,
+                "Actual Rows": 1,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 37,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 54.51,
+                    "Total Cost": 54.52,
+                    "Plan Rows": 1,
+                    "Plan Width": 3069,
+                    "Actual Startup Time": 0.864,
+                    "Actual Total Time": 0.865,
+                    "Actual Rows": 1,
+                    "Actual Loops": 1,
+                    "Sort Key": [
+                      "admission_date DESC"
+                    ],
+                    "Sort Method": "quicksort",
+                    "Sort Space Used": 25,
+                    "Sort Space Type": "Memory",
+                    "Shared Hit Blocks": 37,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Seq Scan",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Relation Name": "patients",
+                        "Alias": "p",
+                        "Startup Cost": 0,
+                        "Total Cost": 54.5,
+                        "Plan Rows": 1,
+                        "Plan Width": 3069,
+                        "Actual Startup Time": 0.857,
+                        "Actual Total Time": 0.858,
+                        "Actual Rows": 1,
+                        "Actual Loops": 1,
+                        "Filter": "(((full_name)::text ~~* '%Patient 01000%'::text) OR ((search_key)::text ~~* '%Patient 01000%'::text) OR ((registration_number)::text ~~* '%Patient 01000%'::text))",
+                        "Rows Removed by Filter": 999,
+                        "Shared Hit Blocks": 37,
+                        "Shared Read Blocks": 0,
+                        "Shared Dirtied Blocks": 0,
+                        "Shared Written Blocks": 0,
+                        "Local Hit Blocks": 0,
+                        "Local Read Blocks": 0,
+                        "Local Dirtied Blocks": 0,
+                        "Local Written Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Planning": {
+                "Shared Hit Blocks": 6,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 0.265,
+              "Triggers": [],
+              "Execution Time": 0.897
+            }
+          ]
+        },
+        {
+          "name": "attendance-month",
+          "explain": [
+            {
+              "Plan": {
+                "Node Type": "Sort",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 6301.9,
+                "Total Cost": 6376.9,
+                "Plan Rows": 30000,
+                "Plan Width": 184,
+                "Actual Startup Time": 26.34,
+                "Actual Total Time": 29.1,
+                "Actual Rows": 30000,
+                "Actual Loops": 1,
+                "Sort Key": [
+                  "((attendance_date)::text) DESC"
+                ],
+                "Sort Method": "external merge",
+                "Sort Space Used": 5224,
+                "Sort Space Type": "Disk",
+                "Shared Hit Blocks": 729,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 653,
+                "Temp Written Blocks": 654,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Relation Name": "attendance_records",
+                    "Alias": "attendance_records",
+                    "Startup Cost": 0,
+                    "Total Cost": 1404,
+                    "Plan Rows": 30000,
+                    "Plan Width": 184,
+                    "Actual Startup Time": 0.013,
+                    "Actual Total Time": 8.674,
+                    "Actual Rows": 30000,
+                    "Actual Loops": 1,
+                    "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
+                    "Rows Removed by Filter": 0,
+                    "Shared Hit Blocks": 729,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              },
+              "Planning": {
+                "Shared Hit Blocks": 112,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 2.663,
+              "Triggers": [],
+              "Execution Time": 36.862
+            }
+          ]
+        }
+      ],
+      "rssBytesAtEnd": 423198720
+    },
+    {
+      "counts": {
+        "patients": 10000,
+        "attendants": 10000,
+        "payments": 50000,
+        "stays": 20000,
+        "attendance": 300000
+      },
+      "seedMs": 14604.13,
+      "measurements": [
+        {
+          "name": "patients-default",
+          "url": "/patients?format=map",
+          "repetitions": 3,
+          "minMs": 64.83,
+          "medianMs": 74.28,
+          "maxMs": 75,
+          "bytes": 1582521,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "payments-default",
+          "url": "/payments?format=map",
+          "repetitions": 3,
+          "minMs": 7.65,
+          "medianMs": 8.24,
+          "maxMs": 12.13,
+          "bytes": 184521,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "patients-page-50",
+          "url": "/patients?limit=50",
+          "repetitions": 3,
+          "minMs": 7.17,
+          "medianMs": 7.4,
+          "maxMs": 8.52,
+          "bytes": 157520,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patients-page-500",
+          "url": "/patients?limit=500",
+          "repetitions": 3,
+          "minMs": 61.19,
+          "medianMs": 69.74,
+          "maxMs": 71.48,
+          "bytes": 1575020,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patients-page-max",
+          "url": "/patients?limit=5000",
+          "repetitions": 3,
+          "minMs": 484.95,
+          "medianMs": 494.67,
+          "maxMs": 513,
+          "bytes": 15750020,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "patient-exact-search",
+          "url": "/patients?search=Patient%2010000",
+          "repetitions": 3,
+          "minMs": 11.98,
+          "medianMs": 12.69,
+          "maxMs": 13.02,
+          "bytes": 3170,
+          "queriesPerRequest": 4
+        },
+        {
+          "name": "stays-complete",
+          "url": "/stays?format=map",
+          "repetitions": 2,
+          "minMs": 570.91,
+          "medianMs": 570.91,
+          "maxMs": 616.14,
+          "bytes": 15851153,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "attendance-day",
+          "url": "/attendance?date=2026-01-15&kind=attendance&format=map",
+          "repetitions": 2,
+          "minMs": 78.81,
+          "medianMs": 78.81,
+          "maxMs": 98.54,
+          "bytes": 907789,
+          "queriesPerRequest": 2
+        },
+        {
+          "name": "attendance-month",
+          "url": "/attendance?startDate=2026-01-01&endDate=2026-01-30&kind=attendance&format=map",
+          "repetitions": 2,
+          "minMs": 2395.3,
+          "medianMs": 2395.3,
+          "maxMs": 2612.8,
+          "bytes": 27234091,
+          "queriesPerRequest": 2
+        }
+      ],
+      "patientLoad": {
+        "requests": 21,
+        "uniquePatients": 10000,
+        "bytes": 31627902,
+        "durationMs": 1658.81
+      },
+      "cursorPatientLoad": {
+        "requests": 20,
+        "uniquePatients": 10000,
+        "bytes": 31627900,
+        "durationMs": 1387.34
+      },
+      "paymentLoad": {
+        "requests": 11,
+        "uniquePayments": 50000,
+        "totalCents": 500000,
+        "bytes": 17483422,
+        "durationMs": 1737.95
+      },
+      "concurrent": [
+        {
+          "pageSize": 50,
+          "concurrency": 20,
+          "requests": 20,
+          "status200": 20,
+          "totalMs": 496.74,
+          "requestsPerSecond": 40.26,
+          "medianMs": 336.72,
+          "p95Ms": 477.23,
+          "bytes": 3150400
+        },
+        {
+          "pageSize": 500,
+          "concurrency": 20,
+          "requests": 20,
+          "status200": 20,
+          "totalMs": 1212.29,
+          "requestsPerSecond": 16.5,
+          "medianMs": 768.96,
+          "p95Ms": 1166.88,
+          "bytes": 31500400
+        }
+      ],
+      "plans": [
+        {
+          "name": "patient-search",
+          "explain": [
+            {
+              "Plan": {
+                "Node Type": "Limit",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 546.02,
+                "Total Cost": 546.03,
+                "Plan Rows": 3,
+                "Plan Width": 3071,
+                "Actual Startup Time": 10.68,
+                "Actual Total Time": 10.681,
+                "Actual Rows": 1,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 371,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 546.02,
+                    "Total Cost": 546.03,
+                    "Plan Rows": 3,
+                    "Plan Width": 3071,
+                    "Actual Startup Time": 10.678,
+                    "Actual Total Time": 10.679,
+                    "Actual Rows": 1,
+                    "Actual Loops": 1,
+                    "Sort Key": [
+                      "admission_date DESC"
+                    ],
+                    "Sort Method": "quicksort",
+                    "Sort Space Used": 25,
+                    "Sort Space Type": "Memory",
+                    "Shared Hit Blocks": 371,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Seq Scan",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Relation Name": "patients",
+                        "Alias": "p",
+                        "Startup Cost": 0,
+                        "Total Cost": 546,
+                        "Plan Rows": 3,
+                        "Plan Width": 3071,
+                        "Actual Startup Time": 10.667,
+                        "Actual Total Time": 10.668,
+                        "Actual Rows": 1,
+                        "Actual Loops": 1,
+                        "Filter": "(((full_name)::text ~~* '%Patient 10000%'::text) OR ((search_key)::text ~~* '%Patient 10000%'::text) OR ((registration_number)::text ~~* '%Patient 10000%'::text))",
+                        "Rows Removed by Filter": 9999,
+                        "Shared Hit Blocks": 371,
+                        "Shared Read Blocks": 0,
+                        "Shared Dirtied Blocks": 0,
+                        "Shared Written Blocks": 0,
+                        "Local Hit Blocks": 0,
+                        "Local Read Blocks": 0,
+                        "Local Dirtied Blocks": 0,
+                        "Local Written Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Planning": {
+                "Shared Hit Blocks": 2,
+                "Shared Read Blocks": 4,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 1.889,
+              "Triggers": [],
+              "Execution Time": 10.731
+            }
+          ]
+        },
+        {
+          "name": "attendance-month",
+          "explain": [
+            {
+              "Plan": {
+                "Node Type": "Gather Merge",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Startup Cost": 33244.75,
+                "Total Cost": 62413.46,
+                "Plan Rows": 250000,
+                "Plan Width": 187,
+                "Actual Startup Time": 212.516,
+                "Actual Total Time": 333.388,
+                "Actual Rows": 300000,
+                "Actual Loops": 1,
+                "Workers Planned": 2,
+                "Workers Launched": 2,
+                "Shared Hit Blocks": 7388,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 6801,
+                "Temp Written Blocks": 6816,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Parent Relationship": "Outer",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 32244.73,
+                    "Total Cost": 32557.23,
+                    "Plan Rows": 125000,
+                    "Plan Width": 187,
+                    "Actual Startup Time": 167.626,
+                    "Actual Total Time": 191.872,
+                    "Actual Rows": 100000,
+                    "Actual Loops": 3,
+                    "Sort Key": [
+                      "((attendance_date)::text) DESC"
+                    ],
+                    "Sort Method": "external merge",
+                    "Sort Space Used": 24248,
+                    "Sort Space Type": "Disk",
+                    "Shared Hit Blocks": 7388,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 6801,
+                    "Temp Written Blocks": 6816,
+                    "Workers": [
+                      {
+                        "Worker Number": 0,
+                        "Sort Method": "external merge",
+                        "Sort Space Used": 13808,
+                        "Sort Space Type": "Disk"
+                      },
+                      {
+                        "Worker Number": 1,
+                        "Sort Method": "external merge",
+                        "Sort Space Used": 16352,
+                        "Sort Space Type": "Disk"
+                      }
+                    ],
+                    "Plans": [
+                      {
+                        "Node Type": "Seq Scan",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": true,
+                        "Async Capable": false,
+                        "Relation Name": "attendance_records",
+                        "Alias": "attendance_records",
+                        "Startup Cost": 0,
+                        "Total Cost": 10126.5,
+                        "Plan Rows": 125000,
+                        "Plan Width": 187,
+                        "Actual Startup Time": 0.017,
+                        "Actual Total Time": 60.64,
+                        "Actual Rows": 100000,
+                        "Actual Loops": 3,
+                        "Filter": "((attendance_date >= '2026-01-01'::date) AND (attendance_date <= '2026-01-30'::date) AND ((kind)::text = 'attendance'::text))",
+                        "Rows Removed by Filter": 0,
+                        "Shared Hit Blocks": 7314,
+                        "Shared Read Blocks": 0,
+                        "Shared Dirtied Blocks": 0,
+                        "Shared Written Blocks": 0,
+                        "Local Hit Blocks": 0,
+                        "Local Read Blocks": 0,
+                        "Local Dirtied Blocks": 0,
+                        "Local Written Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Workers": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Planning": {
+                "Shared Hit Blocks": 108,
+                "Shared Read Blocks": 4,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              },
+              "Planning Time": 2.781,
+              "Triggers": [],
+              "Execution Time": 354.523
+            }
+          ]
+        }
+      ],
+      "rssBytesAtEnd": 759353344
+    }
+  ]
+}

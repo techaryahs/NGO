@@ -1,0 +1,36 @@
+{
+  "postgresE2E": {
+    "skipped": 0,
+    "passed": 23,
+    "failed": 0
+  },
+  "flutter": {
+    "skipped": 0,
+    "passed": 480,
+    "failed": 0
+  },
+  "windowsReleaseExit": 0,
+  "committed": true,
+  "pushed": true,
+  "diffCheckExit": 0,
+  "typescriptBuildExit": 0,
+  "backend": {
+    "skipped": 0,
+    "passed": 351,
+    "failed": 0
+  },
+  "focusedClientRules": {
+    "skipped": 0,
+    "passed": 84,
+    "failed": 0
+  },
+  "schemaMigrationsRequired": false,
+  "scope": "Reviewed billing and lifecycle code committed and pushed to origin/main",
+  "flutterAnalyzeIssues": 0,
+  "verdict": "PASS",
+  "head": "e74b92aca810be7414d1855022b41cff4e5f295d",
+  "historicalExposure": "zero; no historical restatements performed without approval",
+  "deployed": false,
+  "flutterAnalyzeExit": 0,
+  "productionAccess": false
+}

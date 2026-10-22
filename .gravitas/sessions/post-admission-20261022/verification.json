@@ -1,0 +1,19 @@
+{
+  "verdict": "PASS",
+  "backendUnit": 179,
+  "postgresIntegration": 191,
+  "flutter": 503,
+  "checks": {
+    "all-nine-postgresql-suites-executed": true,
+    "179-unit-and-191-database-tests-passed": true,
+    "503-flutter-tests-passed": true,
+    "both-real-flutter-lifecycle-variants-executed": true,
+    "actual-attendance-widget-passed": true,
+    "flutter-analysis-clean": true,
+    "windows-release-built": true,
+    "typescript-build-recorded-without-errors": true,
+    "baseline-tariff-readable": true,
+    "authoritative-daily-and-extension-tariffs-unchanged": true,
+    "diff-whitespace-check": true
+  }
+}

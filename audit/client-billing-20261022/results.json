@@ -1,0 +1,40 @@
+{
+  "postgresE2E": {
+    "skipped": 0,
+    "passed": 23,
+    "failed": 0
+  },
+  "flutter": {
+    "skipped": 0,
+    "passed": 477,
+    "failed": 0
+  },
+  "windowsReleaseExit": 0,
+  "committed": false,
+  "diffCheckExit": 0,
+  "typescriptBuildExit": 0,
+  "backend": {
+    "skipped": 0,
+    "passed": 344,
+    "failed": 0
+  },
+  "focusedClientRules": {
+    "skipped": 0,
+    "passed": 31,
+    "failed": 0
+  },
+  "schemaMigrationsRequired": false,
+  "scope": "Implementation and local validation only",
+  "flutterAnalyzeIssues": 0,
+  "verdict": "PASS",
+  "head": "0596354a855740f93a93043b2073a2877317ce40",
+  "flutterAffected": {
+    "skipped": 0,
+    "passed": 163,
+    "failed": 0
+  },
+  "historicalExposure": "unknown; no approved anonymized snapshot supplied",
+  "deployed": false,
+  "flutterAnalyzeExit": 0,
+  "productionAccess": false
+}

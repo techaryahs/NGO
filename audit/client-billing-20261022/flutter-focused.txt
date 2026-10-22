@@ -1,0 +1,113 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart
+00:00 +0: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Approved pricing and attendance general 60/70 days and multiple allocated beds
+00:00 +1: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Approved pricing and attendance lobby 60/70 days and multiple allocated beds
+00:00 +2: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Approved pricing and attendance General patient and attendant attendance are independent
+00:00 +3: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Approved pricing and attendance Private one-patient base, one included attendant and absent patient
+00:00 +4: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Approved pricing and attendance Pending is provisional and prevents finalization
+00:00 +5: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 7 8:59
+00:00 +6: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 7 9:0
+00:00 +7: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 7 9:1
+00:00 +8: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 60 9:1
+00:00 +9: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 61 9:1
+00:00 +10: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 61 8:59
+00:00 +11: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata day 61 9:0
+00:00 +12: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata late checkout charges Present attendants only and uses the applicable tier
+00:00 +13: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata Private retains inclusive base and introduces no General surcharge
+00:00 +14: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: Actual checkout in Asia/Kolkata manual rate and all-in override stay authoritative at checkout
+00:00 +15: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: General-to-Private transfer date billed once and threshold continues
+00:00 +16: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: stored segment pricing survives a global setting change
+00:00 +17: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: an already extended expected exit is not extended again
+00:00 +18: C:/Users/sahil/OneDrive/Desktop/NGO/test/client_billing_rules_test.dart: two same-name attendants use independent stable IDs and preserve legacy marks
+00:00 +19: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy automatic sync leaves all marks unchanged
+00:00 +20: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: recorded exit date stops billing for an active patient
+00:00 +21: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: an active stay without an exit date bills elapsed days beyond seven
+00:00 +22: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: active shifted segment without exit date gets its own estimate
+00:00 +23: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: present marks do not erase other unmarked patient days
+00:00 +24: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: patient marks do not create unmarked attendant charges
+00:00 +25: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: saved attendant mark updates billing even when the next read is stale
+00:00 +26: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: only manually present attendant days are charged
+00:00 +27: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: unmarked attendant days are not charged
+00:00 +28: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: general 60-day base plus extension uses the historical ₹250 rate
+00:00 +29: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: projected admission estimates use category and long-stay tiers
+00:00 +30: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: projected estimates preserve manual base and long-stay overrides
+00:00 +31: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: calendar billing tier counts attendance days, not extension metadata
+00:00 +32: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy approval quote shares attendance billing and performs no writes
+00:00 +33: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: extension estimates use the same category-specific long-stay rules
+00:00 +34: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: extension request IDs round-trip while legacy records remain readable
+00:00 +35: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: 9 AM checkout excludes last day and charges six attendant days
+00:00 +36: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy generated daily rate does not override attendant attendance
+00:00 +37: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy patient override does not replace attendance-aware stay bill
+00:00 +38: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: a gap between room segments does not charge the departed room
+00:00 +39: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: editing current room updates bed occupancy and patient placement atomically
+00:00 +40: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: unavailable room correction cannot release the original bed
+00:00 +41: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: four private days and three general days use their own rates
+00:00 +42: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: transfer day is billed once at the destination category rate
+00:01 +43: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: absent Private patient retains the reserved room base
+00:01 +44: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: overpayment and partial refund preserve receipt and refund totals
+00:01 +45: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund paid after rejoin remains in the previous admission
+00:01 +46: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: legacy payment earlier on the admission day belongs to that cycle
+00:01 +47: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: active admission estimate uses both room segments
+00:01 +48: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: completed stay correction updates bill, refund and patient in one write
+00:01 +49: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: historical correction leaves a later rejoin patient profile intact
+00:01 +50: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund creates signed entries in both ledgers and settles excess
+00:01 +51: C:/Users/sahil/OneDrive/Desktop/NGO/test/stay_billing_test.dart: refund above excess does not write anything
+00:01 +52: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing patient Present, attendants {A: Present}
+00:01 +53: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing patient Absent, attendants {A: Present}
+00:01 +54: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing patient Present, attendants {A: Absent}
+00:01 +55: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing patient Present, attendants {A: Present, B: Absent, C: Present}
+00:01 +56: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing private occupant uses existing room tariff even when patient absent
+00:01 +57: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing manual rate and explicit cost override remain authoritative
+00:01 +58: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing 9 AM checkout preserved; one minute later adds a day
+00:01 +59: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing recorded attendance extends ongoing window beyond expected date
+00:01 +60: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing repeated identical recalculation produces no further RTDB write
+00:01 +61: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing RTDB equality handles omitted empty fields and legacy numeric arrays
+00:01 +62: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Attendance billing unmarked attendants are not billed as actual attendance
+00:01 +63: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer discharged patient overlaps month with attendants directly underneath
+00:01 +64: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer month has correct number of calendar days, including leap February
+00:01 +65: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer outside stay cells are disabled and cannot become dirty
+00:01 +66: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer local edits are visible, and reverting removes dirty state
+00:01 +67: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer many changed cells save once, only dirty paths, deduplicated patients
+00:01 +68: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer failed save retains dirty edits; simultaneous save cannot duplicate PATCH
+00:01 +69: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer month loads through exactly two date range queries
+00:01 +70: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:02 +71: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +72: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +73: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +74: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +75: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +76: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +77: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +78: C:/Users/sahil/OneDrive/Desktop/NGO/test/attendance_payment_implementation_test.dart: Monthly attendance buffer grid cells edit locally with sticky grouped names
+00:03 +79: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +80: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +81: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +82: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +83: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:03 +84: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +85: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +86: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +87: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +88: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +89: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +90: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+00:04 +91: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 1: Pricing succeeds while active stays fails with HTTP 400 (missing index) -> pricingLoaded == true and displayed
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] active stays load failed: Exception: Index not defined, add ".indexOn": "status", for path "/stays"
+00:06 +92: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 2: Pricing fails -> fallback default pricing used, pricingLoaded == true, Standard Rates indicator shown
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] pricing load failed: Exception: Failed to fetch pricing: Exception: RTDB 500 Internal Server Error
+[ADD PATIENT] using fallback pricing
+00:07 +93: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 3: Rooms loading fails -> pricing still loads independently
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] rooms load failed: Exception: Network error fetching rooms
+00:07 +94: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 4: Active stays query fails -> room selection remains available without infinite loading
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] active stays load failed: Exception: Missing index on stays
+00:08 +95: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 5: All requests succeed -> normal production flow
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+00:09 +96: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: AddPatientDialog Independent Pricing & Stay Loading Tests Scenario 6: Timeout occurs on pricing -> bounded failure falls back to default pricing without infinite loading
+[ADD PATIENT] live reg number setup error: Exception: ServiceLocator not initialized. Call initialize() first.
+[ADD PATIENT] pricing load failed: TimeoutException after 0:00:06.000000: Future not completed
+[ADD PATIENT] using fallback pricing
+00:10 +97: C:/Users/sahil/OneDrive/Desktop/NGO/test/add_patient_pricing_test.dart: 70-day General payment summary uses the long-stay tier
+00:10 +98: All tests passed!

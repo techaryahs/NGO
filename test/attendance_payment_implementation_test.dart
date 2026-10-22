@@ -14,6 +14,7 @@ import 'package:ngo/screens/attendance/attendance_service.dart';
 import 'package:ngo/services/firebase_rtdb_rest_service.dart';
 import 'package:ngo/services/patient_service.dart';
 import 'package:ngo/services/payment_service.dart';
+import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/utils/stay_billing.dart';
 import 'package:ngo/utils/upi_payment.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +45,14 @@ class BatchDatabase extends fixtures.TestDatabase {
     ranges.add('$path:$startKey:$endKey');
     return super.getByKeyRange(path, startKey: startKey, endKey: endKey);
   }
+}
+
+class _DialogBalanceService extends PaymentService {
+  _DialogBalanceService() : super(null);
+  @override
+  Future<({double total, double paid, double due, String? cycleId})>
+  collectionBalance(String patientId) async =>
+      (total: 1600.0, paid: 0.0, due: 1600.0, cycleId: null);
 }
 
 void main() {
@@ -369,6 +378,8 @@ void main() {
     testWidgets('dialog opens QR directly; invalid reference cannot confirm', (
       tester,
     ) async {
+      ServiceLocator().paymentService = _DialogBalanceService();
+      addTearDown(() => ServiceLocator().paymentService = null);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(

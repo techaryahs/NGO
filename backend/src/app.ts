@@ -14,9 +14,15 @@ import { photoRoutes } from './routes/photos.js';
 import { erpRoutes } from './routes/erp.js';
 import { userRoutes } from './routes/users.js';
 import { validateDomainRequest } from './validation.js';
+import { randomUUID } from 'node:crypto';
 
 export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   const app = Fastify({
+    requestIdHeader: false,
+    genReqId: request => {
+      const supplied = request.headers['x-request-id'];
+      return typeof supplied === 'string' && /^payreq_[A-Za-z0-9_-]{1,80}$/.test(supplied) ? supplied : randomUUID();
+    },
     // Stay and payment IDs are VARCHAR(128); Fastify's default of 100
     // otherwise makes valid persisted receipts unreachable by ID.
     maxParamLength: 128,
@@ -24,6 +30,15 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
       level: config.LOG_LEVEL,
     },
     ...opts,
+  });
+
+  const isPaymentSubmission = (request: { method: string; url: string }) => request.method === 'POST' && request.url.split('?')[0] === '/api/payments';
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (isPaymentSubmission(request)) reply.header('x-request-id', request.id);
+    return payload;
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    if (isPaymentSubmission(request)) request.log.info({ requestId: request.id, statusCode: reply.statusCode, category: 'payment_submission' }, 'Payment request completed');
   });
 
   // Enable CORS with strict origin validation
@@ -46,8 +61,8 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
       return cb(null, false);
     },
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Origin', 'X-Requested-With'],
-    exposedHeaders: ['x-pagination-mode', 'x-next-cursor'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Origin', 'X-Requested-With', 'X-Request-Id'],
+    exposedHeaders: ['x-pagination-mode', 'x-next-cursor', 'x-request-id'],
     credentials: true,
     maxAge: 86400,
   });
@@ -80,12 +95,17 @@ export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   });
 
   // Global error handler
-  app.setErrorHandler((error, _request, reply) => {
-    app.log.error({ err: error, code: (error as Error & { code?: string }).code, statusCode: error.statusCode, message: error.message }, 'Request failed');
+  app.setErrorHandler((error, request, reply) => {
     const code = (error as Error & { code?: string }).code || '';
     const statusCode = error.statusCode || (['23505', '23503'].includes(code) ? 409 : /^(22|23502|23514)/.test(code) ? 400 : 500);
+    if (isPaymentSubmission(request)) {
+      request.log.error({ requestId: request.id, statusCode, category: statusCode >= 500 ? 'payment_server_error' : statusCode === 409 ? 'payment_conflict' : 'payment_validation' }, 'Payment request failed');
+    } else {
+      app.log.error({ err: error, code, statusCode, message: error.message }, 'Request failed');
+    }
     return reply.status(statusCode).send({
       statusCode,
+      ...(isPaymentSubmission(request) ? { requestId: request.id } : {}),
       error: statusCode >= 500 ? 'InternalServerError' : statusCode === 409 ? 'Conflict' : 'BadRequest',
       message: statusCode >= 500 ? 'An unexpected error occurred' : code ? 'The request conflicts with database constraints or contains invalid data' : error.message,
     });

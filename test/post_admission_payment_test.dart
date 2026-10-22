@@ -15,9 +15,11 @@ void main() {
   final cycle = admission.millisecondsSinceEpoch.toString();
   late Map<String, dynamic> patient;
   late List<Map<String, dynamic>> writes;
+  late List<String> requestIds;
   late BackendApiService api;
   late PaymentService service;
   Future<http.Response> Function(Map<String, dynamic>)? submit;
+  bool financialsFail = false;
 
   PaymentModel payment({
     String reference = '123456789013',
@@ -37,7 +39,9 @@ void main() {
 
   setUp(() {
     writes = [];
+    requestIds = [];
     submit = null;
+    financialsFail = false;
     patient = {
       'fullName': 'Synthetic patient',
       'admissionDate': admission.millisecondsSinceEpoch,
@@ -63,6 +67,16 @@ void main() {
         expect(request.headers['Authorization'], 'Bearer synthetic-auth');
         if (request.method == 'GET' && request.url.path == '/api/patients/p') {
           return http.Response(jsonEncode(patient), 200);
+        }
+        if (request.method == 'GET' &&
+            request.url.path == '/api/patients/p/financials') {
+          if (financialsFail) {
+            return http.Response('{"message":"synthetic outage"}', 503);
+          }
+          return http.Response(
+            jsonEncode({'patient': patient, 'stays': []}),
+            200,
+          );
         }
         if (request.method == 'GET' && request.url.path == '/api/stays') {
           return http.Response('{}', 200);
@@ -90,11 +104,14 @@ void main() {
             jsonDecode(request.body) as Map,
           );
           writes.add(body);
+          requestIds.add(request.headers['X-Request-Id']!);
           if (submit != null) return submit!(body);
           (patient['payments'] as List).add(body);
-          patient['totalPaidAmount'] = 2000 + body['amount'];
+          patient['totalPaidAmount'] =
+              (patient['totalPaidAmount'] as num) + body['amount'];
           patient['currentDueAmount'] =
-              4000 - (patient['totalPaidAmount'] as num);
+              (patient['advanceBilledAmount'] as num) -
+              (patient['totalPaidAmount'] as num);
           return http.Response(jsonEncode(body), 201);
         }
         throw StateError('Unexpected request ${request.method} ${request.url}');
@@ -108,6 +125,63 @@ void main() {
     service.disposeScheduler();
     api.dispose();
   });
+
+  test(
+    'safe diagnostics distinguish local reference rejection from HTTP failure and carry request IDs',
+    () async {
+      final lines = <String>[];
+      final original = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) lines.add(message);
+      };
+      try {
+        await expectLater(
+          service.recordPayment(
+            patientId: 'p',
+            patientName: 'Synthetic patient',
+            payment: payment(reference: '123456789012', amount: 2400),
+            collectOutstanding: true,
+          ),
+          throwsA(isA<PaymentReferenceException>()),
+        );
+        expect(writes, isEmpty);
+        expect(
+          lines.join('\n'),
+          contains('category=reference_reuse status=none'),
+        );
+        submit = (_) async => http.Response(
+          '{"message":"synthetic server failure"}',
+          500,
+          headers: {'x-request-id': requestIds.last},
+        );
+        await expectLater(
+          service.recordPayment(
+            patientId: 'p',
+            patientName: 'Synthetic patient',
+            payment: payment(),
+            collectOutstanding: true,
+          ),
+          throwsA(isA<BackendApiException>()),
+        );
+        expect(
+          lines.join('\n'),
+          contains('requestId=${requestIds.single} phase=submitting'),
+        );
+        expect(lines.join('\n'), contains('category=http_error status=500'));
+        for (final secret in [
+          '123456789012',
+          '123456789013',
+          'synthetic-auth',
+          'Synthetic patient',
+          'synthetic server failure',
+        ]) {
+          expect(lines.join('\n'), isNot(contains(secret)));
+        }
+      } finally {
+        debugPrint = original;
+      }
+    },
+  );
 
   test(
     'additional receipt uses real POST, independent amount and active cycle; retry preserves both receipts',
@@ -354,7 +428,7 @@ void main() {
 
   Future<void> openDialog(
     WidgetTester tester, {
-    String reference = '123456789013',
+    String? reference = '123456789013',
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -380,12 +454,157 @@ void main() {
     );
     await tester.tap(find.text('Pay Remaining'));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'UTR / UPI reference'),
-      reference,
-    );
+    if (reference != null) {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'UTR / UPI reference'),
+        reference,
+      );
+    }
     await tester.ensureVisible(find.text('Confirm received payment'));
   }
+
+  testWidgets(
+    '3800 bill, 1400 partial: empty new UTR, actionable old-reference rejection, distinct 2400 receipt clears due',
+    (tester) async {
+      patient.addAll({
+        'advanceBilledAmount': 3800,
+        'totalPaidAmount': 1400,
+        'currentDueAmount': 2400,
+      });
+      (patient['payments'] as List).single.addAll({
+        'amount': 1400,
+        'totalAmount': 3800,
+        'paidAmount': 1400,
+        'pendingAmount': 2400,
+        'transactionId': 'ABCD123456789',
+      });
+      await openDialog(tester, reference: null);
+      final referenceField = find.widgetWithText(
+        TextFormField,
+        'UTR / UPI reference',
+      );
+      final receiptField = find.widgetWithText(
+        TextFormField,
+        'Receipt number (optional)',
+      );
+      expect(
+        tester.widget<TextFormField>(referenceField).controller!.text,
+        isEmpty,
+      );
+      expect(
+        tester.widget<TextFormField>(receiptField).controller!.text,
+        isEmpty,
+      );
+      expect(find.text('Pending: ₹2400.00'), findsOneWidget);
+      expect(find.text('Scan QR & Pay ₹2400.00'), findsOneWidget);
+      await tester.enterText(referenceField, 'abcd123456789');
+      await tester.tap(find.text('Confirm received payment'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining("Enter the new transfer's UTR"),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Bad state:'), findsNothing);
+      expect(writes, isEmpty);
+      expect(patient['currentDueAmount'], 2400);
+      await tester.enterText(referenceField, 'newtr123456789');
+      await tester.enterText(receiptField, 'new receipt');
+      await tester.ensureVisible(find.text('Confirm received payment'));
+      await tester.tap(find.text('Confirm received payment'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(writes.single['amount'], 2400);
+      expect(writes.single['transactionId'], 'NEWTR123456789');
+      expect(patient['payments'], hasLength(2));
+      expect(patient['totalPaidAmount'], 3800);
+      expect(patient['currentDueAmount'], 0);
+      expect(
+        await tester.runAsync(() => service.getAllPaymentsStream().first),
+        hasLength(2),
+      );
+    },
+  );
+
+  testWidgets(
+    'cancel and reopen clear UTR and receipt; no caller snapshot overrides the current balance',
+    (tester) async {
+      await openDialog(tester);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Receipt number (optional)'),
+        'old receipt',
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      patient.addAll({
+        'advanceBilledAmount': 3800,
+        'totalPaidAmount': 1400,
+        'currentDueAmount': 2400,
+      });
+      await tester.tap(find.text('Pay Remaining'));
+      await tester.pumpAndSettle();
+      for (final label in [
+        'UTR / UPI reference',
+        'Receipt number (optional)',
+      ]) {
+        final field = tester.widget<TextFormField>(
+          find.widgetWithText(TextFormField, label),
+        );
+        expect(field.controller!.text, isEmpty);
+        expect(
+          tester
+              .widget<TextField>(
+                find.descendant(
+                  of: find.widgetWithText(TextFormField, label),
+                  matching: find.byType(TextField),
+                ),
+              )
+              .autofillHints,
+          isNull,
+        );
+      }
+      expect(find.text('Pending: ₹2400.00'), findsOneWidget);
+      expect(writes, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'failed authoritative balance load prevents collection; retry clears the error and loads the current due',
+    (tester) async {
+      financialsFail = true;
+      await openDialog(tester, reference: null);
+      expect(
+        find.textContaining('Could not load the current outstanding'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Scan QR & Pay'), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Confirm received payment'),
+            )
+            .onPressed,
+        isNull,
+      );
+      financialsFail = false;
+      await tester.tap(find.text('Retry balance'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Could not load the current outstanding'),
+        findsNothing,
+      );
+      expect(find.text('Pending: ₹2000.00'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.widgetWithText(TextFormField, 'UTR / UPI reference'),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+      expect(writes, isEmpty);
+    },
+  );
 
   testWidgets(
     'real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement',

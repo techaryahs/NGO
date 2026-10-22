@@ -13,6 +13,17 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../utils/upi_payment.dart';
 
+class PaymentReferenceException extends StateError {
+  PaymentReferenceException()
+    : super(
+        'This reference is already recorded for an earlier payment. '
+        'Enter the new transfer\'s UTR / UPI reference. '
+        'No additional payment was recorded.',
+      );
+  @override
+  String toString() => message;
+}
+
 class PaymentService {
   final FirebaseRTDBRestService? _injectedRtdb;
   final BackendApiService? _injectedBackendApi;
@@ -153,6 +164,21 @@ class PaymentService {
           if (entry.value is Map && entry.value['patientId'] == patientId)
             StayModel.fromMap(entry.key.toString(), entry.value),
     ];
+  }
+
+  /// Uses the existing invoice projection; never reads an earlier receipt's UTR.
+  Future<({double total, double paid, double due, String? cycleId})>
+  collectionBalance(String patientId) async {
+    final values = await billingUpdates(patientId);
+    double amount(String field) =>
+        (values['patients/$patientId/$field'] as num?)?.toDouble() ?? 0;
+    final admission = values['patients/$patientId/admissionDate'];
+    return (
+      total: amount('advanceBilledAmount') + amount('attendanceCharges'),
+      paid: amount('totalPaidAmount'),
+      due: amount('currentDueAmount'),
+      cycleId: admission?.toString(),
+    );
   }
 
   Future<Map<String, dynamic>> billingUpdates(
@@ -688,6 +714,8 @@ class PaymentService {
       return Future.error(StateError('A payment is already being recorded.'));
     }
     final billing = _runningBilling[patientId];
+    final requestId =
+        'payreq_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 32).toRadixString(16)}';
     late final Future<String> task;
     task =
         (() async {
@@ -698,12 +726,45 @@ class PaymentService {
               /* The receipt recalculates billing. */
             }
           }
-          return _recordPayment(
-            patientId: patientId,
-            patientName: patientName,
-            payment: payment,
-            collectOutstanding: collectOutstanding,
-          );
+          debugPrint('[Payment] requestId=$requestId phase=validating');
+          try {
+            final id = await _recordPayment(
+              patientId: patientId,
+              patientName: patientName,
+              payment: payment,
+              collectOutstanding: collectOutstanding,
+              requestId: requestId,
+            );
+            debugPrint('[Payment] requestId=$requestId phase=acknowledged');
+            return id;
+          } catch (error) {
+            final category = error is PaymentReferenceException
+                ? 'reference_reuse'
+                : error is BackendApiException
+                ? 'http_error'
+                : error is TimeoutException
+                ? 'timeout'
+                : error is ArgumentError
+                ? 'validation'
+                : 'client_error';
+            final status = error is BackendApiException
+                ? error.statusCode.toString()
+                : 'none';
+            final returnedId = error is BackendApiException
+                ? error.requestId
+                : null;
+            final serverId =
+                returnedId != null &&
+                    RegExp(
+                      r'^(payreq_[A-Za-z0-9_-]{1,80}|[0-9a-fA-F-]{36})$',
+                    ).hasMatch(returnedId)
+                ? returnedId
+                : requestId;
+            debugPrint(
+              '[Payment] requestId=$serverId phase=failed category=$category status=$status',
+            );
+            rethrow;
+          }
         })().whenComplete(() {
           if (identical(_paymentSubmissions[patientId], task)) {
             _paymentSubmissions.remove(patientId);
@@ -718,6 +779,7 @@ class PaymentService {
     required String patientName,
     required PaymentModel payment,
     required bool collectOutstanding,
+    required String requestId,
   }) async {
     if (!payment.amount.isFinite || payment.amount <= 0) {
       throw ArgumentError('Enter a positive payment amount');
@@ -753,9 +815,7 @@ class PaymentService {
           (existing.transactionId?.trim().toUpperCase() ?? '') != reference ||
           existing.method.toUpperCase() != payment.method.toUpperCase() ||
           (payment.cycleId != null && existing.cycleId != payment.cycleId)) {
-        throw StateError(
-          'This reference is already recorded with a different amount.',
-        );
+        throw PaymentReferenceException();
       }
       // A retry of this collection retains its timestamp and financial
       // snapshot. Reusing an old reference for a different collection must not
@@ -768,9 +828,7 @@ class PaymentService {
           existing.paidAmount == payment.paidAmount &&
           existing.pendingAmount == payment.pendingAmount;
       if (collectOutstanding && !sameCollectionAttempt) {
-        throw StateError(
-          'This reference is already recorded for an earlier payment. No additional payment was recorded. Enter the reference for the additional payment.',
-        );
+        throw PaymentReferenceException();
       }
       // Other receipt workflows retain their established reference-based
       // idempotency; the existing ledger owns its original metadata.
@@ -802,7 +860,10 @@ class PaymentService {
       });
 
     if (isPostgres) {
-      final res = await _backendApi!.createPayment(pMap);
+      debugPrint(
+        '[Payment] requestId=$requestId phase=submitting endpoint=POST:/api/payments',
+      );
+      final res = await _backendApi!.createPayment(pMap, requestId: requestId);
       final committedId = res['id']?.toString();
       if (committedId == null || committedId.isEmpty) {
         throw StateError(

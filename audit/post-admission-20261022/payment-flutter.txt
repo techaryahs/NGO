@@ -1,0 +1,102 @@
+00:00 +0: loading C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart
+00:00 +0: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: additional receipt uses real POST, independent amount and active cycle; retry preserves both receipts
+00:00 +1: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: a committed retry refreshes the watched transaction ledger without another POST
+00:00 +2: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: reusing original reference on the increased bill gives a meaningful failure instead of false new-payment success
+00:00 +3: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: same bill partial receipt reference cannot count as a new remaining payment
+00:00 +4: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: legacy reference without invoice metadata cannot imply a newly collected payment
+00:00 +5: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: server rejection propagates and does not change history or balance
+00:00 +6: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: an HTTP success without a committed transaction identifier is not reported as recorded
+00:00 +7: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: payment remains pending until the server responds and a concurrent submission is rejected
+00:00 +8: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: rejects invalid payment amount 0.0 without a request
+00:00 +9: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: rejects invalid payment amount -1.0 without a request
+00:00 +10: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: rejects invalid payment amount NaN without a request
+00:00 +11: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: rejects invalid payment amount Infinity without a request
+00:00 +12: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +13: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +14: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +15: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +16: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +17: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +18: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +19: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +20: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +21: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +22: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:01 +23: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:02 +24: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:02 +25: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:02 +26: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:02 +27: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:02 +28: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:03 +29: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:03 +30: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:03 +31: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:03 +32: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:03 +33: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:05 +34: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:05 +35: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:05 +36: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:05 +36: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 2 & 3. ServiceLocator Initialization & Complete RTDB Retirement in PostgreSQL Mode ServiceLocator initializes all services in PostgreSQL mode and blocks rtdbService access
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      new CacheDatabase.open (package:ngo/cache/cache_database.dart:159:35)
+#6      new PersistentCache.open (package:ngo/cache/persistent_cache.dart:43:44)
+#7      ServiceLocator.initialize (package:ngo/services/service_locator.dart:62:40)
+#8      main.<anonymous closure>.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart:317:28)
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:19)
+<asynchronous suspension>
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:05 +37: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: real shared dialog stays open on failure; retry uses identical receipt metadata and closes after acknowledgement
+00:06 +38: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +39: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +40: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +41: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +42: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +43: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:06 +44: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:07 +45: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:07 +46: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow loads excess amount and pre-fills ₹1,200 refundable balance
+00:07 +47: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: lost commit acknowledgement retries the same dialog attempt without duplicating payment
+00:07 +48: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: lost commit acknowledgement retries the same dialog attempt without duplicating payment
+00:07 +49: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: lost commit acknowledgement retries the same dialog attempt without duplicating payment
+00:07 +49: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 5. Attendance Sync, Payment, and Discharge Lifecycle in PostgreSQL Mode Instruments client-side ServiceLocator initialization, SQLite PersistentCache, and model decoding latency
+WARNING (drift): It looks like you've created the database class CacheDatabase multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database. 
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+00:07 +50: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: lost commit acknowledgement retries the same dialog attempt without duplicating payment
+00:07 +50: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 5. Attendance Sync, Payment, and Discharge Lifecycle in PostgreSQL Mode Instruments client-side ServiceLocator initialization, SQLite PersistentCache, and model decoding latency
+#3      new _$CacheDatabase (package:ngo/cache/cache_database.g.dart:3959:38)
+#4      new CacheDatabase (package:ngo/cache/cache_database.dart)
+#5      new CacheDatabase.open (package:ngo/cache/cache_database.dart:159:35)
+#6      new PersistentCache.open (package:ngo/cache/persistent_cache.dart:43:44)
+#7      ServiceLocator.initialize (package:ngo/services/service_locator.dart:62:40)
+#8      main.<anonymous closure>.<anonymous closure> (file:///C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart:815:26)
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:242:19)
+<asynchronous suspension>
+00:07 +51: C:/Users/sahil/OneDrive/Desktop/NGO/test/post_admission_payment_test.dart: lost commit acknowledgement retries the same dialog attempt without duplicating payment
+00:07 +51: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 5. Attendance Sync, Payment, and Discharge Lifecycle in PostgreSQL Mode Instruments client-side ServiceLocator initialization, SQLite PersistentCache, and model decoding latency
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:240:7)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:282:9)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+{"benchmark":"FLUTTER_CLIENT_SQLITE_DECODE_US","serviceLocatorInitUs":1212,"sqliteFullAttendanceReplaceUs":1309,"sqliteBounded5DayAttendanceWriteUs":66679,"sqlitePatients25WriteUs":56445,"sqlitePatients25ReadUs":3325,"decodePatients25ModelsUs":2774}
+00:07 +52: C:/Users/sahil/OneDrive/Desktop/NGO/test/postgres_cutover_regression_test.dart: 5. Attendance Sync, Payment, and Discharge Lifecycle in PostgreSQL Mode Instruments client-side ServiceLocator initialization, SQLite PersistentCache, and model decoding latency
+00:07 +53: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow records refund with valid values and invokes PaymentService
+00:07 +54: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: RefundDialog Widget & Flow records refund with valid values and invokes PaymentService
+00:08 +55: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: PaymentsScreen Sidebar and Financial Overview renders Payments Dashboard with Record Refund header button, summary cards and filter chips
+00:08 +56: C:/Users/sahil/OneDrive/Desktop/NGO/test/refund_workflow_test.dart: PaymentsScreen Sidebar and Financial Overview PatientFinancialDialog displays admission cycles and transaction history
+00:08 +57: All tests passed!
