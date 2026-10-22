@@ -5,6 +5,8 @@ import { pool, query } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { dayKey, nextDay } from '../src/services/billing.js';
 
 const enabled = process.env.RUN_PG_INTEGRATION === '1';
 describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
@@ -28,6 +30,120 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     await query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','admin@ngo.test','Synthetic Admin','admin')");
   });
   afterAll(async () => { await app.close(); await pool.end(); });
+  it.each([0, 5])('post-admission attendee joining on offset %i persists attendance, charges and two-step collection', async offset => {
+    const id = randomUUID(), rid = randomUUID().slice(0, 16), sid = randomUUID(), aid = randomUUID();
+    const start = '2026-10-01', exit = '2026-10-10';
+    const days = Array.from({ length: 10 }, (_, i) => `2026-10-${String(i + 1).padStart(2, '0')}`);
+    const cid = String(Date.parse(start));
+    expect((await send('POST', '/rooms', room(rid))).statusCode).toBe(201);
+    const registered = await send('POST', '/patients/register', { ...patient(id), attendants: [], admissionDate: start,
+      registrationDate: start, exitDate: exit, currentDueAmount: 0, advanceBilledAmount: 0,
+      stays: [{ ...stay(sid, id, rid), admissionDate: start, durationDays: 10 }] });
+    expect(registered.statusCode).toBe(201);
+    const financials = async () => (await send('GET', `/patients/${id}/financials`)).json().patient;
+    expect(await financials()).toMatchObject({ advanceBilledAmount: 2000, currentDueAmount: 2000 });
+    const receipt = (amount: number) => ({ id: randomUUID(), patientId: id, cycleId: cid, amount, method: 'ONLINE',
+      date: Date.now(), transactionId: randomUUID(), totalAmount: 2000 + (10 - offset) * 200, collectOutstanding: true });
+    expect((await send('POST', '/payments', receipt(2000))).statusCode).toBe(201);
+    const helper = { id: aid, name: `Attendant ${aid}`, startDate: days[offset], relation: 'Family' };
+    expect((await send('PUT', `/patients/${id}`, { attendants: [helper] })).statusCode).toBe(200);
+    // Same Edit Details request, including an old arrival date, is idempotent.
+    expect((await send('PUT', `/patients/${id}`, { attendants: [helper] })).statusCode).toBe(200);
+    const stays = (await send('GET', `/stays?patientId=${id}`)).json();
+    expect(stays).toHaveLength(1);
+    expect(stays[0]).toMatchObject({ id: sid, patientId: id, attendantCount: 1,
+      patientSnapshot: { attendants: [{ id: aid, startDate: days[offset] }] } });
+    expect((await query('SELECT id FROM patient_attendants WHERE patient_id=$1', [id])).rows).toHaveLength(1);
+    expect((await send('GET', `/attendance?patientId=${id}&kind=attendant_attendance&format=map`)).json()).toEqual({});
+    if (offset) for (const payload of [
+      { [aid]: { attendantId: aid, attendantName: helper.name, status: 'Present' } },
+      { [helper.name]: { attendantName: helper.name, status: 'Present' } },
+      { attendantName: helper.name, status: 'Present' },
+    ]) expect((await send('POST', '/attendance', { patientId: id, date: days[0], kind: 'attendant_attendance', payload })).statusCode).toBe(400);
+    for (const date of days) {
+      expect((await send('POST', '/attendance', { patientId: id, date, payload: { status: 'Present' } })).statusCode).toBe(200);
+      if (date < days[offset]) continue;
+      const mark = { date, kind: 'attendant_attendance', records: { [id]: { [aid]: { attendantId: aid, attendantName: helper.name, status: 'Present' } } } };
+      expect((await send('POST', '/attendance/bulk', mark)).statusCode).toBe(200);
+      expect((await send('POST', '/attendance/bulk', mark)).statusCode).toBe(200);
+    }
+    const billed = 2000 + (10 - offset) * 200;
+    const updated = await send('POST', `/patients/${id}/recalculate-billing`, {});
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().patient).toMatchObject({ advanceBilledAmount: billed, totalPaidAmount: 2000, currentDueAmount: billed - 2000 });
+    expect(updated.json().stays[0]).toMatchObject({ baseCost: 2000, extraAttendantCost: billed - 2000, totalCost: billed });
+    const due = billed - 2000;
+    const partial = receipt(due / 2);
+    expect((await send('POST', '/payments', partial)).statusCode).toBe(201);
+    expect(await financials()).toMatchObject({ currentDueAmount: due / 2 });
+    // Void the partial collection to exercise the same final two-receipt result.
+    expect((await send('DELETE', `/payments/${partial.id}`)).statusCode).toBe(200);
+    const final = receipt(due);
+    expect((await send('POST', '/payments', final)).statusCode).toBe(201);
+    expect((await send('POST', '/payments', final)).statusCode).toBe(200);
+    const p = (await send('GET', `/patients/${id}`)).json();
+    expect(p).toMatchObject({ advanceBilledAmount: billed, totalPaidAmount: billed, currentDueAmount: 0, paymentPending: false });
+    expect(p.payments).toHaveLength(2);
+    const ledger = (await send('GET', `/payments?patientId=${id}`)).json();
+    expect(ledger).toHaveLength(2);
+    expect(ledger.map((r: any) => r.amount).sort()).toEqual([2000, due].sort());
+    expect(ledger.find((r: any) => r.id === final.id)).toMatchObject({ cycleId: cid, method: 'ONLINE', transactionId: final.transactionId, date: final.date });
+    expect(await financials()).toMatchObject({ advanceBilledAmount: billed, totalPaidAmount: billed, currentDueAmount: 0 });
+    const attendance = (await send('GET', `/attendance?patientId=${id}&kind=attendant_attendance&startDate=${start}&endDate=${exit}`)).json();
+    expect(attendance).toHaveLength(10 - offset);
+    expect(attendance.every((r: any) => r.date >= days[offset] && r.payload[aid].status === 'Present')).toBe(true);
+  });
+
+  it('admission-time attendant is snapshotted, and invalid/foreign attendee edits roll back', async () => {
+    const id = randomUUID(), rid = randomUUID().slice(0, 16), aid = randomUUID(), sid = randomUUID();
+    await send('POST', '/rooms', room(rid));
+    expect((await send('POST', '/patients/register', { ...patient(id), admissionDate: '2026-10-01', exitDate: '2026-10-10',
+      attendants: [{ id: aid, name: `Attendant ${aid}` }], stays: [{ ...stay(sid, id, rid), admissionDate: '2026-10-01', durationDays: 10 }] })).statusCode).toBe(201);
+    expect((await send('GET', `/stays/${sid}`)).json().patientSnapshot.attendants).toMatchObject([{ id: aid }]);
+    const before = (await send('GET', `/patients/${id}`)).json();
+    for (const attendants of [
+      [{ id: aid, name: 'One' }, { id: aid, name: 'Duplicate' }],
+      [{ id: randomUUID(), name: 'Invalid date', startDate: '2026-02-30' }],
+      [{ id: randomUUID(), name: 'Before admission', startDate: '2026-09-30' }],
+    ]) expect((await send('PUT', `/patients/${id}`, { attendants })).statusCode).toBe(400);
+    expect((await send('GET', `/patients/${id}`)).json()).toEqual(before);
+    const other = randomUUID();
+    await send('POST', '/patients', { ...patient(other), attendants: [] });
+    expect((await send('PUT', `/patients/${other}`, { attendants: [{ id: aid, name: 'Foreign identity' }] })).statusCode).toBe(409);
+  });
+
+  it('simultaneous edits cannot assign one attendant identity to two different patients', async () => {
+    const first = randomUUID(), second = randomUUID(), aid = randomUUID();
+    for (const id of [first, second]) expect((await send('POST', '/patients', { ...patient(id), attendants: [] })).statusCode).toBe(201);
+    const results = await Promise.all([first, second].map(id => send('PUT', `/patients/${id}`, { attendants: [{ id: aid, name: id }] })));
+    expect(results.map(r => r.statusCode).sort()).toEqual([200, 409]);
+    const rows = (await query('SELECT patient_id,name FROM patient_attendants WHERE id=$1', [aid])).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe(rows[0].patient_id);
+  });
+
+  it('attendant edits retain creation/arrival history, refresh occupancy and stop eligibility after removal', async () => {
+    const id = randomUUID(), rid = randomUUID().slice(0,16), sid = randomUUID(), aid = randomUUID();
+    const today = dayKey(Date.now());
+    await send('POST', '/rooms', room(rid));
+    expect((await send('POST', '/patients/register', { ...patient(id), attendants: [], admissionDate: today,
+      exitDate: nextDay(today,9), stays: [{ ...stay(sid,id,rid), admissionDate: today, durationDays: 10 }] })).statusCode).toBe(201);
+    const person = { id: aid, name: 'Synthetic helper', startDate: today };
+    expect((await send('PUT', `/patients/${id}`, { attendants: [person] })).statusCode).toBe(200);
+    const created = (await query('SELECT created_at FROM patient_attendants WHERE id=$1',[aid])).rows[0].created_at;
+    expect((await send('GET', `/rooms/${rid}`)).json().currentAttendants).toBe(1);
+    expect((await send('PUT', `/patients/${id}`, { attendants: [{...person, name:'Renamed helper',startDate:nextDay(today)}] })).statusCode).toBe(200);
+    expect((await query('SELECT created_at FROM patient_attendants WHERE id=$1',[aid])).rows[0].created_at).toEqual(created);
+    expect((await send('GET', `/stays/${sid}`)).json().patientSnapshot.attendants[0]).toMatchObject({id:aid,startDate:today});
+    const record = { patientId:id,date:today,kind:'attendant_attendance',payload:{[aid]:{attendantId:aid,attendantName:'Renamed helper',status:'Present'}} };
+    expect((await send('POST','/attendance',record)).statusCode).toBe(200);
+    expect((await send('PUT', `/patients/${id}`, { attendants: [] })).statusCode).toBe(200);
+    expect((await send('GET', `/rooms/${rid}`)).json().currentAttendants).toBe(0);
+    expect((await send('GET', `/stays/${sid}`)).json().patientSnapshot.attendants[0]).toMatchObject({id:aid,startDate:today,endDate:today});
+    expect((await send('POST','/attendance',{...record,date:nextDay(today)})).statusCode).toBe(400);
+    expect((await send('GET',`/attendance?patientId=${id}&kind=attendant_attendance`)).json()).toHaveLength(1);
+    expect((await send('GET',`/payments?patientId=${id}`)).json()).toEqual([]);
+  });
   async function settleThrough(checkoutAt: string) {
     const attendants = (await send('GET', '/patients/p1')).json().attendants;
     for (let date = '2026-01-01'; date <= checkoutAt.slice(0, 10); date = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10)) {

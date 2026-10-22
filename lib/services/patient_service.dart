@@ -590,6 +590,11 @@ class PatientService {
           }
         }
         await _backendApi!.updatePatient(patientId, updates);
+        if (updates.containsKey('attendants')) {
+          // The server updates the admission roster and bill in the same commit.
+          // Publish the changed stay snapshot to the retained attendance screen.
+          await _backendApi.refresh('stays?patientId=$patientId&format=map');
+        }
         return;
       }
 

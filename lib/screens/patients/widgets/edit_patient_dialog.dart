@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../../../utils/bed_helper.dart';
 import '../../../models/patient_model.dart';
 import '../../../models/stay_model.dart';
@@ -148,6 +149,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       for (final att in widget.patient.attendants!) {
         final entry = _AttendantEntry();
         entry.id = att.id ?? AttendantModel.generateId();
+        entry.isExisting = true;
         entry.nameController.text = att.name;
         entry.ageController.text = att.age ?? '';
         entry.relationController.text = att.relation ?? '';
@@ -806,7 +808,14 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                 .firstOrNull
                 ?.mobileNumber ??
             '',
-        'attendants': structuredAttendants.map((a) => a.toMap()).toList(),
+        'attendants': structuredAttendants.map((a) {
+          final entry = _attendants.firstWhere((entry) => entry.id == a.id);
+          return {
+            ...a.toMap(),
+            if (!entry.isExisting)
+              'startDate': DateFormat('yyyy-MM-dd').format(entry.arrivalDate),
+          };
+        }).toList(),
         'address': _addressController.text.trim().isEmpty
             ? null
             : _addressController.text.trim(),
@@ -966,7 +975,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
       // Attendants may be added after admission. Keep the active stay's
       // occupancy count and the patient bill in sync with the edited list.
-      if (!placementChanged) {
+      if (!placementChanged && !patientService.isPostgres) {
         for (final stayId in _currentStayIds) {
           await roomService.updateStayAttendantCount(
             stayId,
@@ -1017,6 +1026,37 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             ),
           ),
           const SizedBox(height: 8),
+          if (!_attendants[i].isExisting)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Attendant arrival date'),
+              subtitle: Text(_formatDate(_attendants[i].arrivalDate)),
+              trailing: const Icon(Icons.calendar_today),
+              onTap: _isLoading
+                  ? null
+                  : () async {
+                      final start = DateUtils.dateOnly(
+                        widget.patient.admissionDate,
+                      );
+                      final end = DateUtils.dateOnly(
+                        _selectedExitDate ?? DateTime.now(),
+                      );
+                      final latest = end.isBefore(start) ? start : end;
+                      final selected = await showDatePicker(
+                        context: context,
+                        initialDate: _attendants[i].arrivalDate.isBefore(start)
+                            ? start
+                            : _attendants[i].arrivalDate.isAfter(latest)
+                            ? latest
+                            : _attendants[i].arrivalDate,
+                        firstDate: start,
+                        lastDate: latest,
+                      );
+                      if (selected != null && mounted) {
+                        setState(() => _attendants[i].arrivalDate = selected);
+                      }
+                    },
+            ),
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -1847,6 +1887,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 
 class _AttendantEntry {
   String id = AttendantModel.generateId();
+  bool isExisting = false;
+  DateTime arrivalDate = DateUtils.dateOnly(DateTime.now());
   final TextEditingController nameController = TextEditingController();
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();

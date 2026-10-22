@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { httpError } from '../validation.js';
+import { eligibleAttendant } from './attendant_roster.js';
 // Checkout date is included only after 09:00 in the organisation's timezone.
 // The same date boundary applies to every accommodation category.
 const calendar = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -147,6 +148,9 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             segmentDays: Object.fromEntries(segments.map(s => [s.id, Number(s.billing_summary?.days ?? 0)])), finalized: true } : undefined);
         const frozen = saved?.total != null && (cycleId !== currentCycle || saved.finalized === true || patient.status === 'discharged' && (!options.finalize || !options.checkoutAt));
         const charges: Record<string, number> = Object.fromEntries(segments.map(s => [s.id, 0]));
+        const patientCharges: Record<string, number> = Object.fromEntries(segments.map(s => [s.id, 0]));
+        const attendantCharges: Record<string, number> = Object.fromEntries(segments.map(s => [s.id, 0]));
+        const unsplit = new Set(segments.filter(s => s.daily_rate_is_manual || s.cost_override != null || s.long_stay_daily_rate != null).map(s => s.id));
         const days: Record<string, number> = Object.fromEntries(segments.map(s => [s.id, 0]));
         const pendingAttendance: { day: string; kind: string; attendantId?: string }[] = [];
         let checkoutAdjustment: any = frozen ? saved.checkoutAdjustment : null;
@@ -208,19 +212,21 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                     const legacy = uniqueName ? marks.get(person.name) ?? marks.get(safeName(person.name ?? '')) : undefined;
                     const mark = (person.id != null || uniqueName ? marks.get(key) : undefined) ?? legacy ?? 'Pending';
                     known.add(person.name); known.add(safeName(person.name ?? ''));
+                    if (!eligibleAttendant(person, d)) continue;
                     if (mark === 'Present') attendantCount++;
                     if (!['Present', 'Absent'].includes(mark)) unresolved.push({ day: d, kind: 'attendant_attendance', attendantId: key });
                 }
                 // Retain historical attendants no longer in the current roster.
                 for (const [key, mark] of marks) if (!known.has(key)) {
+                    const associated = segments.flatMap(s => s.patient_snapshot?.attendants ?? []).filter((p: any) => p.id === key);
+                    if (associated.length && !associated.some((p: any) => eligibleAttendant(p, d))) continue;
                     if (mark === 'Present') attendantCount++;
                     else if (mark !== 'Absent') unresolved.push({ day: d, kind: 'attendant_attendance', attendantId: key });
                 }
                 return { attendantCount, unresolved };
                 };
                 const resolved = new Map(candidates.map(s => [s.id, resolveAttendants(s)]));
-                const cost = (s: any) => {
-                    const attendantCount = resolved.get(s.id)!.attendantCount;
+                const cost = (s: any, attendantCount = resolved.get(s.id)!.attendantCount) => {
                     if (s.room_type !== 'private' && !patientBillable && !attendantCount) return 0;
                     const stayPricing = s.billing_summary?.pricing ?? pricing;
                     const base = s.daily_rate_is_manual && s.daily_rate != null ? money(s.daily_rate) : baseDailyChargeCents(s.room_type, attendantCount, stayPricing, patientBillable);
@@ -245,6 +251,13 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                 if (!billable) continue;
                 billableDays++;
                 charges[chosen.id] += cost(chosen);
+                // Split the very same daily tariff, including Private's included
+                // attendant. Explicit aggregate overrides have no invented split.
+                if (!unsplit.has(chosen.id)) {
+                    const patientCost = cost(chosen, 0);
+                    patientCharges[chosen.id] += patientCost;
+                    attendantCharges[chosen.id] += cost(chosen) - patientCost;
+                }
                 days[chosen.id]++;
                 if (options.checkoutAt && cycleId === currentCycle && d === dayKey(options.checkoutAt)) {
                     const stayPricing = chosen.billing_summary?.pricing ?? pricing;
@@ -283,12 +296,23 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
         balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
+        if (!frozen) {
+            balances[cycleId].segmentPatientCharges = Object.fromEntries(Object.entries(patientCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
+            balances[cycleId].segmentAttendantCharges = Object.fromEntries(Object.entries(attendantCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
+        }
     }
     const current = balances[currentCycle];
     const rangeStart = dayKey(patient.admission_date), rangeEnd = dayKey(options.checkoutAt ?? (patient.status === 'discharged' ? patient.discharge_date ?? patient.exit_date ?? Date.now() : patient.exit_date ?? Date.now()));
     const marks = [...attendance].filter(([d]) => d >= rangeStart && d <= rangeEnd).map(([, s]) => s);
     const fields = { advance_billed_amount: decimal(money(current.total)), attendance_charges: '0.00', billing_amount_override: stays.length ? null : patient.billing_amount_override, total_paid_amount: decimal(money(current.netPaid)), current_due_amount: decimal(money(current.due)), refund_due_amount: decimal(money(current.refundDue)), total_refund_due_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refundDue), 0)), total_refunded_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refunded), 0)), payment_pending: current.due > 0, payment_status: current.status, admission_balances: balances, total_present_days: marks.filter(s => s === 'Present').length, total_absent_days: marks.filter(s => s === 'Absent').length };
     const computedStays = stays.map(s => { const b = balances[stayCycle(s, patient)]; return b && s.status !== 'cancelled' && !(b.finalized && !options.finalize) && stayCycle(s, patient) === currentCycle ? { ...s, total_cost: decimal(money(b.segmentCharges[s.id] ?? 0)), billing_summary: { ...s.billing_summary, pricing: s.billing_summary?.pricing ?? pricing, days: b.segmentDays[s.id] ?? 0, amount: b.segmentCharges[s.id] ?? 0, admissionId: b.cycleId, provisional: b.provisional, checkoutAdjustment: b.checkoutAdjustment?.stayId == null || b.checkoutAdjustment.stayId === s.id ? b.checkoutAdjustment : null, pendingAttendance: b.pendingAttendance }, cycle_id: b.cycleId, daily_rate: s.daily_rate_is_manual ? s.daily_rate : null } : s; });
+    for (const s of computedStays) {
+        const b = balances[stayCycle(s, patient)];
+        if (s.status !== 'cancelled' && stayCycle(s, patient) === currentCycle && !(b.finalized && !options.finalize) && b.segmentPatientCharges?.[s.id] != null) {
+            s.base_cost = decimal(money(b.segmentPatientCharges[s.id]));
+            s.extra_attendant_cost = decimal(money(b.segmentAttendantCharges[s.id]));
+        }
+    }
     return { patient: { ...patient, ...fields }, fields, stays: computedStays, receipts, balances, attendance, repriceClosed: options.finalize === true,
         source: { stays: sourceStays, records, receipts, pricing, roster } };
 }
@@ -322,7 +346,7 @@ export async function persistBilling(client: pg.PoolClient, projection: Awaited<
     const values = Object.values(projection.fields).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
     const updated = (await client.query(`UPDATE patients SET ${keys.map((k, i) => `${k}=$${i + 2}`).join(',')},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`, [projection.patient.id, ...values])).rows[0];
     for (const s of projection.stays.filter(s => s.status !== 'cancelled' && (projection.patient.status !== 'discharged' || projection.repriceClosed) && stayCycle(s, projection.patient) === String(new Date(projection.patient.admission_date).getTime())))
-        await client.query('UPDATE stays SET total_cost=$2,billing_summary=$3::jsonb,cycle_id=$4,daily_rate=$5,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [s.id, s.total_cost, JSON.stringify(s.billing_summary), s.cycle_id, s.daily_rate]);
+        await client.query('UPDATE stays SET total_cost=$2,billing_summary=$3::jsonb,cycle_id=$4,daily_rate=$5,base_cost=COALESCE($6,base_cost),extra_attendant_cost=COALESCE($7,extra_attendant_cost),updated_at=CURRENT_TIMESTAMP WHERE id=$1', [s.id, s.total_cost, JSON.stringify(s.billing_summary), s.cycle_id, s.daily_rate, s.base_cost, s.extra_attendant_cost]);
     projection.patient = updated;
     return projection;
 }

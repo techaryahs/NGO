@@ -65,6 +65,8 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   final _receipt = TextEditingController();
   final _notes = TextEditingController();
   bool _submitting = false;
+  // Keep retry metadata stable when a response is lost after server commit.
+  final DateTime _paymentDate = DateTime.now();
   String? _error;
   double get _pending =>
       (widget.total - widget.alreadyPaid).clamp(0, double.infinity);
@@ -101,7 +103,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         id: 'upi_${widget.patientId}_${_reference.text.trim().toUpperCase()}',
         amount: double.parse(UpiPayment.formatAmount(_paying!)),
         method: 'ONLINE',
-        date: DateTime.now(),
+        date: _paymentDate,
         transactionId: _reference.text.trim().toUpperCase(),
         receiptNumber: _receipt.text.trim(),
         notes: _notes.text.trim(),
@@ -113,6 +115,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         patientId: widget.patientId!,
         patientName: widget.patientName,
         payment: payment,
+        collectOutstanding: true,
       );
       if (mounted) {
         Navigator.pop(context, PaymentDialogResult(recordedPaymentId: id));

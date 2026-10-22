@@ -153,8 +153,13 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   body.roomNumber = room.room_number;
   body.roomType = room.room_type;
   const attendants = (await client.query('SELECT id,name,relation FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [body.patientId])).rows;
+  // Carry association dates across room transfers within this admission.
+  const priorStays = active ? (await client.query('SELECT patient_snapshot FROM stays WHERE patient_id=$1 AND cycle_id=$2 ORDER BY admission_date DESC,id',
+    [body.patientId, String(new Date(patient.admission_date).getTime())])).rows : [];
+  const priorRoster = priorStays.flatMap(s => s.patient_snapshot?.attendants ?? []);
+  const roster = attendants.map(person => ({ ...priorRoster.find(p => p.id === person.id), ...person }));
   body.patientSnapshot = { ...body.patientSnapshot, admissionDate: new Date(patient.admission_date).getTime(),
-    attendants: active ? attendants : body.patientSnapshot?.attendants ?? attendants };
+    attendants: active ? roster : body.patientSnapshot?.attendants ?? attendants };
   body.cycleId ??= String(new Date(patient.admission_date).getTime());
   if (active) body.billingSummary = { ...body.billingSummary, pricing: approvedPricing({}) };
   const res = await client.query<RawStayRow>(

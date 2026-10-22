@@ -54,6 +54,44 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 0.3, currentDueAmount: 9.7, paymentStatus: 'Partially Paid', paymentPending: true, version: before.version + 2 });
     expect((await query("SELECT sum(amount)::text AS amount FROM payments")).rows[0].amount).toBe('0.30');
   });
+  it('collects partial and remaining balances through the application path and persists both history and ledger', async () => {
+    await seed();
+    const partial = { collectOutstanding: true, method: 'ONLINE', transactionId: 'OUTSTANDING-PARTIAL', receiptNumber: 'partial receipt' };
+    const remaining = { collectOutstanding: true, method: 'ONLINE', transactionId: 'OUTSTANDING-REMAINING', receiptNumber: 'remaining receipt' };
+    expect((await record('collect-partial', '3.00', partial)).statusCode).toBe(201);
+    expect(await getPatient()).toMatchObject({ totalPaidAmount: 3, currentDueAmount: 7 });
+    expect((await record('collect-remaining', '7.00', remaining)).statusCode).toBe(201);
+    const reloaded = await getPatient();
+    expect(reloaded).toMatchObject({ totalPaidAmount: 10, currentDueAmount: 0, paymentPending: false, paymentStatus: 'Paid' });
+    expect(reloaded.payments).toHaveLength(2);
+    expect(reloaded.payments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'collect-remaining', amount: 7, cycleId: cycle, method: 'ONLINE', transactionId: remaining.transactionId, receiptNumber: remaining.receiptNumber, date: Date.parse('2026-01-02') }),
+    ]));
+    expect((await send('GET', '/payments?patientId=p1')).json()).toHaveLength(2);
+    expect((await record('collect-remaining', '7.00', remaining)).statusCode).toBe(200);
+    expect((await query("SELECT COUNT(*)::int AS count FROM payments")).rows[0].count).toBe(2);
+    expect((await record('collect-excess', '0.01', { collectOutstanding: true })).statusCode).toBe(409);
+    expect(await getPatient()).toMatchObject({ totalPaidAmount: 10, currentDueAmount: 0 });
+  });
+  it('serializes competing outstanding collections and rejects stale excessive amounts without writing', async () => {
+    await seed();
+    await record('already-paid', '3.00');
+    const responses = await Promise.all([
+      record('collect-race-a', '7.00', { collectOutstanding: true }),
+      record('collect-race-b', '7.00', { collectOutstanding: true }),
+    ]);
+    expect(responses.map(r => r.statusCode).sort()).toEqual([201, 409]);
+    expect((await query("SELECT COUNT(*)::int AS count FROM payments")).rows[0].count).toBe(2);
+    expect(await getPatient()).toMatchObject({ totalPaidAmount: 10, currentDueAmount: 0 });
+  });
+  it('accepts payment identifiers up to the migrated 128 character contract and rejects invalid collection flags', async () => {
+    await seed();
+    const longId = `upi_${'a'.repeat(100)}`;
+    expect((await record(longId, '1.00', { collectOutstanding: true })).statusCode).toBe(201);
+    expect((await send('GET', `/payments/${longId}`)).json()).toMatchObject({ id: longId, amount: 1 });
+    expect((await record('bad-flag', '1.00', { collectOutstanding: 'true' })).statusCode).toBe(400);
+    expect((await record('bad-refund-collection', '-1.00', { type: 'refund', collectOutstanding: true })).statusCode).toBe(400);
+  });
   it('PATCH amount changes patient totals and invalidates old snapshots', async () => {
     await seed(); await record('edit', '3.00');
     const before = await getPatient();

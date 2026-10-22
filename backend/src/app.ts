@@ -17,6 +17,9 @@ import { validateDomainRequest } from './validation.js';
 
 export function buildApp(opts: FastifyServerOptions = {}): FastifyInstance {
   const app = Fastify({
+    // Stay and payment IDs are VARCHAR(128); Fastify's default of 100
+    // otherwise makes valid persisted receipts unreachable by ID.
+    maxParamLength: 128,
     logger: {
       level: config.LOG_LEVEL,
     },

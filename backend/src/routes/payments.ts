@@ -195,6 +195,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       patientId, amount: decimal(amount), cycleId: body.cycleId || null, type: body.type || 'payment',
       totalAmount: decimal(body.totalAmount ?? amount), paidAmount: decimal(body.paidAmount ?? amount), pendingAmount: decimal(body.pendingAmount ?? 0),
       paymentStatus: body.paymentStatus || 'Paid', method: body.method || 'cash', date: body.date != null ? new Date(body.date).getTime() : null,
+      ...(body.collectOutstanding === true ? { collectOutstanding: true } : {}),
       receiptNumber: trimmedReceipt, checkNumber: body.checkNumber || null, bankName: body.bankName || null,
       transactionId: trimmedTx, source: body.source || 'manual', notes: body.notes || null,
     })).digest('hex');
@@ -234,6 +235,18 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           await client.query('COMMIT');
           return reply.status(200).send(response);
         }
+      }
+
+      // Pay Now/Pay Remaining collects only the currently owed balance. Other
+      // established receipt workflows may intentionally record an advance.
+      // Check after idempotency so replaying a committed payment still succeeds
+      // when that payment has already reduced the outstanding amount to zero.
+      if (body.collectOutstanding === true) {
+        if ((body.type || 'payment') !== 'payment') throw httpError(400, 'Outstanding collection must be a payment');
+        const projection = await projectBilling(client, patient.rows[0]);
+        const cycle = receiptCycle({ cycle_id: body.cycleId, payment_date: body.date ?? Date.now() }, patient.rows[0], projection.stays);
+        const balance = projection.balances[cycle];
+        if (!balance || cents(amount) > cents(balance.due)) throw httpError(409, 'Payment exceeds the current outstanding balance. Refresh the bill before collecting payment.');
       }
 
       const paymentDate = body.date != null ? new Date(body.date) : new Date();

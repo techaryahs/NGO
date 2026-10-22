@@ -29,6 +29,26 @@ async function calculate(options: Parameters<typeof fixture>[0], checkoutAt?: Da
 }
 
 describe('approved client billing rules', () => {
+  it('post-admission attendee charges and Pending requirements start at association, including imported early marks', async () => {
+    const people = [{ id: 'late-person', name: 'Late arrival', startDate: '2026-01-06' }];
+    const f = fixture({ days: 10, people });
+    const first = await projectBilling(f.client, f.patient, { source: f.source });
+    expect(first.balances[cycle].total).toBe(3000);
+    expect(first.stays[0]).toMatchObject({ base_cost: '2000.00', extra_attendant_cost: '1000.00', total_cost: '3000.00' });
+    f.source.records.find(r => r.kind === 'attendant_attendance' && r.day === '2026-01-06')!.payload[people[0].id].status = 'Absent';
+    f.source.records.find(r => r.kind === 'attendant_attendance' && r.day === '2026-01-07')!.payload[people[0].id].status = 'Pending';
+    const next = await projectBilling(f.client, f.patient, { source: f.source });
+    expect(next.balances[cycle].total).toBe(2600);
+    expect(next.stays[0]).toMatchObject({ base_cost: '2000.00', extra_attendant_cost: '600.00' });
+    expect(next.balances[cycle].pendingAttendance).toEqual([{ day: '2026-01-07', kind: 'attendant_attendance', attendantId: people[0].id }]);
+  });
+  it('a later transfer snapshot cannot make an imported early attendant mark billable in the old room', async () => {
+    const f = fixture({ days: 10, people: [{ id: 'late-person', name: 'Late arrival', startDate: '2026-01-06' }] });
+    const original = f.source.stays[0];
+    const previous = { ...original, id: 'previous', status: 'completed', completed_at: at(5), patient_snapshot: { attendants: [] } };
+    f.source.stays = [previous, { ...original, admission_date: at(5) }];
+    expect((await projectBilling(f.client, f.patient, { source: f.source })).balances[cycle].total).toBe(3000);
+  });
   it.each([['general', 60, 12000], ['general', 70, 14500], ['lobby', 70, 14500], ['private', 60, 42000], ['private', 70, 51000]])(
     '%s %i applicable days cost ₹%i', async (category, days, total) => {
       expect((await calculate({ category: String(category), days: Number(days) })).balances[cycle].total).toBe(total);
@@ -47,6 +67,12 @@ describe('approved client billing rules', () => {
       expect(baseDailyChargeCents('private', 2, { privateRoomIncludedAttendants: included })).toBe(90000);
       expect(dailyChargeCents('private', 2, { privateRoomIncludedAttendants: included })).toBe(120000);
     }
+  });
+  it('Private included attendant remains in the base line and only additional attendance is separate', async () => {
+    const one = await calculate({ days: 10, category: 'private', people: [{id:'included',name:'Included'}] });
+    expect(one.stays[0]).toMatchObject({ base_cost:'7000.00',extra_attendant_cost:'0.00',total_cost:'7000.00' });
+    const two = await calculate({ days: 10, category: 'private', people: [{id:'included',name:'Included'},{id:'extra',name:'Extra'}] });
+    expect(two.stays[0]).toMatchObject({ base_cost:'7000.00',extra_attendant_cost:'2000.00',total_cost:'9000.00' });
   });
   it('new admissions use approved tariffs despite conflicting legacy global settings', async () => {
     const pricing = { generalRoomBedPrice: 350, privateRoomBasePrice: 1100, privateRoomExtraAttendantFee: 450, privateRoomIncludedAttendants: 2 };

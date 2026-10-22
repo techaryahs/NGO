@@ -53,7 +53,8 @@ const paymentDate = date.refine(value => {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === calendarDate;
 }, 'Invalid calendar date');
 const paymentFields = z.object({
-  id: id.nullable().optional(), patientId: id, cycleId: id.nullable().optional(),
+  id: z.string().min(1).max(128).nullable().optional(), patientId: id, cycleId: id.nullable().optional(),
+  collectOutstanding: z.boolean().optional(),
   transactionId: z.string().max(128).nullable().optional(), amount: signedPaymentMoney,
   totalAmount: signedPaymentMoney.nullable().optional(), paidAmount: signedPaymentMoney.nullable().optional(), pendingAmount: signedPaymentMoney.nullable().optional(),
   type: z.enum(['payment', 'refund']).nullable().optional(), date: paymentDate.nullable().optional(),

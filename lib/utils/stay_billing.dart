@@ -71,6 +71,29 @@ class AdmissionBalance {
 /// One bill per admission. A transfer day belongs to its last room segment,
 /// so changing rooms never charges two full days for the same patient.
 class StayBilling {
+  static bool eligibleHistoricalAttendant(
+    String id,
+    DateTime date,
+    List<StayModel> stays,
+  ) {
+    final people = stays
+        .expand((stay) {
+          final roster = stay.patientSnapshot['attendants'];
+          return roster is List ? roster.whereType<Map>() : <Map>[];
+        })
+        .where((person) => person['id'] == id)
+        .toList();
+    final key = dateKey(date);
+    return people.isEmpty ||
+        people.any(
+          (person) =>
+              (person['startDate'] == null ||
+                  key.compareTo(person['startDate'].toString()) >= 0) &&
+              (person['endDate'] == null ||
+                  key.compareTo(person['endDate'].toString()) <= 0),
+        );
+  }
+
   static DateTime day(DateTime value) =>
       DateTime(value.year, value.month, value.day);
 
@@ -250,7 +273,8 @@ class StayBilling {
             }
           }
         } else {
-          end = patient.dischargeDate ??
+          end =
+              patient.dischargeDate ??
               segments
                   .map((s) => s.completedAt ?? s.updatedAt)
                   .reduce((a, b) => a.isAfter(b) ? a : b);
@@ -316,8 +340,9 @@ class StayBilling {
               status == 'Present' ||
               ((!finalize && !onlyPresent && status != 'Absent') &&
                   (calendarDayBilling || date.isBefore(checkoutExclusiveEnd)));
-          final patientPresentDaysBefore =
-              finalize ? actualPatientPresentDays : projectedPatientPresentDays;
+          final patientPresentDaysBefore = finalize
+              ? actualPatientPresentDays
+              : projectedPatientPresentDays;
           final isLongStay =
               patientPresentDaysBefore >= PricingHelper.longStayThresholdDays;
           if (status == 'Present') actualPatientPresentDays++;
@@ -342,11 +367,14 @@ class StayBilling {
                 (s) =>
                     s.patientSnapshot['transferFingerprint'] != null ||
                     s.notes == 'Room transfer' ||
-                    s.notes?.trim().toLowerCase().startsWith('shifted from') == true ||
-                    candidates.any((other) =>
-                        other.id != s.id &&
-                        other.completedAt != null &&
-                        other.completedAt == s.admissionDate),
+                    s.notes?.trim().toLowerCase().startsWith('shifted from') ==
+                        true ||
+                    candidates.any(
+                      (other) =>
+                          other.id != s.id &&
+                          other.completedAt != null &&
+                          other.completedAt == s.admissionDate,
+                    ),
               )
               .toList();
           final owners = explicit.isNotEmpty ? explicit : candidates;
@@ -356,10 +384,14 @@ class StayBilling {
               if (dateOrder != 0) return dateOrder;
             } else {
               final bPricing = b.billingSummary['pricing'] is Map
-                  ? Map<String, dynamic>.from(b.billingSummary['pricing'] as Map)
+                  ? Map<String, dynamic>.from(
+                      b.billingSummary['pricing'] as Map,
+                    )
                   : PricingHelper.approvedPricing(pricing);
               final aPricing = a.billingSummary['pricing'] is Map
-                  ? Map<String, dynamic>.from(a.billingSummary['pricing'] as Map)
+                  ? Map<String, dynamic>.from(
+                      a.billingSummary['pricing'] as Map,
+                    )
                   : PricingHelper.approvedPricing(pricing);
               final bCost = isLongStay
                   ? PricingHelper.calculateLongStayDailyCharge(
@@ -424,6 +456,14 @@ class StayBilling {
                 if (name != null) name,
                 if (safeName != null) safeName,
               ]);
+              final associationStart = person['startDate']?.toString();
+              final associationEnd = person['endDate']?.toString();
+              if ((associationStart != null &&
+                      dateKey(date).compareTo(associationStart) < 0) ||
+                  (associationEnd != null &&
+                      dateKey(date).compareTo(associationEnd) > 0)) {
+                continue;
+              }
               final uniqueName =
                   people
                       .whereType<Map>()
@@ -450,12 +490,15 @@ class StayBilling {
           dailyAttendants += dailyMarks.entries
               .where(
                 (entry) =>
-                    !known.contains(entry.key) && entry.value == 'Present',
+                    !known.contains(entry.key) &&
+                    eligibleHistoricalAttendant(entry.key, date, segments) &&
+                    entry.value == 'Present',
               )
               .length;
           for (final mark in dailyMarks.entries.where(
             (entry) =>
                 !known.contains(entry.key) &&
+                eligibleHistoricalAttendant(entry.key, date, segments) &&
                 !const {'Present', 'Absent'}.contains(entry.value),
           )) {
             pending.add({
@@ -579,8 +622,8 @@ class StayBilling {
           );
         }
         if (saved['actualPatientPresentDays'] is num) {
-          actualPatientPresentDays =
-              (saved['actualPatientPresentDays'] as num).toInt();
+          actualPatientPresentDays = (saved['actualPatientPresentDays'] as num)
+              .toInt();
         } else if (segments.isNotEmpty &&
             segments.last.billingSummary['actualPatientPresentDays'] is num) {
           actualPatientPresentDays =
@@ -591,7 +634,8 @@ class StayBilling {
           projectedPatientPresentDays =
               (saved['projectedPatientPresentDays'] as num).toInt();
         } else if (segments.isNotEmpty &&
-            segments.last.billingSummary['projectedPatientPresentDays'] is num) {
+            segments.last.billingSummary['projectedPatientPresentDays']
+                is num) {
           projectedPatientPresentDays =
               (segments.last.billingSummary['projectedPatientPresentDays']
                       as num)
@@ -650,8 +694,8 @@ class StayBilling {
           pricingBasis: frozen && saved['pricingBasis'] is String
               ? saved['pricingBasis'] as String
               : (finalize
-                  ? 'actual_patient_present'
-                  : 'projected_patient_present'),
+                    ? 'actual_patient_present'
+                    : 'projected_patient_present'),
         ),
       );
     }

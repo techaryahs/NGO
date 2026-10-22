@@ -544,6 +544,170 @@ void main() {
     dotenv.loadFromString(isOptional: true, envString: '');
   });
 
+  for (final arrivalDay in [1, 6]) {
+    test(
+      'post-admission Flutter lifecycle: attendee arrives day $arrivalDay, attendance and remaining payment survive reload',
+      () async {
+        final id = AttendantModel.generateId();
+        final roomId = AttendantModel.generateId();
+        final stayId = AttendantModel.generateId();
+        final attendeeId = AttendantModel.generateId();
+        final admission = DateTime(2026, 10, 1);
+        final cycle = admission.millisecondsSinceEpoch.toString();
+        await roomService.addRoom(
+          id: roomId,
+          roomNumber: 'General QA',
+          roomIdentifier: '1D',
+          floor: 1,
+          roomType: 'general',
+          totalBeds: 1,
+          bedLabels: ['QA'],
+        );
+        final room = (await roomService.getRoomDirect(roomId))!;
+        final pid = await patientService.addPatient(
+          id: id,
+          fullName: 'Lifecycle $id',
+          dateOfBirth: DateTime(1990),
+          gender: 'Other',
+          contactNumber: '',
+          emergencyContact: '',
+          emergencyContactName: '',
+          medicalCondition: '',
+          admissionDate: admission,
+          registrationDate: admission,
+          exitDate: DateTime(2026, 10, 10, 9),
+          createdBy: 'test-uid-admin',
+          attendants: [],
+          initialStays: [
+            {
+              'id': stayId,
+              'roomId': roomId,
+              'bedId': room.beds.single.id,
+              'admissionDate': admission.millisecondsSinceEpoch,
+              'durationDays': 10,
+              'cycleId': cycle,
+            },
+          ],
+        );
+        await paymentService.recalculatePatientAttendanceAndBilling(pid);
+        var patient = (await patientService.getPatient(pid))!;
+        expect(patient.advanceBilledAmount, 2000);
+        await paymentService.recordPayment(
+          patientId: pid,
+          patientName: patient.fullName,
+          collectOutstanding: true,
+          payment: PaymentModel(
+            id: AttendantModel.generateId(),
+            amount: 2000,
+            method: 'cash',
+            date: DateTime.now(),
+            cycleId: cycle,
+            totalAmount: 2000,
+            paidAmount: 2000,
+          ),
+        );
+        // This is the actual service and payload used by Edit Details.
+        final attendant = {
+          'id': attendeeId,
+          'name': 'Family $attendeeId',
+          'startDate': '2026-10-${arrivalDay.toString().padLeft(2, '0')}',
+        };
+        await patientService.updatePatient(pid, {
+          'attendants': [attendant],
+        });
+        await patientService.updatePatient(pid, {
+          'attendants': [attendant],
+        });
+        patient = (await patientService.getPatient(pid))!;
+        var stays = await paymentService.loadStays(pid);
+        var month = await attendanceService.loadMonth(admission);
+        var rows = month.rows([patient], stays);
+        expect(rows, hasLength(2));
+        expect(rows.last.attendantId, attendeeId);
+        final editor = MonthlyAttendanceEditor(month);
+        for (var d = 1; d <= 10; d++) {
+          final date = DateTime(2026, 10, d);
+          editor.edit(rows.first, date, 'Present');
+          editor.edit(rows.last, date, 'Present');
+        }
+        expect(await editor.save(null, backendApi), {pid});
+        await paymentService.recalculatePatientAttendanceAndBilling(pid);
+        patient = (await patientService.getPatient(pid))!;
+        final attendeeCost = (11 - arrivalDay) * 200.0;
+        expect(patient.advanceBilledAmount, 2000 + attendeeCost);
+        expect(patient.totalPaidAmount, 2000);
+        expect(patient.currentDueAmount, attendeeCost);
+        final payment = PaymentModel(
+          id: AttendantModel.generateId(),
+          amount: attendeeCost,
+          method: 'ONLINE',
+          date: DateTime.now(),
+          transactionId: DateTime.now().microsecondsSinceEpoch.toString(),
+          cycleId: cycle,
+          totalAmount: patient.advanceBilledAmount,
+          paidAmount: patient.advanceBilledAmount,
+        );
+        final paymentId = await paymentService.recordPayment(
+          patientId: pid,
+          patientName: patient.fullName,
+          payment: payment,
+          collectOutstanding: true,
+        );
+        expect(
+          await paymentService.recordPayment(
+            patientId: pid,
+            patientName: patient.fullName,
+            payment: payment,
+            collectOutstanding: true,
+          ),
+          paymentId,
+        );
+        // Force every view back to persisted HTTP/database state.
+        await backendApi.refresh('patients/$pid');
+        await backendApi.refresh('stays?patientId=$pid&format=map');
+        patient = (await patientService.getPatient(pid))!;
+        stays = await paymentService.loadStays(pid);
+        month = await attendanceService.loadMonth(admission);
+        rows = month.rows([patient], stays);
+        expect(rows, hasLength(2));
+        expect(
+          MonthlyAttendanceEditor(
+            month,
+          ).status(rows.last, DateTime(2026, 10, arrivalDay)),
+          'Present',
+        );
+        if (arrivalDay > 1) {
+          expect(rows.last.enabled(admission), isFalse);
+          expect(
+            MonthlyAttendanceEditor(month).status(rows.last, admission),
+            'Unmarked',
+          );
+        }
+        expect(patient.payments, hasLength(2));
+        expect(patient.totalPaidAmount, 2000 + attendeeCost);
+        expect(patient.currentDueAmount, 0);
+        final ledger = await backendApi.get(
+          'payments?patientId=$pid&format=map',
+        );
+        expect(ledger, hasLength(2));
+        expect(
+          (await queryRows(
+            'SELECT count(*)::int AS n,sum(amount)::text AS paid FROM payments WHERE patient_id=\$1',
+            [pid],
+          )).single,
+          {'n': 2, 'paid': (2000 + attendeeCost).toStringAsFixed(2)},
+        );
+        expect(
+          (await queryRows(
+            "SELECT count(*)::int AS n FROM attendance_records WHERE patient_id=\$1 AND kind='attendant_attendance'",
+            [pid],
+          )).single['n'],
+          11 - arrivalDay,
+        );
+      },
+    );
+  }
+
   test(
     'client billing exposure audit validates the disposable schema without modifying records',
     () async {
@@ -575,9 +739,30 @@ void main() {
   );
 
   for (final scenario in [
-    (category: 'general', days: 70, beds: 2, late: false, estimate: 14500.0, finalAmount: 14250.0),
-    (category: 'private', days: 70, beds: 1, late: false, estimate: 51000.0, finalAmount: 50100.0),
-    (category: 'general', days: 61, beds: 1, late: true, estimate: 12250.0, finalAmount: 12250.0),
+    (
+      category: 'general',
+      days: 70,
+      beds: 2,
+      late: false,
+      estimate: 14500.0,
+      finalAmount: 14250.0,
+    ),
+    (
+      category: 'private',
+      days: 70,
+      beds: 1,
+      late: false,
+      estimate: 51000.0,
+      finalAmount: 50100.0,
+    ),
+    (
+      category: 'general',
+      days: 61,
+      beds: 1,
+      late: true,
+      estimate: 12250.0,
+      finalAmount: 12250.0,
+    ),
   ]) {
     test(
       'Flutter ${scenario.category} estimate, stored costs and final invoice agree at day ${scenario.days} with ${scenario.beds} beds and late=${scenario.late}',
@@ -707,7 +892,10 @@ void main() {
         );
         final frozen = await backendApi.financialSnapshot('approved_patient');
         final patient = Map<String, dynamic>.from(frozen['patient'] as Map);
-        expect(patient, containsPair('advanceBilledAmount', scenario.finalAmount));
+        expect(
+          patient,
+          containsPair('advanceBilledAmount', scenario.finalAmount),
+        );
         expect(patient, containsPair('totalPaidAmount', scenario.finalAmount));
         expect(patient, containsPair('currentDueAmount', 0));
         expect(patient['exitDate'], planned.millisecondsSinceEpoch);

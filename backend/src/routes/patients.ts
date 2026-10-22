@@ -9,6 +9,7 @@ import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { collectionPage, cursorDateSql, parseCollectionCursor } from '../pagination.js';
 import { createHash } from 'node:crypto';
 import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
+import { admissionRoster } from '../services/attendant_roster.js';
 
 function registrationFingerprint(body: Record<string, any>): string {
   return createHash('sha256').update(JSON.stringify({
@@ -809,7 +810,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (expectedVersion != null && expectedVersion !== existing.rows[0].version) throw httpError(409, 'Patient version mismatch');
       const financialFields = ['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount', 'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates'];
       if (financialFields.some(key => Object.hasOwn(body, key)) && expectedVersion == null) throw httpError(409, 'Financial updates require expectedVersion from the current patient record');
-      const activeStays = await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
+      const activeStays = await client.query("SELECT id,room_id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
       const before = formatPatient(existing.rows[0]);
       if (body.admissionDate != null && toEpochMs(body.admissionDate) !== toEpochMs(existing.rows[0].admission_date)) throw httpError(409, 'Change admission cycles through the rejoin workflow');
       if (body.status != null && body.status !== before.status && (body.status === 'discharged' || before.status === 'discharged')) throw httpError(409, 'Use the discharge or rejoin workflow for lifecycle changes');
@@ -943,10 +944,19 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
 
       const updatedPatient = await client.query<RawPatientRow>(updateSql, updateValues);
 
-      // If attendants are provided, replace them
+      // Preserve identities/creation dates and synchronize the active admission
+      // in this transaction, rather than relying on a later Firebase-style patch.
       let attendants: RawAttendantRow[] = [];
       if (Array.isArray((request.body as Record<string, unknown>).attendants)) {
-        await client.query('DELETE FROM patient_attendants WHERE patient_id = $1', [id]);
+        const rooms = (await client.query('SELECT * FROM rooms WHERE id=ANY($1::varchar[]) ORDER BY id FOR UPDATE',
+          [[...new Set(activeStays.rows.map(s => s.room_id))]])).rows;
+        for (const room of rooms) if (body.attendants.length > room.max_attendants) throw httpError(409, 'Room attendant limit exceeded');
+        const previous = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1', [id])).rows;
+        const ids = body.attendants.map((att: any, i: number) => att.id ?? attendantId(id, i));
+        if (new Set(ids).size !== ids.length) throw httpError(400, 'Duplicate attendant identity');
+        const foreign = await client.query('SELECT id FROM patient_attendants WHERE id=ANY($1::varchar[]) AND patient_id<>$2', [ids, id]);
+        if (foreign.rowCount) throw httpError(409, 'Attendant belongs to another patient');
+        await client.query('DELETE FROM patient_attendants WHERE patient_id=$1 AND NOT (id=ANY($2::varchar[]))', [id, ids]);
         for (let i = 0; i < body.attendants.length; i++) {
           const att = body.attendants[i];
           const attId = att.id ?? attendantId(id, i);
@@ -954,7 +964,12 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
             `INSERT INTO patient_attendants (
               id, patient_id, name, age, relation, aadhaar_number,
               mobile_number, is_emergency_contact, photo_ref, photo_data_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,age=EXCLUDED.age,relation=EXCLUDED.relation,
+              aadhaar_number=EXCLUDED.aadhaar_number,mobile_number=EXCLUDED.mobile_number,
+              is_emergency_contact=EXCLUDED.is_emergency_contact,photo_ref=EXCLUDED.photo_ref,photo_data_url=EXCLUDED.photo_data_url
+            WHERE patient_attendants.patient_id=EXCLUDED.patient_id
+            RETURNING *`,
             [
               attId,
               id,
@@ -968,8 +983,32 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
               att.photoDataUrl || null,
             ]
           );
+          if (!attRes.rowCount) throw httpError(409, 'Attendant belongs to another patient');
           attendants.push(attRes.rows[0]);
         }
+        const currentStays = (await client.query("SELECT * FROM stays WHERE patient_id=$1 AND status='active' ORDER BY id FOR UPDATE", [id])).rows;
+        const currentCycle = String(new Date(existing.rows[0].admission_date).getTime());
+        const countedRooms = new Set<string>();
+        for (const stay of currentStays.filter(s => s.cycle_id == null || s.cycle_id === currentCycle)) {
+          const saved = stay.patient_snapshot?.attendants;
+          const prior = Array.isArray(saved) ? saved : previous;
+          // Legacy name-only snapshots are resolved only where unambiguous.
+          const resolved = prior.map((person: any) => {
+            const matches = previous.filter(p => p.name === person.name);
+            return person.id == null && matches.length === 1 ? { ...person, id: matches[0].id } : person;
+          });
+          const roster = admissionRoster(body.attendants.map((att: any, i: number) => ({ ...att, id: ids[i] })), resolved, existing.rows[0]);
+          // Retain the admission history of removed attendants. Their eligibility
+          // ends today; removing them must not erase already recorded attendance.
+          for (const person of resolved.filter((p: any) => !ids.includes(p.id))) {
+            roster.push({ ...person, endDate: person.endDate ?? dayKey(Date.now()) });
+          }
+          await client.query(`UPDATE stays SET patient_snapshot=jsonb_set(patient_snapshot,'{attendants}',$2::jsonb),
+            attendant_count=$3,attendant_labels=$4::jsonb,updated_at=CURRENT_TIMESTAMP WHERE id=$1`,
+            [stay.id, JSON.stringify(roster), countedRooms.has(stay.room_id) ? 0 : attendants.length, JSON.stringify(attendants.map(a => a.relation ? `${a.name} (${a.relation})` : a.name))]);
+          countedRooms.add(stay.room_id);
+        }
+        for (const room of rooms) await refreshRoomOccupancy(client, room.id);
       } else {
         const attRes = await client.query<RawAttendantRow>(
           'SELECT * FROM patient_attendants WHERE patient_id = $1',
@@ -996,8 +1035,14 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         if (!updated.rowCount) throw httpError(409, 'Billing stay no longer belongs to this patient');
       }
       const payments = await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id]);
+      let responsePatient = updatedPatient.rows[0];
+      if (Array.isArray((request.body as any).attendants) && activeStays.rowCount && responsePatient.status !== 'discharged') {
+        const projection = await projectBilling(client, responsePatient);
+        await persistBilling(client, projection);
+        responsePatient = projection.patient;
+      }
       await client.query('COMMIT');
-      return reply.send(formatPatient(updatedPatient.rows[0], attendants, payments.rows.map(payment => formatPayment(payment as any))));
+      return reply.send(formatPatient(responsePatient, attendants, payments.rows.map(payment => formatPayment(payment as any))));
     } catch (err: unknown) {
       await client.query('ROLLBACK');
       throw err;

@@ -99,9 +99,10 @@ class MonthlyAttendanceData {
       final intervals = <AttendanceInterval>[];
       final attendantIntervals = <String, List<AttendanceInterval>>{};
       final attendantNames = <String, String>{};
+      final associationDates = <String, Map>{};
       Map<String, String> rosterMap(Iterable<Map> raw) {
         final people = raw.toList();
-        return {
+        final mapped = <String, String>{
           for (var index = 0; index < people.length; index++)
             if (people[index]['name'] != null)
               (people[index]['id'] ??
@@ -116,6 +117,11 @@ class MonthlyAttendanceData {
                   .toString(): people[index]['name']
                   .toString(),
         };
+        for (final person in people) {
+          final key = (person['id'] ?? person['name'])?.toString();
+          if (key != null) associationDates[key] = person;
+        }
+        return mapped;
       }
 
       final rooms = <String>{};
@@ -136,7 +142,26 @@ class MonthlyAttendanceData {
           (person) => person.value.trim().isNotEmpty,
         )) {
           attendantNames[person.key] = person.value;
-          attendantIntervals.putIfAbsent(person.key, () => []).add(interval);
+          final metadata = associationDates[person.key];
+          final from = DateTime.tryParse(
+            metadata?['startDate']?.toString() ?? '',
+          );
+          final through = DateTime.tryParse(
+            metadata?['endDate']?.toString() ?? '',
+          );
+          final eligible = AttendanceInterval(
+            from != null && from.isAfter(interval.start)
+                ? from
+                : interval.start,
+            through != null && through.isBefore(interval.end)
+                ? through
+                : interval.end,
+          );
+          if (!eligible.end.isBefore(eligible.start) &&
+              !eligible.end.isBefore(first) &&
+              !eligible.start.isAfter(last)) {
+            attendantIntervals.putIfAbsent(person.key, () => []).add(eligible);
+          }
         }
       }
 

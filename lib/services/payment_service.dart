@@ -681,6 +681,7 @@ class PaymentService {
     required String patientId,
     required String patientName,
     required PaymentModel payment,
+    bool collectOutstanding = false,
   }) {
     final running = _paymentSubmissions[patientId];
     if (running != null) {
@@ -701,6 +702,7 @@ class PaymentService {
             patientId: patientId,
             patientName: patientName,
             payment: payment,
+            collectOutstanding: collectOutstanding,
           );
         })().whenComplete(() {
           if (identical(_paymentSubmissions[patientId], task)) {
@@ -715,6 +717,7 @@ class PaymentService {
     required String patientId,
     required String patientName,
     required PaymentModel payment,
+    required bool collectOutstanding,
   }) async {
     if (!payment.amount.isFinite || payment.amount <= 0) {
       throw ArgumentError('Enter a positive payment amount');
@@ -754,8 +757,35 @@ class PaymentService {
           'This reference is already recorded with a different amount.',
         );
       }
-      // A retry may have a new UI timestamp. The server's existing receipt
-      // owns that timestamp and all original financial metadata.
+      // A retry of this collection retains its timestamp and financial
+      // snapshot. Reusing an old reference for a different collection must not
+      // report that new money was received, even on the same invoice or when
+      // a legacy receipt has no bill metadata.
+      final sameCollectionAttempt =
+          existing.date.millisecondsSinceEpoch ==
+              payment.date.millisecondsSinceEpoch &&
+          existing.totalAmount == payment.totalAmount &&
+          existing.paidAmount == payment.paidAmount &&
+          existing.pendingAmount == payment.pendingAmount;
+      if (collectOutstanding && !sameCollectionAttempt) {
+        throw StateError(
+          'This reference is already recorded for an earlier payment. No additional payment was recorded. Enter the reference for the additional payment.',
+        );
+      }
+      // Other receipt workflows retain their established reference-based
+      // idempotency; the existing ledger owns its original metadata.
+      if (isPostgres) {
+        // A receipt committed by another session may be in the patient response
+        // while the watched ledger still has its earlier collection snapshot.
+        try {
+          await _backendApi!.refresh('payments/${existing.id}');
+        } catch (_) {
+          debugPrint(
+            '[PaymentService] Receipt already saved; ledger refresh needs retry',
+          );
+        }
+        await _reconcileAcknowledgedPayment(patientId);
+      }
       return existing.id;
     }
     final pMap = payment.toMap()
@@ -767,13 +797,20 @@ class PaymentService {
         'patientId': patientId,
         'patientName': patientName,
         'type': 'payment',
+        if (collectOutstanding) 'collectOutstanding': true,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
     if (isPostgres) {
       final res = await _backendApi!.createPayment(pMap);
+      final committedId = res['id']?.toString();
+      if (committedId == null || committedId.isEmpty) {
+        throw StateError(
+          'Payment server did not confirm a saved transaction. Retry with the same reference.',
+        );
+      }
       await _reconcileAcknowledgedPayment(patientId);
-      return res['id']?.toString() ?? id;
+      return committedId;
     }
 
     final stays = await loadStays(patientId);
