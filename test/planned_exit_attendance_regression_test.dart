@@ -97,7 +97,7 @@ class RangeDatabase extends TestDatabase {
 
 void main() {
   test(
-    'active 9 AM planned exit evaluates explicit patient presence on exit date',
+    'Private reserves the base on absent dates and explicit exit-date presence',
     () {
       final bill = StayBilling.calculate(
         patient: patient(),
@@ -106,13 +106,13 @@ void main() {
         attendance: onlyExitPresent(),
         now: admission,
       ).single;
-      expect(bill.days['stay'], 1);
-      expect(bill.total, 700);
+      expect(bill.days['stay'], 13);
+      expect(bill.total, 9100);
     },
   );
 
   test(
-    'exact two-cell reproduction through bounded billing query: 5600 to 7000',
+    'Private attendance edits preserve the reserved base through bounded queries',
     () async {
       final attendance = beforeAttendance();
       final db = RangeDatabase({
@@ -139,14 +139,14 @@ void main() {
         },
       );
       final amountPath = 'patients/$patientId/advanceBilledAmount';
-      expect(before[amountPath], 5600);
-      expect(before['stays/stay/billableDays'], 8);
-      expect(before['patients/$patientId/refundDueAmount'], 2800);
-      expect(after[amountPath], 7000);
-      expect(after['stays/stay/billableDays'], 10);
-      expect(after[amountPath] - before[amountPath], 1400);
+      expect(before[amountPath], 8400);
+      expect(before['stays/stay/billableDays'], 12);
+      expect(before['patients/$patientId/refundDueAmount'], 0);
+      expect(after[amountPath], 9100);
+      expect(after['stays/stay/billableDays'], 13);
+      expect(after[amountPath] - before[amountPath], 700);
       expect(after['patients/$patientId/totalPaidAmount'], 8400);
-      expect(after['patients/$patientId/refundDueAmount'], 1400);
+      expect(after['patients/$patientId/refundDueAmount'], 0);
       expect(
         db.ranges,
         everyElement(
@@ -188,7 +188,7 @@ void main() {
   );
 
   test(
-    'both edited dates follow dynamically configured private room rates',
+    'Private reserved base follows the approved tariff despite old settings',
     () {
       for (final rate in [700.0, 850.0]) {
         final before = StayBilling.calculate(
@@ -209,9 +209,9 @@ void main() {
           },
           now: admission,
         ).single;
-        expect(before.total, 8 * rate);
-        expect(after.total, 10 * rate);
-        expect(after.total - before.total, 2 * rate);
+        expect(before.total, 12 * 700);
+        expect(after.total, 13 * 700);
+        expect(after.total - before.total, 700);
       }
     },
   );
@@ -225,7 +225,7 @@ void main() {
         attendance: onlyExitPresent(),
         now: admission,
       ).single;
-      expect(bill.total, manual ? 390 : 850);
+      expect(bill.total, 13 * (manual ? 390 : 700));
     }
     final overridden = StayBilling.calculate(
       patient: patient(),
@@ -253,7 +253,7 @@ void main() {
         },
         now: admission,
       ).single;
-      expect(bill.total, 275);
+      expect(bill.total, 200);
       expect(bill.days['stay'], 1);
     },
   );
@@ -277,7 +277,7 @@ void main() {
           },
           now: admission,
         ).single;
-        expect(bill.total, 275);
+        expect(bill.total, 200);
       }
       final unmarked = StayBilling.calculate(
         patient: patient(),
@@ -286,7 +286,7 @@ void main() {
         attendance: {...onlyExitPresent(), '2026-10-17': 'Unmarked'},
         now: admission,
       ).single;
-      expect(unmarked.total, 0);
+      expect(unmarked.total, 12 * 700);
     },
   );
 
@@ -304,7 +304,7 @@ void main() {
         },
         now: admission,
       ).single;
-      expect(beyond.total, 5600);
+      expect(beyond.total, 8400);
       final completed = StayBilling.calculate(
         patient: patient(),
         stays: [stay(actualExit: DateTime(2026, 10, 16, 9))],
@@ -312,7 +312,7 @@ void main() {
         attendance: onlyExitPresent(),
         now: admission,
       ).single;
-      expect(completed.total, 0);
+      expect(completed.total, 11 * 700);
     },
   );
 
@@ -364,7 +364,7 @@ void main() {
         attendance: onlyExitPresent(),
         now: DateTime(2026, 11),
       ).single;
-      expect(bill.total, 0);
+      expect(bill.total, 12 * 700);
     },
   );
 }

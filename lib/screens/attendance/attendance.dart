@@ -186,8 +186,10 @@ class _AttendanceState extends State<Attendance>
       width: _cellWidth,
       height: _rowHeight,
       child: Tooltip(
-        message: enabled
-            ? '${row.displayName} • ${DateFormat('dd MMM').format(date)} • $status${dirty ? ' (unsaved)' : ''}'
+        message: row.identityUnresolved
+            ? 'Resolve this attendant identity in the patient record before marking attendance; legacy marks are retained.'
+            : enabled
+            ? '${row.displayName} • ${DateFormat('dd MMM').format(date)} • ${status == 'Unmarked' ? 'Pending' : status}${dirty ? ' (unsaved)' : ''}'
             : 'Outside stay dates',
         child: InkWell(
           onTap: !enabled || _saving
@@ -244,7 +246,8 @@ class _AttendanceState extends State<Attendance>
               (query.isEmpty ||
                   row.patientName.toLowerCase().contains(query) ||
                   row.displayName.toLowerCase().contains(query) ||
-                  (row.registrationNumber?.toLowerCase().contains(query) ?? false)),
+                  (row.registrationNumber?.toLowerCase().contains(query) ??
+                      false)),
         )
         .map((row) => row.patientId)
         .toSet();
@@ -351,7 +354,7 @@ class _AttendanceState extends State<Attendance>
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: Text(
-              'Click a cell: Unmarked → Present → Absent → Unmarked.  P = Present • A = Absent • · = Unmarked • Orange border = Unsaved',
+              'Click a cell: Pending → Present → Absent → Pending.  P = Present • A = Absent • · = Pending • Orange border = Unsaved',
             ),
           ),
           if (_error != null)

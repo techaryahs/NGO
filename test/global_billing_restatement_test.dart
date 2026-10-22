@@ -36,7 +36,16 @@ Map<String, dynamic> snapshot({
         )
         ..['dailyRate'] = manual
         ..['dailyRateIsManual'] = manual != null
-        ..['costOverride'] = override;
+        ..['costOverride'] = override
+        // Historical configurable tariffs are now explicit saved per-stay
+        // snapshots. New global settings always use the approved tariff.
+        ..['billingSummary'] = {
+          'pricing': {
+            'generalRoomBedPrice': rate,
+            'privateRoomBasePrice': 850,
+            'privateRoomExtraAttendantFee': 225,
+          },
+        };
   return clone({
     'patients': {'p': patient},
     'stays': {'s': segment},
@@ -190,9 +199,27 @@ void main() {
       }
       expect(migration.at(repaired, 'stays/s/totalCost'), 1800);
       expect(migration.at(repaired, 'stays/s/billableDays'), 8);
-      expect(
+      final plannedSummary = migration.object(
         migration.at(repaired, 'stays/s/billingSummary'),
+      );
+      final liveSummary = migration.object(
         production['stays/s/billingSummary'],
+      );
+      expect(
+        {
+          for (final entry in plannedSummary.entries)
+            if (migration.summaryFields.contains(entry.key))
+              entry.key: entry.value,
+        },
+        {
+          for (final entry in liveSummary.entries)
+            if (migration.summaryFields.contains(entry.key))
+              entry.key: entry.value,
+        },
+      );
+      expect(
+        plannedSummary['pricing'],
+        source['stays']['s']['billingSummary']['pricing'],
       );
       expect(db.writes, 0);
     },

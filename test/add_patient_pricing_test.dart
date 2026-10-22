@@ -183,8 +183,8 @@ void main() {
         // VERIFY: Pricing resolved! It MUST NOT be stuck on 'Loading current pricing…'
         expect(find.text('Loading current pricing…'), findsNothing);
         expect(find.text('PAYMENT SUMMARY'), findsOneWidget);
-        // Calculated total with custom pricing ₹250 * 7 days = ₹1,750
-        expect(find.text('₹1,750'), findsOneWidget);
+        // The approved tariff governs new admissions despite old settings.
+        expect(find.text('₹1,400'), findsOneWidget);
       },
     );
 
@@ -268,8 +268,7 @@ void main() {
         // VERIFY: Pricing is loaded despite rooms failure
         expect(find.text('Loading current pricing…'), findsNothing);
         expect(find.text('PAYMENT SUMMARY'), findsOneWidget);
-        // ₹300 * 7 days = ₹2,100
-        expect(find.text('₹2,100'), findsOneWidget);
+        expect(find.text('₹1,400'), findsOneWidget);
       },
     );
 

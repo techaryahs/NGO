@@ -8,6 +8,7 @@ import { formatStay, insertStayWithClient, RawStayRow } from './stays.js';
 import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { collectionPage, cursorDateSql, parseCollectionCursor } from '../pagination.js';
 import { createHash } from 'node:crypto';
+import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
 
 function registrationFingerprint(body: Record<string, any>): string {
   return createHash('sha256').update(JSON.stringify({
@@ -396,7 +397,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (Array.isArray(body.attendants)) {
         for (let i = 0; i < body.attendants.length; i++) {
           const att = body.attendants[i];
-          const attId = attendantId(patientId, i);
+          const attId = att.id ?? attendantId(patientId, i);
           const attRes = await client.query<RawAttendantRow>(
             `INSERT INTO patient_attendants (
               id, patient_id, name, age, relation, aadhaar_number,
@@ -634,7 +635,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (Array.isArray(body.attendants)) {
         for (let i = 0; i < body.attendants.length; i++) {
           const att = body.attendants[i];
-          const attId = attendantId(patientId, i);
+          const attId = att.id ?? attendantId(patientId, i);
           const attRes = await client.query<RawAttendantRow>(
             `INSERT INTO patient_attendants (
               id, patient_id, name, age, relation, aadhaar_number,
@@ -678,9 +679,10 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         [patientId]
       );
 
+      const projection = createdStayRows.length ? await persistBilling(client, await projectBilling(client, finalPatientRes.rows[0])) : null;
       await client.query('COMMIT');
-      const formattedPatient = formatPatient(finalPatientRes.rows[0], attendants);
-      const formattedStays = createdStayRows.map(formatStay);
+      const formattedPatient = formatPatient(projection?.patient ?? finalPatientRes.rows[0], attendants);
+      const formattedStays = (projection?.stays ?? createdStayRows).map(formatStay);
       return reply.status(201).send({
         ...formattedPatient,
         patient: formattedPatient,
@@ -718,6 +720,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         if (patient.status === 'discharged' || JSON.stringify(active.map(s => s.id)) !== JSON.stringify([...body.expectedStayIds].sort())) {
           throw httpError(409, 'Patient placement changed; refresh before transferring');
         }
+        if (new Date(body.shiftedAt) < new Date(patient.admission_date) || active.some(s => new Date(body.shiftedAt) < new Date(s.admission_date))) throw httpError(400, 'Transfer cannot precede the current placement');
         const roomIds = [...new Set([...active.map(s => s.room_id), body.roomId])].sort();
         await client.query('SELECT id FROM rooms WHERE id=ANY($1::varchar[]) ORDER BY id FOR UPDATE', [roomIds]);
         await client.query("UPDATE stays SET status='completed',completed_at=$2,updated_at=CURRENT_TIMESTAMP WHERE patient_id=$1 AND status='active'", [id, new Date(body.shiftedAt)]);
@@ -731,19 +734,59 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           attendantLabels: attendants.map(a => a.relation ? `${a.name} (${a.relation})` : a.name),
           patientSnapshot: { transferFingerprint: fingerprint, registrationNumber: patient.registration_number,
             admissionDate: toEpochMs(patient.admission_date), photoRef: patient.photo_ref,
-            attendants: attendants.map(a => ({ name: a.name, relation: a.relation })) },
+            attendants: attendants.map(a => ({ id: a.id, name: a.name, relation: a.relation })) },
           notes: 'Room transfer',
         }, request.user!.id);
-        await client.query('UPDATE patients SET exit_date=$2,billing_amount_override=NULL WHERE id=$1', [id, body.exitDate == null ? null : new Date(body.exitDate)]);
+        await client.query('UPDATE patients SET exit_date=$2,billing_amount_override=NULL WHERE id=$1', [id, body.exitDate === undefined ? patient.exit_date : body.exitDate == null ? null : new Date(body.exitDate)]);
         for (const roomId of roomIds) await refreshRoomOccupancy(client, roomId);
       }
       const finalPatient = (await client.query<RawPatientRow>('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
+      const calculated = await projectBilling(client, finalPatient, { ignoreCheckout: true });
+      const projection = previous ? calculated : await persistBilling(client, calculated);
       const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1', [id])).rows;
       const payments = (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id])).rows;
-      const stays = (await client.query<RawStayRow>('SELECT * FROM stays WHERE patient_id=$1 ORDER BY id', [id])).rows;
       await client.query('COMMIT');
-      return reply.send({ patient: formatPatient(finalPatient, attendants, payments.map(p => formatPayment(p as any))), stays: stays.map(formatStay) });
+      return reply.send({ patient: formatPatient(projection.patient, attendants, payments.map(p => formatPayment(p as any))), stays: projection.stays.map(formatStay) });
     } catch (err) { await client.query('ROLLBACK'); throw err; }
+    finally { client.release(); }
+  });
+
+  // One request owns the admission cycle, placement and initial projection.
+  // Its stay ID and immutable fingerprint remain the retry identity even after
+  // this admission is subsequently discharged or transferred.
+  fastify.post('/patients/:id/rejoin', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Record<string, any>;
+    const fingerprint = createHash('sha256').update(JSON.stringify([id, toEpochMs(body.admissionDate), toEpochMs(body.exitDate), body.exitDateUnconfirmed, body.roomId, body.bedId ?? null, body.durationDays ?? null])).digest('hex');
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+      const patient = (await client.query<RawPatientRow>('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [id])).rows[0];
+      if (!patient) throw httpError(404, 'Patient not found');
+      const previous = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1', [body.requestId])).rows[0];
+      if (previous && (previous.patient_id !== id || previous.patient_snapshot?.rejoinFingerprint !== fingerprint)) throw httpError(409, 'Rejoin request ID already used differently');
+      if (!previous) {
+        if (patient.status !== 'discharged' || (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id])).rowCount) throw httpError(409, 'Only a discharged patient without an active stay can rejoin');
+        const admission = new Date(body.admissionDate);
+        if (admission <= new Date(patient.admission_date) || patient.discharge_date && admission < new Date(patient.discharge_date)) throw httpError(400, 'New admission must follow the previous admission and discharge');
+        if (body.exitDate != null && new Date(body.exitDate) < admission) throw httpError(400, 'Planned exit cannot precede admission');
+        const duration = body.exitDate == null ? 7 : Math.max(1, Math.round((Date.parse(nextDay(dayKey(body.exitDate))) - Date.parse(dayKey(admission))) / 86400000));
+        // Preserve old balances/receipts. Clear only the new cycle's summaries.
+        await client.query("UPDATE patients SET admission_date=$2,status='active',discharge_date=NULL,exit_date=$3,room_id=NULL,room_number=NULL,floor=NULL,lobby=NULL,bed_ids='[]',bed_labels='[]',billing_amount_override=NULL,advance_billed_amount=0,attendance_charges=0,total_present_days=0,total_absent_days=0,extension_days=0,extension_approved=false,extension_reason=NULL,approved_by=NULL,approved_date=NULL WHERE id=$1", [id, admission, body.exitDate == null ? null : new Date(body.exitDate)]);
+        const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [id])).rows;
+        await insertStayWithClient(client, { id: body.requestId, patientId: id, roomId: body.roomId, roomNumber: body.roomNumber, roomType: body.roomType, bedId: body.bedId,
+          admissionDate: admission.getTime(), durationDays: duration, expectedDischargeDate: admission.getTime() + duration * 86400000, cycleId: String(admission.getTime()), attendantCount: attendants.length,
+          attendantLabels: attendants.map(a => a.name), patientSnapshot: { rejoinFingerprint: fingerprint, admissionDate: admission.getTime(), plannedExitConfirmed: !body.exitDateUnconfirmed, registrationNumber: patient.registration_number, attendants: attendants.map(a => ({id:a.id,name:a.name,relation:a.relation})) }, notes: body.exitDateUnconfirmed ? 'Rejoined; planned exit unconfirmed' : 'Rejoined; planned exit confirmed' }, request.user!.id);
+        const current = (await client.query('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
+        await persistBilling(client, await projectBilling(client, current));
+      }
+      const current = (await client.query('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
+      const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1', [id])).rows;
+      const receipts = (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [id])).rows;
+      const stays = (await client.query<RawStayRow>('SELECT * FROM stays WHERE patient_id=$1 ORDER BY admission_date,id', [id])).rows;
+      await client.query('COMMIT');
+      return reply.status(previous ? 200 : 201).send({ patient: formatPatient(current, attendants, receipts.map(formatPayment)), stays: stays.map(formatStay), idempotentRetry: Boolean(previous) });
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   });
 
@@ -768,6 +811,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (financialFields.some(key => Object.hasOwn(body, key)) && expectedVersion == null) throw httpError(409, 'Financial updates require expectedVersion from the current patient record');
       const activeStays = await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
       const before = formatPatient(existing.rows[0]);
+      if (body.admissionDate != null && toEpochMs(body.admissionDate) !== toEpochMs(existing.rows[0].admission_date)) throw httpError(409, 'Change admission cycles through the rejoin workflow');
+      if (body.status != null && body.status !== before.status && (body.status === 'discharged' || before.status === 'discharged')) throw httpError(409, 'Use the discharge or rejoin workflow for lifecycle changes');
       if (activeStays.rowCount && ['roomId', 'roomNumber', 'floor', 'bedIds', 'bedLabels'].some(key => Object.hasOwn(body, key) && JSON.stringify(body[key]) !== JSON.stringify(before[key as keyof typeof before]))) throw httpError(409, 'Change active assignments through the stay lifecycle');
       if (body.status === 'discharged' && activeStays.rowCount) {
         throw httpError(409, 'Complete active stays before discharging the patient');
@@ -904,7 +949,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         await client.query('DELETE FROM patient_attendants WHERE patient_id = $1', [id]);
         for (let i = 0; i < body.attendants.length; i++) {
           const att = body.attendants[i];
-          const attId = attendantId(id, i);
+          const attId = att.id ?? attendantId(id, i);
           const attRes = await client.query<RawAttendantRow>(
             `INSERT INTO patient_attendants (
               id, patient_id, name, age, relation, aadhaar_number,

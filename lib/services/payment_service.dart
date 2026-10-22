@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
+import '../utils/pricing_helper.dart';
 import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
@@ -241,9 +242,11 @@ class PaymentService {
             ),
     ]);
     final rawPricing = reads[0];
-    final pricing = rawPricing is Map
-        ? Map<String, dynamic>.from(rawPricing)
-        : <String, dynamic>{};
+    final pricing = PricingHelper.approvedPricing(
+      rawPricing is Map
+          ? Map<String, dynamic>.from(rawPricing)
+          : <String, dynamic>{},
+    );
     final records = reads[1];
     final attendance = <String, String>{};
     if (records is Map) {
@@ -268,9 +271,10 @@ class PaymentService {
         final daily = dateEntry.value;
         if (daily is! Map || daily[patientId] is! Map) continue;
         final statuses = <String, String>{};
-        for (final record in (daily[patientId] as Map).values) {
+        for (final entry in (daily[patientId] as Map).entries) {
+          final record = entry.value;
           if (record is Map && record['attendantName'] != null) {
-            statuses[record['attendantName'].toString()] =
+            statuses[(record['attendantId'] ?? entry.key).toString()] =
                 record['status']?.toString() ?? '';
           }
         }
@@ -360,7 +364,11 @@ class PaymentService {
           'stays/${stay.id}/cycleId': balance.id,
           'stays/${stay.id}/totalCost': balance.charges[stay.id],
           'stays/${stay.id}/billableDays': balance.days[stay.id],
-          'stays/${stay.id}/billingSummary': balance.toMap(),
+          'stays/${stay.id}/billingSummary': {
+            ...stay.billingSummary,
+            ...balance.toMap(),
+            'pricing': stay.billingSummary['pricing'] ?? pricing,
+          },
           if (!stay.isActive)
             'stays/${stay.id}/completedAt':
                 (stay.completedAt ?? stay.updatedAt).millisecondsSinceEpoch,

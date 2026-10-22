@@ -56,7 +56,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
     if (pricing == null) return;
     calculatedCost = PricingHelper.calculateProjectedStayCost(
       widget.room.isPrivate,
-      attendantCount,
+      0,
       durationDays,
       pricing: pricing,
     );
@@ -568,7 +568,7 @@ class _CreateStayDialogState extends State<CreateStayDialog> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              "Estimated Total Cost",
+                              "Provisional patient estimate",
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,

@@ -28,6 +28,17 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     await query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','admin@ngo.test','Synthetic Admin','admin')");
   });
   afterAll(async () => { await app.close(); await pool.end(); });
+  async function settleThrough(checkoutAt: string) {
+    const attendants = (await send('GET', '/patients/p1')).json().attendants;
+    for (let date = '2026-01-01'; date <= checkoutAt.slice(0, 10); date = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10)) {
+      await send('POST', '/attendance', {patientId:'p1', date, payload:{status:'Present'}});
+      await send('POST', '/attendance', {patientId:'p1', date,kind:'attendant_attendance',payload:Object.fromEntries(attendants.map((a:any)=>[a.id,{attendantId:a.id,attendantName:a.name,status:'Present'}]))});
+    }
+    const preview = await send('POST', '/patients/p1/recalculate-billing', { checkoutAt: Date.parse(checkoutAt) });
+    expect(preview.statusCode).toBe(200);
+    const due = preview.json().patient.currentDueAmount;
+    if (due) expect((await send('POST','/payments',{id:'settle-test',patientId:'p1',amount:due,method:'cash'})).statusCode).toBe(201);
+  }
 
   it('planned October admission and extension never initialize attendance, including legacy registration payloads', async () => {
     await send('POST', '/rooms', room());
@@ -199,6 +210,8 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   it('concurrent transfer and discharge cannot leave a discharged patient with an active stay', async () => {
     await send('POST', '/rooms', room()); await send('POST', '/rooms', room('r2'));
     await send('POST', '/patients', patient()); await send('POST', '/stays', stay());
+    await settleThrough('2026-01-02');
+    const priorAttendance = (await query('SELECT * FROM attendance_records ORDER BY id')).rows;
     const transfer = { requestId: 'race-transfer', expectedStayIds: ['s1'], roomId: 'r2',
       roomNumber: 'r2', roomType: 'general', bedId: 'r2b1', shiftedAt: '2026-01-02' };
     const results = await Promise.all([
@@ -216,7 +229,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
       expect((await send('POST', '/patients/p1/transfer', transfer)).statusCode).toBe(200);
       expect((await send('GET', '/patients/p1')).json()).toEqual(before);
     }
-    expect((await query('SELECT * FROM attendance_records')).rows).toEqual([]);
+    expect((await query('SELECT * FROM attendance_records ORDER BY id')).rows).toEqual(priorAttendance);
   });
 
   it('fresh migration creates all 17 domain tables, is rerunnable and records status', async () => {
@@ -287,6 +300,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect((await send('GET', '/rooms/r1')).json()).toMatchObject({ occupiedBeds: 1, status: 'partially_occupied', beds: [{ currentPatientId: 'p1', currentStayId: 's1', status: 'occupied' }, {}] });
     expect((await send('GET', '/patients/p1')).json()).toMatchObject({ roomId: 'r1', bedIds: ['r1b1'] });
     expect((await send('PUT', '/stays/s1', { durationDays: 3, notes: 'extension' })).json()).toMatchObject({ bedId: 'r1b1', durationDays: 3 });
+    await settleThrough('2026-01-04');
     expect((await send('PUT', '/stays/s1', { status: 'completed', completedAt: '2026-01-04' })).statusCode).toBe(200);
     const bed = (await query("SELECT * FROM room_beds WHERE id='r1b1'")).rows[0];
     expect(bed).toMatchObject({ status: 'available', current_patient_id: null, current_stay_id: null });
@@ -307,10 +321,11 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect((await send('POST', '/stays', { ...stay('s2'), bedId: 'r1b2' })).statusCode).toBe(201);
     expect((await send('GET', '/patients/p1')).json()).toMatchObject({ bedIds: ['r1b1', 'r1b2'], status: 'active' });
     expect((await send('GET', '/rooms/r1')).json()).toMatchObject({ occupiedBeds: 2, status: 'occupied' });
-    await send('PUT', '/stays/s1', { status: 'completed' });
+    await send('PUT', '/stays/s1', { status: 'completed', completedAt: '2026-01-02' });
     expect((await send('GET', '/patients/p1')).json()).toMatchObject({ bedIds: ['r1b2'], status: 'active', roomId: 'r1' });
     expect((await send('GET', '/rooms/r1')).json()).toMatchObject({ occupiedBeds: 1, status: 'partially_occupied' });
-    await send('PUT', '/stays/s2', { status: 'completed' });
+    await settleThrough('2026-01-02');
+    expect((await send('PUT', '/stays/s2', { status: 'completed', completedAt: '2026-01-02' })).statusCode).toBe(200);
     expect((await send('GET', '/patients/p1')).json()).toMatchObject({ bedIds: [], status: 'discharged', roomId: null });
     expect((await send('GET', '/rooms/r1')).json()).toMatchObject({ occupiedBeds: 0, status: 'available' });
   });
@@ -338,9 +353,10 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect((await send('POST', '/stays', { ...stay(), bedId: 'missing' })).statusCode).toBe(409);
     expect((await query('SELECT count(*)::int AS count FROM stays')).rows[0].count).toBe(0);
     await send('POST', '/stays', stay());
+    await settleThrough('2026-01-02');
     await query("CREATE FUNCTION audit_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER audit_fail BEFORE UPDATE ON patients FOR EACH ROW EXECUTE FUNCTION audit_fail()");
     try {
-      expect((await send('PUT', '/stays/s1', { status: 'completed' })).statusCode).toBe(500);
+      expect((await send('PUT', '/stays/s1', { status: 'completed', completedAt: '2026-01-02' })).statusCode).toBe(500);
       expect((await query("SELECT status FROM stays WHERE id='s1'")).rows[0].status).toBe('active');
       expect((await query("SELECT current_stay_id FROM room_beds WHERE id='r1b1'")).rows[0].current_stay_id).toBe('s1');
     } finally { await query('DROP TRIGGER audit_fail ON patients; DROP FUNCTION audit_fail()'); }

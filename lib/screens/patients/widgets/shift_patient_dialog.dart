@@ -232,8 +232,6 @@ Future<bool> showShiftPatientDialog(
       shiftedAt: shiftTime,
       exitDate: noExitDate ? null : shiftExitDate,
     );
-    await ServiceLocator().paymentService
-        .recalculatePatientAttendanceAndBilling(patient.id);
     return true;
   }
   for (final stay in activeStays) {

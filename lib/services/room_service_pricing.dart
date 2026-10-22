@@ -12,38 +12,22 @@ extension RoomServicePricing on RoomService {
       if (isPostgres) {
         final data = await backendApi!.getSettingsCategory('pricing');
         if (data.isNotEmpty) {
-          final pricing = Map<String, dynamic>.from(data);
-          final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble();
-          if (generalRate == null || generalRate == 150) {
-            pricing['generalRoomBedPrice'] = 200;
-            await backendApi!.updateSettingsKey('pricing', 'generalRoomBedPrice', 200);
-          }
-          return pricing;
+          return PricingHelper.approvedPricing({
+            ...RoomService.defaultPricing,
+            ...data,
+          });
         }
-        await backendApi!.updateSettingsCategory(
-          'pricing',
-          Map<String, dynamic>.from(RoomService.defaultPricing),
-        );
-        return Map<String, dynamic>.from(RoomService.defaultPricing);
+        return PricingHelper.approvedPricing(RoomService.defaultPricing);
       }
 
       final data = await rtdb.get(pricingPath);
       if (data != null && data is Map) {
-        final pricing = Map<String, dynamic>.from(data);
-        // ₹150 was the application's old built-in fallback. The configured
-        // General Room and Lobby base rate is now ₹200.
-        final generalRate = (pricing['generalRoomBedPrice'] as num?)?.toDouble();
-        if (generalRate == null || generalRate == 150) {
-          pricing['generalRoomBedPrice'] = 200;
-          await rtdb.patch(pricingPath, {'generalRoomBedPrice': 200});
-        }
-        return pricing;
+        return PricingHelper.approvedPricing({
+          ...RoomService.defaultPricing,
+          ...Map<String, dynamic>.from(data),
+        });
       }
-      await rtdb.put(
-        pricingPath,
-        Map<String, dynamic>.from(RoomService.defaultPricing),
-      );
-      return Map<String, dynamic>.from(RoomService.defaultPricing);
+      return PricingHelper.approvedPricing(RoomService.defaultPricing);
     } catch (e) {
       throw Exception('Failed to fetch pricing: $e');
     }
@@ -51,6 +35,7 @@ extension RoomServicePricing on RoomService {
 
   Future<void> updatePricing(Map<String, dynamic> pricing) async {
     try {
+      pricing = PricingHelper.approvedPricing(pricing);
       if (isPostgres) {
         await backendApi!.updateSettingsCategory('pricing', pricing);
         return;
@@ -84,17 +69,23 @@ extension RoomServicePricing on RoomService {
     if (isPostgres) {
       return backendApi!.stream('settings/pricing').map((data) {
         if (data != null && data is Map) {
-          return Map<String, dynamic>.from(data);
+          return PricingHelper.approvedPricing({
+            ...RoomService.defaultPricing,
+            ...Map<String, dynamic>.from(data),
+          });
         }
-        return Map<String, dynamic>.from(RoomService.defaultPricing);
+        return PricingHelper.approvedPricing(RoomService.defaultPricing);
       });
     }
 
     return rtdb.stream(pricingPath).map((data) {
       if (data != null && data is Map) {
-        return Map<String, dynamic>.from(data);
+        return PricingHelper.approvedPricing({
+          ...RoomService.defaultPricing,
+          ...Map<String, dynamic>.from(data),
+        });
       }
-      return Map<String, dynamic>.from(RoomService.defaultPricing);
+      return PricingHelper.approvedPricing(RoomService.defaultPricing);
     });
   }
 }

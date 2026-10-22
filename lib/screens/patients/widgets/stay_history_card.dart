@@ -346,8 +346,10 @@ class _StayHistoryCardView extends StatelessWidget {
     final currentCycle =
         StayBilling.cycleFor(stay, patient) ==
         StayBilling.currentCycle(patient);
-    final exit = active || currentCycle
-        ? patient.exitDate ?? patient.dischargeDate
+    final exit = active
+        ? patient.exitDate
+        : currentCycle
+        ? patient.dischargeDate ?? patient.exitDate
         : lastSegment.completedAt ?? lastSegment.updatedAt;
     final total =
         (summary['total'] as num?)?.toDouble() ??
@@ -450,6 +452,20 @@ class _StayHistoryCardView extends StatelessWidget {
         Icons.event_available_rounded,
       ),
       _detail('Total amount', money.format(total), Icons.payments_outlined),
+      if (summary['provisional'] == true)
+        _detail(
+          'Estimate status',
+          summary['plannedExitConfirmed'] == false
+              ? 'Provisional ongoing stay · exit unconfirmed'
+              : 'Provisional · attendance Pending',
+          Icons.info_outline,
+        ),
+      if (summary['checkoutAdjustment'] is Map)
+        _detail(
+          'After 9 AM checkout adjustment',
+          '${money.format(summary['checkoutAdjustment']['amount'] ?? 0)} · billable day ${summary['checkoutAdjustment']['billableDay']}',
+          Icons.more_time,
+        ),
       _detail(
         'Paid amount',
         money.format(paid),

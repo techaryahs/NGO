@@ -139,6 +139,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
 
   Future<void> _downloadPatientInfo(PatientModel patient) async {
     try {
+      if (ServiceLocator().patientService.isPostgres) {
+        final snapshot = await ServiceLocator().backendApiService
+            .financialSnapshot(patient.id);
+        patient = PatientModel.fromMap(
+          patient.id,
+          Map<String, dynamic>.from(snapshot['patient'] as Map),
+        );
+      }
       final dateFmt = DateFormat('dd/MM/yyyy');
       final currencyFmt = NumberFormat.currency(symbol: "₹", decimalDigits: 0);
 
@@ -293,6 +301,47 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         TextCellValue('Payment Status'),
         TextCellValue(patient.paymentStatus ?? 'Pending'),
       ]);
+      final currentBalance =
+          patient.admissionBalances[StayBilling.currentCycle(patient)];
+      if (currentBalance is Map) {
+        billingSheet.appendRow([
+          TextCellValue('Billing status'),
+          TextCellValue(
+            currentBalance['provisional'] == true
+                ? 'Provisional - attendance Pending'
+                : 'Final',
+          ),
+        ]);
+        final adjustment = currentBalance['checkoutAdjustment'];
+        if (adjustment is Map) {
+          billingSheet.appendRow([
+            TextCellValue('After 9 AM checkout adjustment'),
+            TextCellValue(currencyFmt.format(adjustment['amount'] ?? 0)),
+          ]);
+          billingSheet.appendRow([
+            TextCellValue('Checkout applicable billable day'),
+            TextCellValue('${adjustment['billableDay']}'),
+          ]);
+        }
+      }
+      billingSheet.appendRow([
+        TextCellValue('Planned exit'),
+        TextCellValue(
+          patient.exitDate == null
+              ? 'Unconfirmed'
+              : DateFormat('dd MMM yyyy, hh:mm a').format(patient.exitDate!),
+        ),
+      ]);
+      billingSheet.appendRow([
+        TextCellValue('Actual checkout'),
+        TextCellValue(
+          patient.dischargeDate == null
+              ? ''
+              : DateFormat(
+                  'dd MMM yyyy, hh:mm a',
+                ).format(patient.dischargeDate!),
+        ),
+      ]);
 
       //
       // =========================
@@ -382,10 +431,12 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     if (_isPreparingDischarge) return;
     setState(() => _isPreparingDischarge = true);
     Map<String, dynamic> readiness;
+    final checkoutAt = DateTime.now();
     try {
       readiness = await ServiceLocator().patientService.getDischargeReadiness(
         currentPatient.id,
         patientOverride: currentPatient,
+        checkoutAt: checkoutAt,
       );
     } catch (e) {
       if (context.mounted) {
@@ -435,6 +486,13 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                 ),
                 Text('Refund due: ${currency.format(readiness['refundDue'])}'),
                 Text('Planned exit: $plannedExitText'),
+                Text(
+                  'Actual checkout: ${DateFormat('dd MMM yyyy, hh:mm a').format(checkoutAt)} (Asia/Kolkata)',
+                ),
+                if (readiness['checkoutAdjustment'] is Map)
+                  Text(
+                    'After 9 AM adjustment: ${currency.format(readiness['checkoutAdjustment']['amount'] ?? 0)}',
+                  ),
                 const SizedBox(height: 14),
                 if (ready)
                   const Text(
@@ -473,6 +531,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         await ServiceLocator().patientService.dischargePatient(
                           currentPatient.id,
                           patientOverride: currentPatient,
+                          checkoutAt: checkoutAt,
                         );
                         if (dialogContext.mounted) {
                           Navigator.pop(dialogContext);
@@ -1507,7 +1566,7 @@ class _OverviewTab extends StatelessWidget {
     final registrationDate = patient.registrationDate ?? patient.admissionDate;
     final discharged = patient.status.toLowerCase() == 'discharged';
     final displayedExitDate = discharged
-        ? patient.exitDate ?? patient.dischargeDate
+        ? patient.dischargeDate ?? patient.exitDate
         : patient.exitDate;
     final dateTimeFormat = DateFormat('d/M/y, hh:mm a');
     final registrationStr = dateTimeFormat.format(registrationDate);

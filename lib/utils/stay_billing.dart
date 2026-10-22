@@ -10,6 +10,14 @@ class AdmissionBalance {
   final double total;
   final double paid;
   final double refunded;
+  final List<Map<String, dynamic>> pendingAttendance;
+  final Map<String, dynamic>? checkoutAdjustment;
+  final bool plannedExitConfirmed;
+  final bool provisionalState;
+  final int? checkoutAt;
+  final int actualPatientPresentDays;
+  final int projectedPatientPresentDays;
+  final String pricingBasis;
   AdmissionBalance(
     this.id,
     this.stays,
@@ -17,8 +25,17 @@ class AdmissionBalance {
     this.days,
     this.total,
     this.paid,
-    this.refunded,
-  );
+    this.refunded, {
+    this.pendingAttendance = const [],
+    this.checkoutAdjustment,
+    this.plannedExitConfirmed = true,
+    this.provisionalState = false,
+    this.checkoutAt,
+    this.actualPatientPresentDays = 0,
+    this.projectedPatientPresentDays = 0,
+    this.pricingBasis = 'projected_patient_present',
+  });
+  bool get provisional => pendingAttendance.isNotEmpty || provisionalState;
   double get netPaid => paid - refunded;
   double get due => (total - netPaid).clamp(0.0, double.infinity);
   double get refundDue => (netPaid - total).clamp(0.0, double.infinity);
@@ -40,6 +57,14 @@ class AdmissionBalance {
     'status': status,
     'segmentCharges': charges,
     'segmentDays': days,
+    'provisional': provisional,
+    'pendingAttendance': pendingAttendance,
+    'plannedExitConfirmed': plannedExitConfirmed,
+    if (checkoutAt != null) 'checkoutAt': checkoutAt,
+    if (checkoutAdjustment != null) 'checkoutAdjustment': checkoutAdjustment,
+    'actualPatientPresentDays': actualPatientPresentDays,
+    'projectedPatientPresentDays': projectedPatientPresentDays,
+    'pricingBasis': pricingBasis,
   };
 }
 
@@ -48,6 +73,13 @@ class AdmissionBalance {
 class StayBilling {
   static DateTime day(DateTime value) =>
       DateTime(value.year, value.month, value.day);
+
+  /// A calendar carrier for India's civil date, independent of host timezone.
+  static DateTime kolkataDay(DateTime instant) {
+    final clock = instant.toUtc().add(const Duration(hours: 5, minutes: 30));
+    return DateTime(clock.year, clock.month, clock.day);
+  }
+
   static String dateKey(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
@@ -115,26 +147,70 @@ class StayBilling {
     // PostgreSQL uses the explicitly agreed calendar-day policy. Keep legacy
     // RTDB/offline historical tooling unchanged unless it opts into that policy.
     bool calendarDayBilling = false,
+    DateTime? checkoutAt,
+    bool finalize = false,
   }) {
+    final currentSaved = patient.admissionBalances[currentCycle(patient)];
+    if (checkoutAt == null &&
+        patient.status.toLowerCase() != 'discharged' &&
+        currentSaved is Map &&
+        currentSaved['checkoutAt'] is num) {
+      checkoutAt = DateTime.fromMillisecondsSinceEpoch(
+        (currentSaved['checkoutAt'] as num).toInt(),
+      );
+    }
+    DateTime billingDay(DateTime value) =>
+        calendarDayBilling ? kolkataDay(value) : day(value);
     final groups = <String, List<StayModel>>{};
     for (final stay in stays.where((s) => s.status != 'cancelled')) {
       groups.putIfAbsent(cycleFor(stay, patient), () => []).add(stay);
     }
     groups.putIfAbsent(currentCycle(patient), () => []);
+    for (final cycle in patient.admissionBalances.keys) {
+      groups.putIfAbsent(cycle, () => []);
+    }
     final result = <AdmissionBalance>[];
     for (final group in groups.entries) {
       final segments = [...group.value]
         ..sort((a, b) => a.admissionDate.compareTo(b.admissionDate));
       final charges = <String, double>{for (final s in segments) s.id: 0};
       final days = <String, int>{for (final s in segments) s.id: 0};
+      final pending = <Map<String, dynamic>>[];
+      Map<String, dynamic>? checkoutAdjustment;
       final isCurrent = group.key == currentCycle(patient);
       final active = isCurrent && patient.status.toLowerCase() != 'discharged';
-      if (segments.isNotEmpty) {
-        final start = day(segments.first.admissionDate);
+      var saved = patient.admissionBalances[group.key];
+      if (calendarDayBilling &&
+          saved is! Map &&
+          segments.isNotEmpty &&
+          segments.every((s) => s.status == 'completed') &&
+          (!isCurrent ||
+              patient.status.toLowerCase() == 'discharged' &&
+                  checkoutAt == null)) {
+        saved = {
+          'total': segments.fold<double>(0, (sum, s) => sum + s.totalCost),
+          'segmentCharges': {for (final s in segments) s.id: s.totalCost},
+          'segmentDays': {
+            for (final s in segments) s.id: s.billingSummary['days'] ?? 0,
+          },
+        };
+      }
+      final frozen =
+          saved is Map &&
+          saved['total'] != null &&
+          (!isCurrent ||
+              saved['finalized'] == true ||
+              patient.status.toLowerCase() == 'discharged');
+      var actualPatientPresentDays = 0;
+      var projectedPatientPresentDays = 0;
+      if (segments.isNotEmpty && !frozen) {
+        final start = billingDay(segments.first.admissionDate);
         DateTime end;
-        if (active) {
-          // Keep the admission advance estimate, but never cap an open stay
-          // at it. Recorded attendance and elapsed days extend that window.
+        bool isActualCheckout = false;
+        if (isCurrent && checkoutAt != null) {
+          end = checkoutAt;
+          isActualCheckout = true;
+        } else if (active) {
           if (patient.exitDate != null) {
             end = patient.exitDate!;
           } else {
@@ -157,7 +233,7 @@ class StayBilling {
               estimateEnd,
               (latest, date) => date.isAfter(latest) ? date : latest,
             );
-            final todayEnd = day(
+            final todayEnd = billingDay(
               now ?? DateTime.now(),
             ).add(Duration(days: calendarDayBilling ? 0 : 1));
             if (todayEnd.isAfter(end)) end = todayEnd;
@@ -174,22 +250,33 @@ class StayBilling {
             }
           }
         } else {
-          end = segments
-              .map((s) => s.completedAt ?? s.updatedAt)
-              .reduce((a, b) => a.isAfter(b) ? a : b);
+          end = patient.dischargeDate ??
+              segments
+                  .map((s) => s.completedAt ?? s.updatedAt)
+                  .reduce((a, b) => a.isAfter(b) ? a : b);
+          isActualCheckout = true;
         }
-        var exclusiveEnd = day(end);
-        if (calendarDayBilling ||
-            end.hour > 9 ||
-            (end.hour == 9 && end.minute > 0)) {
-          exclusiveEnd = exclusiveEnd.add(const Duration(days: 1));
+
+        DateTime exclusiveEnd;
+        if (calendarDayBilling) {
+          if (isActualCheckout) {
+            final late = PricingHelper.afterCheckoutCutoff(end);
+            exclusiveEnd = late
+                ? billingDay(end).add(const Duration(days: 1))
+                : billingDay(end);
+          } else {
+            exclusiveEnd = billingDay(end).add(const Duration(days: 1));
+          }
+        } else {
+          final late = PricingHelper.afterCheckoutCutoff(end);
+          exclusiveEnd = late
+              ? billingDay(end).add(const Duration(days: 1))
+              : billingDay(end);
         }
         if (!exclusiveEnd.isAfter(start)) {
           exclusiveEnd = start.add(const Duration(days: 1));
         }
         final checkoutExclusiveEnd = exclusiveEnd;
-        // Legacy RTDB attendance settlement retains its previous behavior.
-        // PostgreSQL always includes both calendar endpoints, active or closed.
         if (!calendarDayBilling && active && patient.exitDate != null) {
           final period = PricingHelper.attendancePeriod(
             start,
@@ -203,6 +290,18 @@ class StayBilling {
             );
           }
         }
+
+        if (isCurrent && checkoutAt != null) {
+          final late = PricingHelper.afterCheckoutCutoff(checkoutAt);
+          checkoutAdjustment = {
+            'day': dateKey(billingDay(checkoutAt)),
+            'included': late,
+            'includedInTotal': true,
+            'amount': 0.0,
+            'checkoutAt': checkoutAt.millisecondsSinceEpoch,
+          };
+        }
+
         var billableDays = 0;
         for (
           var date = start;
@@ -210,67 +309,242 @@ class StayBilling {
           date = DateTime(date.year, date.month, date.day + 1)
         ) {
           final status = attendance[dateKey(date)];
+          if (!const {'Present', 'Absent'}.contains(status)) {
+            pending.add({'day': dateKey(date), 'kind': 'attendance'});
+          }
           final patientBillable =
-              status != 'Absent' &&
-              (!onlyPresent || status == 'Present') &&
-              (date.isBefore(checkoutExclusiveEnd) || status == 'Present');
-          final dailyAttendants =
-              attendantAttendance[dateKey(date)]?.values
-                  .where((status) => status == 'Present')
-                  .length ??
-              0;
-          if (!patientBillable && dailyAttendants == 0) continue;
+              status == 'Present' ||
+              ((!finalize && !onlyPresent && status != 'Absent') &&
+                  (calendarDayBilling || date.isBefore(checkoutExclusiveEnd)));
+          final patientPresentDaysBefore =
+              finalize ? actualPatientPresentDays : projectedPatientPresentDays;
+          final isLongStay =
+              patientPresentDaysBefore >= PricingHelper.longStayThresholdDays;
+          if (status == 'Present') actualPatientPresentDays++;
+          if (patientBillable) projectedPatientPresentDays++;
+
           final candidates = segments.where((s) {
-            if (day(s.admissionDate).isAfter(date)) return false;
-            if (s.isActive && active) return true;
+            if (billingDay(s.admissionDate).isAfter(date)) return false;
+            if (s.isActive && (active || checkoutAt != null)) return true;
             final checkout = s.completedAt ?? s.updatedAt;
-            var checkoutEnd = day(checkout);
-            if (calendarDayBilling ||
-                checkout.hour > 9 ||
-                (checkout.hour == 9 && checkout.minute > 0)) {
-              checkoutEnd = checkoutEnd.add(const Duration(days: 1));
-            }
+            final late = PricingHelper.afterCheckoutCutoff(checkout);
+            final checkoutEnd = late
+                ? billingDay(checkout).add(const Duration(days: 1))
+                : billingDay(checkout);
             return date.isBefore(checkoutEnd) ||
-                (date == day(s.admissionDate) &&
+                (date == billingDay(s.admissionDate) &&
                     checkout.isAfter(s.admissionDate));
           }).toList();
           if (candidates.isEmpty) continue;
+
+          final explicit = candidates
+              .where(
+                (s) =>
+                    s.patientSnapshot['transferFingerprint'] != null ||
+                    s.notes == 'Room transfer' ||
+                    s.notes?.trim().toLowerCase().startsWith('shifted from') == true ||
+                    candidates.any((other) =>
+                        other.id != s.id &&
+                        other.completedAt != null &&
+                        other.completedAt == s.admissionDate),
+              )
+              .toList();
+          final owners = explicit.isNotEmpty ? explicit : candidates;
+          owners.sort((a, b) {
+            if (explicit.isNotEmpty) {
+              final dateOrder = b.admissionDate.compareTo(a.admissionDate);
+              if (dateOrder != 0) return dateOrder;
+            } else {
+              final bPricing = b.billingSummary['pricing'] is Map
+                  ? Map<String, dynamic>.from(b.billingSummary['pricing'] as Map)
+                  : PricingHelper.approvedPricing(pricing);
+              final aPricing = a.billingSummary['pricing'] is Map
+                  ? Map<String, dynamic>.from(a.billingSummary['pricing'] as Map)
+                  : PricingHelper.approvedPricing(pricing);
+              final bCost = isLongStay
+                  ? PricingHelper.calculateLongStayDailyCharge(
+                      b.roomType == 'private',
+                      0,
+                      pricing: bPricing,
+                      patientBillable: patientBillable,
+                    )
+                  : PricingHelper.calculateDailyCharge(
+                      b.roomType == 'private',
+                      0,
+                      pricing: bPricing,
+                      patientBillable: patientBillable,
+                    );
+              final aCost = isLongStay
+                  ? PricingHelper.calculateLongStayDailyCharge(
+                      a.roomType == 'private',
+                      0,
+                      pricing: aPricing,
+                      patientBillable: patientBillable,
+                    )
+                  : PricingHelper.calculateDailyCharge(
+                      a.roomType == 'private',
+                      0,
+                      pricing: aPricing,
+                      patientBillable: patientBillable,
+                    );
+              final costDiff = bCost.compareTo(aCost);
+              if (costDiff != 0) return costDiff;
+            }
+            final dateOrder = b.admissionDate.compareTo(a.admissionDate);
+            if (dateOrder != 0) return dateOrder;
+            if (a.isActive != b.isActive) return b.isActive ? 1 : -1;
+            return a.id.compareTo(b.id);
+          });
+          final segment = owners.first;
+
+          final roster = segment.patientSnapshot['attendants'];
+          final people = roster is List
+              ? roster
+              : (isCurrent
+                    ? patient.attendants?.map((a) => a.toMap()).toList()
+                    : null);
+          final dailyMarks =
+              attendantAttendance[dateKey(date)] ?? const <String, String>{};
+          final known = <String>{};
+          var dailyAttendants = 0;
+          if (people is List) {
+            for (final person in people.whereType<Map>()) {
+              final name = person['name']?.toString();
+              final currentPeople =
+                  patient.attendants?.where((a) => a.name == name).toList() ??
+                  <AttendantModel>[];
+              final stableId =
+                  person['id'] ??
+                  (currentPeople.length == 1 ? currentPeople.single.id : null);
+              final identity = (stableId ?? name)?.toString();
+              if (identity == null) continue;
+              final safeName = name?.replaceAll(RegExp(r'[.#$\[\]/]'), '_');
+              known.addAll([
+                identity,
+                if (name != null) name,
+                if (safeName != null) safeName,
+              ]);
+              final uniqueName =
+                  people
+                      .whereType<Map>()
+                      .where((p) => p['name']?.toString() == name)
+                      .length ==
+                  1;
+              final mark =
+                  (stableId != null || uniqueName
+                      ? dailyMarks[identity]
+                      : null) ??
+                  (uniqueName
+                      ? dailyMarks[name] ?? dailyMarks[safeName]
+                      : null);
+              if (mark == 'Present') dailyAttendants++;
+              if (!const {'Present', 'Absent'}.contains(mark)) {
+                pending.add({
+                  'day': dateKey(date),
+                  'kind': 'attendant_attendance',
+                  'attendantId': identity,
+                });
+              }
+            }
+          }
+          dailyAttendants += dailyMarks.entries
+              .where(
+                (entry) =>
+                    !known.contains(entry.key) && entry.value == 'Present',
+              )
+              .length;
+          for (final mark in dailyMarks.entries.where(
+            (entry) =>
+                !known.contains(entry.key) &&
+                !const {'Present', 'Absent'}.contains(entry.value),
+          )) {
+            pending.add({
+              'day': dateKey(date),
+              'kind': 'attendant_attendance',
+              'attendantId': mark.key,
+            });
+          }
+
+          final privateReserved = segment.roomType == 'private';
+          final exitBoundaryExempt =
+              !calendarDayBilling &&
+              !date.isBefore(checkoutExclusiveEnd) &&
+              status != 'Present' &&
+              dailyAttendants == 0;
+          if ((!patientBillable && dailyAttendants == 0 && !privateReserved) ||
+              exitBoundaryExempt) {
+            continue;
+          }
           billableDays++;
+          final segmentPricing = segment.billingSummary['pricing'] is Map
+              ? Map<String, dynamic>.from(
+                  segment.billingSummary['pricing'] as Map,
+                )
+              : PricingHelper.approvedPricing(pricing);
           double rateFor(StayModel segment) {
             final base =
                 (segment.dailyRateIsManual ? segment.dailyRate : null) ??
                 PricingHelper.calculateDailyCharge(
                   segment.roomType == 'private',
                   dailyAttendants,
-                  pricing: pricing,
+                  pricing: segmentPricing,
                   patientBillable: patientBillable,
                 );
-            final rate = billableDays <= PricingHelper.longStayThresholdDays
+            final rate = !isLongStay
                 ? base
                 : segment.longStayDailyRate ??
                       PricingHelper.calculateLongStayDailyCharge(
                         segment.roomType == 'private',
                         dailyAttendants,
-                        pricing: pricing,
+                        pricing: segmentPricing,
                         patientBillable: patientBillable,
                         baseRateOverride: base,
                       );
             return rate;
           }
 
-          // A transfer date is charged exactly once. When more than one room
-          // segment touches that date, use the highest applicable room rate,
-          // matching common inpatient transfer billing practice. Payments
-          // remain admission-level credits and never decide which room owns
-          // the day.
-          candidates.sort((a, b) {
-            final rateOrder = rateFor(b).compareTo(rateFor(a));
-            if (rateOrder != 0) return rateOrder;
-            return b.admissionDate.compareTo(a.admissionDate);
-          });
-          final segment = candidates.first;
-          charges[segment.id] = charges[segment.id]! + rateFor(segment);
+          final dailyRate = rateFor(segment);
+          charges[segment.id] = charges[segment.id]! + dailyRate;
           days[segment.id] = days[segment.id]! + 1;
+
+          if (calendarDayBilling &&
+              isCurrent &&
+              checkoutAt != null &&
+              dateKey(date) == dateKey(billingDay(checkoutAt))) {
+            final patientBase = PricingHelper.calculateDailyCharge(
+              segment.roomType == 'private',
+              0,
+              pricing: segmentPricing,
+              patientBillable: patientBillable,
+            );
+            final patientAmount = isLongStay
+                ? PricingHelper.calculateLongStayDailyCharge(
+                    segment.roomType == 'private',
+                    0,
+                    pricing: segmentPricing,
+                    patientBillable: patientBillable,
+                    baseRateOverride: patientBase,
+                  )
+                : patientBase;
+            final custom =
+                segment.dailyRateIsManual ||
+                (isLongStay && segment.longStayDailyRate != null);
+            checkoutAdjustment = {
+              ...?checkoutAdjustment,
+              'stayId': segment.id,
+              'billableDay': billableDays,
+              'patientPresentDaysBefore': patientPresentDaysBefore,
+              'amount': segment.costOverride == null ? dailyRate : 0.0,
+              'included': true,
+              'includedInTotal': true,
+              'includedByOverride': segment.costOverride != null,
+              'patientAmount': custom ? null : patientAmount,
+              'attendantAmount': custom ? null : (dailyRate - patientAmount),
+              'category': segment.roomType,
+              'checkoutAt': checkoutAt.millisecondsSinceEpoch,
+              'day': dateKey(date),
+            };
+          }
         }
         for (final segment in segments) {
           if (segment.costOverride != null) {
@@ -279,7 +553,52 @@ class StayBilling {
         }
       }
       var total = charges.values.fold<double>(0, (a, b) => a + b);
-      if (segments.isEmpty) {
+      if (frozen) {
+        total = (saved['total'] as num).toDouble();
+        if (saved['pendingAttendance'] is List) {
+          pending.addAll(
+            (saved['pendingAttendance'] as List).whereType<Map>().map(
+              (row) => Map<String, dynamic>.from(row),
+            ),
+          );
+        }
+        final savedCharges = saved['segmentCharges'];
+        final savedDays = saved['segmentDays'];
+        for (final segment in segments) {
+          charges[segment.id] =
+              savedCharges is Map && savedCharges[segment.id] is num
+              ? (savedCharges[segment.id] as num).toDouble()
+              : segment.totalCost;
+          days[segment.id] = savedDays is Map && savedDays[segment.id] is num
+              ? (savedDays[segment.id] as num).toInt()
+              : 0;
+        }
+        if (saved['checkoutAdjustment'] is Map) {
+          checkoutAdjustment = Map<String, dynamic>.from(
+            saved['checkoutAdjustment'] as Map,
+          );
+        }
+        if (saved['actualPatientPresentDays'] is num) {
+          actualPatientPresentDays =
+              (saved['actualPatientPresentDays'] as num).toInt();
+        } else if (segments.isNotEmpty &&
+            segments.last.billingSummary['actualPatientPresentDays'] is num) {
+          actualPatientPresentDays =
+              (segments.last.billingSummary['actualPatientPresentDays'] as num)
+                  .toInt();
+        }
+        if (saved['projectedPatientPresentDays'] is num) {
+          projectedPatientPresentDays =
+              (saved['projectedPatientPresentDays'] as num).toInt();
+        } else if (segments.isNotEmpty &&
+            segments.last.billingSummary['projectedPatientPresentDays'] is num) {
+          projectedPatientPresentDays =
+              (segments.last.billingSummary['projectedPatientPresentDays']
+                      as num)
+                  .toInt();
+        }
+      }
+      if (segments.isEmpty && !frozen) {
         total = patient.advanceBilledAmount + patient.attendanceCharges;
       }
       // A patient-level override is legacy data from the old admission form.
@@ -303,6 +622,11 @@ class StayBilling {
       if (patient.payments == null && isCurrent) {
         paid = patient.totalPaidAmount ?? 0;
       }
+      if (finalize && isCurrent && pending.isNotEmpty) {
+        throw StateError(
+          'Resolve ${pending.length} pending attendance record(s) before finalizing billing',
+        );
+      }
       result.add(
         AdmissionBalance(
           group.key,
@@ -312,6 +636,22 @@ class StayBilling {
           total,
           paid,
           refunded,
+          pendingAttendance: pending,
+          checkoutAdjustment: checkoutAdjustment,
+          plannedExitConfirmed: frozen && saved['plannedExitConfirmed'] is bool
+              ? saved['plannedExitConfirmed'] as bool
+              : patient.exitDate != null,
+          provisionalState: frozen
+              ? saved['provisional'] == true
+              : active && patient.exitDate == null && checkoutAt == null,
+          checkoutAt: isCurrent ? checkoutAt?.millisecondsSinceEpoch : null,
+          actualPatientPresentDays: actualPatientPresentDays,
+          projectedPatientPresentDays: projectedPatientPresentDays,
+          pricingBasis: frozen && saved['pricingBasis'] is String
+              ? saved['pricingBasis'] as String
+              : (finalize
+                  ? 'actual_patient_present'
+                  : 'projected_patient_present'),
         ),
       );
     }

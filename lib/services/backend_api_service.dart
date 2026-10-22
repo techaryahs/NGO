@@ -1536,14 +1536,17 @@ class BackendApiService {
     Map<String, dynamic> registrationPayload,
   ) => _postAdmission('patients/register', registrationPayload);
 
-  Future<Map<String, dynamic>> financialSnapshot(String patientId) async {
+  Future<Map<String, dynamic>> financialSnapshot(
+    String patientId, {
+    DateTime? checkoutAt,
+  }) async {
     // This is a coherent server projection, not a nested patient field in the
     // legacy path adapter. Never cache it as a partially replaced patient.
     final account = persistentCache?.accountGeneration;
     final response = await _client
         .get(
           Uri.parse(
-            '$baseUrl/patients/${Uri.encodeComponent(patientId)}/financials',
+            '$baseUrl/patients/${Uri.encodeComponent(patientId)}/financials${checkoutAt == null ? '' : '?checkoutAt=${checkoutAt.millisecondsSinceEpoch}'}',
           ),
           headers: await _headers(),
         )
@@ -1561,17 +1564,28 @@ class BackendApiService {
     return Map<String, dynamic>.from(json.decode(response.body) as Map);
   }
 
-  Future<Map<String, dynamic>> recalculateBilling(String patientId) =>
-      _postAdmission(
-        'patients/${Uri.encodeComponent(patientId)}/recalculate-billing',
-        {},
-      );
+  Future<Map<String, dynamic>> recalculateBilling(
+    String patientId, {
+    DateTime? checkoutAt,
+  }) => _postAdmission(
+    'patients/${Uri.encodeComponent(patientId)}/recalculate-billing',
+    {if (checkoutAt != null) 'checkoutAt': checkoutAt.millisecondsSinceEpoch},
+  );
 
-  Future<Map<String, dynamic>> dischargePatient(String patientId) =>
-      _postAdmission(
-        'patients/${Uri.encodeComponent(patientId)}/discharge',
-        {},
-      );
+  Future<Map<String, dynamic>> dischargePatient(
+    String patientId, {
+    DateTime? checkoutAt,
+  }) => _postAdmission('patients/${Uri.encodeComponent(patientId)}/discharge', {
+    if (checkoutAt != null) 'checkoutAt': checkoutAt.millisecondsSinceEpoch,
+  });
+
+  Future<Map<String, dynamic>> rejoinPatient(
+    String patientId,
+    Map<String, dynamic> payload,
+  ) => _postAdmission(
+    'patients/${Uri.encodeComponent(patientId)}/rejoin',
+    payload,
+  );
 
   Future<Map<String, dynamic>> transferPatient(
     String patientId,

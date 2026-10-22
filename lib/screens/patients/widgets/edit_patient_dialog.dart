@@ -147,6 +147,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         widget.patient.attendants!.isNotEmpty) {
       for (final att in widget.patient.attendants!) {
         final entry = _AttendantEntry();
+        entry.id = att.id ?? AttendantModel.generateId();
         entry.nameController.text = att.name;
         entry.ageController.text = att.age ?? '';
         entry.relationController.text = att.relation ?? '';
@@ -762,6 +763,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
           }
           structuredAttendants.add(
             AttendantModel(
+              id: att.id,
               name: name,
               age: att.ageController.text.trim().isNotEmpty
                   ? att.ageController.text.trim()
@@ -1844,6 +1846,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
 // ── Components required inside this dialog ────────────────────────────────────
 
 class _AttendantEntry {
+  String id = AttendantModel.generateId();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();

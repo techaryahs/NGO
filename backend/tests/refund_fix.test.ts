@@ -435,7 +435,7 @@ describe('Refund Bug Fix and Financial Validation Tests', () => {
             return { rows: [{ id: 'p_1792347832476077' }], rowCount: 1 };
           }
           if (sql.includes('UPDATE stays SET')) {
-            return { rows: [{ ...mockStayRow, status: 'completed' }], rowCount: 1 };
+            return { rows: [{ ...mockStayRow, notes: 'Slash path update' }], rowCount: 1 };
           }
           if (sql.includes('UPDATE room_beds')) {
             return { rows: [], rowCount: 1 };
@@ -480,18 +480,18 @@ describe('Refund Bug Fix and Financial Validation Tests', () => {
       expect(getRes.statusCode).toBe(200);
       expect(JSON.parse(getRes.body).id).toBe(slashStayId);
 
-      // 2. PUT with raw slash in URL (completing stay during discharge)
+      // Routing is tested with a metadata edit; actual completion validation
+      // runs against PostgreSQL in the lifecycle suite.
       const putRes = await app.inject({
         method: 'PUT',
         url: `/api/stays/${slashStayId}`,
         headers: { authorization: `Bearer ${signedTestToken('test-admin')}` },
         payload: {
-          status: 'completed',
-          completedAt: Date.now(),
+          notes: 'Slash path update',
         },
       });
       expect(putRes.statusCode).toBe(200);
-      expect(JSON.parse(putRes.body).status).toBe('completed');
+      expect(JSON.parse(putRes.body)).toMatchObject({id: slashStayId, notes: 'Slash path update'});
 
       // 3. PUT with percent-encoded slash in URL
       const encodedId = encodeURIComponent(slashStayId);
@@ -500,12 +500,11 @@ describe('Refund Bug Fix and Financial Validation Tests', () => {
         url: `/api/stays/${encodedId}`,
         headers: { authorization: `Bearer ${signedTestToken('test-admin')}` },
         payload: {
-          status: 'completed',
-          completedAt: Date.now(),
+          notes: 'Slash path update',
         },
       });
       expect(putEncodedRes.statusCode).toBe(200);
-      expect(JSON.parse(putEncodedRes.body).status).toBe('completed');
+      expect(JSON.parse(putEncodedRes.body)).toMatchObject({id: slashStayId, notes: 'Slash path update'});
     });
   });
 });

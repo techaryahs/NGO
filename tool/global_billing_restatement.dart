@@ -156,6 +156,10 @@ Map<String, dynamic> restatementPlan(
   void summary(String path, AdmissionBalance balance, {bool financial = true}) {
     final values = balance.toMap();
     for (final entry in values.entries) {
+      // The offline repair planner deliberately permits only its original
+      // financial fields. Live provisional/attendance/checkout metadata must
+      // not expand that write allowlist when production summaries evolve.
+      if (!summaryFields.contains(entry.key)) continue;
       if (!financial &&
           !{
             'cycleId',

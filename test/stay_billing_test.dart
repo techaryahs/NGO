@@ -386,7 +386,7 @@ void main() {
         pricing: pricing,
         bedsCount: 2,
       ),
-      29000,
+      14500,
     );
     expect(
       PricingHelper.calculateProjectedStayCost(false, 1, 70, pricing: pricing),
@@ -738,7 +738,7 @@ void main() {
     expect(bill.total, 3400);
     expect(bill.days.values.fold<int>(0, (a, b) => a + b), 7);
   });
-  test('transfer day is billed once at the highest applicable rate', () {
+  test('transfer day is billed once at the destination category rate', () {
     final old = segment('private', 'private', 1, 5)
       ..['completedAt'] = stamp(5, 14);
     final next = segment('general', 'general', 5, 8)
@@ -751,19 +751,19 @@ void main() {
       ],
       pricing: {},
     ).single;
-    expect(bill.total, 3900);
+    expect(bill.total, 3400);
     expect(bill.days.values.fold<int>(0, (a, b) => a + b), 7);
-    expect(bill.days['private'], 5);
-    expect(bill.days['general'], 2);
+    expect(bill.days['private'], 4);
+    expect(bill.days['general'], 3);
   });
-  test('absent days are excluded from the correct room segment', () {
+  test('absent Private patient retains the reserved room base', () {
     final bill = StayBilling.calculate(
       patient: patient(),
       stays: mixedStays(),
       pricing: {},
       attendance: {'2026-01-02': 'Absent'},
     ).single;
-    expect(bill.total, 2700);
+    expect(bill.total, 3400);
   });
   test('overpayment and partial refund preserve receipt and refund totals', () {
     final bill = StayBilling.calculate(

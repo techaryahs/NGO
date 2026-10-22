@@ -2,20 +2,45 @@ class PricingHelper {
   static const int advanceDays = 7;
   static const int longStayThresholdDays = 60;
 
-  /// Physical stay duration, distinct from inclusive attendance dates.
-  /// Checkout is at 9:00 AM; leaving after that time adds a billable day.
-  static int calculateStayDays(DateTime start, DateTime? exit) {
-    if (exit == null) return advanceDays;
-    final billingStart = DateTime(start.year, start.month, start.day);
-    var days = exit.difference(billingStart).inDays;
-    if (exit.hour > 9 || (exit.hour == 9 && exit.minute > 0)) {
-      days++;
-    }
-    return days.clamp(1, 3650);
+  /// Approved tariff for new projections. Capacity settings remain configurable;
+  /// historical per-stay snapshots and manual rates use their stored values.
+  static Map<String, dynamic> approvedPricing([
+    Map<String, dynamic> raw = const {},
+  ]) => {
+    ...raw,
+    'generalRoomBedPrice': 200,
+    'privateRoomBasePrice': 700,
+    'privateRoomExtraAttendantFee': 200,
+    'privateRoomIncludedAttendants': 1,
+  };
+
+  static DateTime kolkataClock(DateTime instant) =>
+      instant.toUtc().add(const Duration(hours: 5, minutes: 30));
+
+  static DateTime kolkataDay(DateTime instant) {
+    final clock = kolkataClock(instant);
+    return DateTime(clock.year, clock.month, clock.day);
   }
 
-  /// Billable calendar days include both admission and checkout, at any time.
-  /// Physical bed-allocation duration remains separate from this invoice rule.
+  static bool afterCheckoutCutoff(DateTime instant) {
+    final clock = kolkataClock(instant);
+    return clock.hour > 9 || (clock.hour == 9 && clock.minute >= 1);
+
+  }
+
+  /// Checkout through 9 AM excludes its civil date. Later checkout includes it
+  /// once, for every accommodation category.
+  static int calculateStayDays(DateTime start, DateTime? exit) {
+    if (exit == null) return advanceDays;
+    final first = kolkataDay(start);
+
+
+    final last = kolkataDay(exit);
+    final dates = DateTime.utc(last.year, last.month, last.day)
+        .difference(DateTime.utc(first.year, first.month, first.day)).inDays;
+    return (dates + (afterCheckoutCutoff(exit) ? 1 : 0)).clamp(1, 3650);
+  }
+
   static int calculateBillingDays(DateTime start, DateTime? exit) =>
       attendancePeriod(start, exit).days.clamp(1, 3650);
 
@@ -59,23 +84,16 @@ class PricingHelper {
       return key == 'generalRoomBedPrice' && parsed == 150 ? 200 : parsed;
     }
 
-    int count(String key, int fallback) {
-      final value = pricing?[key];
-      if (value is num) return value.toInt();
-      return int.tryParse(value?.toString() ?? '') ?? fallback;
-    }
-
     if (isPrivate) {
       final base = rate('privateRoomBasePrice', 700);
-      final included = count('privateRoomIncludedAttendants', 1);
+      const included = 1;
       final extraFee = rate('privateRoomExtraAttendantFee', 200);
       return base +
           (attendantsCount > included
               ? (attendantsCount - included) * extraFee
               : 0.0);
     } else {
-      return bedsCount *
-          ((patientBillable ? 1 : 0) + attendantsCount) *
+      return ((patientBillable ? 1 : 0) + attendantsCount) *
           rate('generalRoomBedPrice', 200);
     }
   }
@@ -85,7 +103,7 @@ class PricingHelper {
   /// The historical billing engine treats this as the long-stay/approved
   /// extension rate: General and Lobby add ₹50 for every billable person,
   /// while Private adds ₹200 plus ₹100 for each attendant above the
-  /// configured included allowance.  [baseRateOverride] preserves a manual
+  /// one included attendant. [baseRateOverride] preserves a manual
   /// stay rate while applying the same historical long-stay surcharge.
   static double calculateLongStayDailyCharge(
     bool isPrivate,
@@ -95,22 +113,18 @@ class PricingHelper {
     double? baseRateOverride,
     int bedsCount = 1,
   }) {
-    final effectiveBeds = bedsCount < 1 ? 1 : bedsCount;
     final base =
         baseRateOverride ??
         calculateDailyCharge(
           isPrivate,
           attendantsCount,
           pricing: pricing,
-          bedsCount: effectiveBeds,
           patientBillable: patientBillable,
         );
     if (isPrivate) {
-      final included = _count(pricing, 'privateRoomIncludedAttendants', 1);
-      return base + 200.0 + (attendantsCount - included).clamp(0, 100) * 100.0;
+      return base + 200.0 + (attendantsCount - 1).clamp(0, 100) * 100.0;
     }
-    return base +
-        effectiveBeds * ((patientBillable ? 1 : 0) + attendantsCount) * 50.0;
+    return base + ((patientBillable ? 1 : 0) + attendantsCount) * 50.0;
   }
 
   /// Calculates a planned stay estimate using the same daily rates as the
@@ -202,11 +216,5 @@ class PricingHelper {
           bedsCount: bedsCount,
         ) *
         advanceDays;
-  }
-
-  static int _count(Map<String, dynamic>? pricing, String key, int fallback) {
-    final value = pricing?[key];
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 }

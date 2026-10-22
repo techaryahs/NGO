@@ -19,7 +19,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
   final TextEditingController generalBedPriceController =
       TextEditingController();
 
-  int privateIncludedAttendants = 1;
+  static const privateIncludedAttendants = 1;
   int privateMaxAttendants = 5;
   int generalDefaultBeds = 4;
   int generalMaxAttendants = 2;
@@ -51,8 +51,6 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
             pricing['privateRoomExtraAttendantFee'].toString();
         generalBedPriceController.text = pricing['generalRoomBedPrice']
             .toString();
-        privateIncludedAttendants =
-            pricing['privateRoomIncludedAttendants'] ?? 1;
         privateMaxAttendants = pricing['privateRoomMaxAttendants'] ?? 5;
         generalDefaultBeds = pricing['generalRoomDefaultBeds'] ?? 4;
         generalMaxAttendants = pricing['generalRoomMaxAttendants'] ?? 2;
@@ -235,13 +233,14 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           ),
                           const SizedBox(height: 8),
                           TextField(
+                            readOnly: true,
                             controller: privateBasePriceController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [
                               FilteringTextInputFormatter.digitsOnly,
                             ],
                             decoration: InputDecoration(
-                              hintText: "600",
+                              hintText: "700",
                               prefixText: "₹ ",
                               hintStyle: const TextStyle(
                                 color: Color(0xFF97C459),
@@ -279,24 +278,8 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [1, 2, 3].map((count) {
-                              return Expanded(
-                                child: Padding(
-                                  padding: EdgeInsets.only(
-                                    right: count < 3 ? 8 : 0,
-                                  ),
-                                  child: _CountChip(
-                                    count: count,
-                                    isSelected:
-                                        privateIncludedAttendants == count,
-                                    onTap: () => setState(
-                                      () => privateIncludedAttendants = count,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                          const Text(
+                            'One attendant is included with one Private patient.',
                           ),
                           const SizedBox(height: 16),
 
@@ -312,6 +295,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           ),
                           const SizedBox(height: 8),
                           TextField(
+                            readOnly: true,
                             controller: privateExtraAttendantController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [
@@ -427,6 +411,7 @@ class _PricingSettingsDialogState extends State<PricingSettingsDialog> {
                           ),
                           const SizedBox(height: 8),
                           TextField(
+                            readOnly: true,
                             controller: generalBedPriceController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [

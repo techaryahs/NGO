@@ -100,7 +100,7 @@ class StayModel {
 
   /// Uses expected discharge date plus extensions to determine effective expiry.
   DateTime get effectiveExpiryDate {
-    return expectedDischargeDate.add(Duration(days: totalExtendedDays));
+    return expectedDischargeDate;
   }
 
   bool get isExpired => DateTime.now().isAfter(effectiveExpiryDate);

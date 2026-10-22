@@ -61,15 +61,15 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         expect(before.statusCode).toBe(200);
         expect(before.json().patient).toMatchObject({ advanceBilledAmount: 2000, refundDueAmount: 600 });
         expect((await send('POST', '/payments', { id: 'returned400', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -400, method: 'cash' })).statusCode).toBe(201);
-        expect((await send('POST', '/patients/p1/discharge', {})).statusCode).toBe(409);
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
         expect((await query("SELECT status FROM stays WHERE id='s_p1'")).rows[0].status).toBe('active');
         const refund = { id: 'returned200', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -200, method: 'cash' };
         expect((await send('POST', '/payments', refund)).statusCode).toBe(201);
         expect((await send('POST', '/payments', refund)).statusCode).toBe(200);
-        const done = await send('POST', '/patients/p1/discharge', {});
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) });
         expect(done.statusCode).toBe(200);
         expect(done.json().patient).toMatchObject({ status: 'discharged', advanceBilledAmount: 2000, totalPaidAmount: 2000, totalRefundedAmount: 600, refundDueAmount: 0 });
-        expect((await send('POST', '/patients/p1/discharge', {})).statusCode).toBe(200);
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(200);
         expect((await query("SELECT current_stay_id,status FROM room_beds WHERE id='b1'")).rows[0]).toMatchObject({ current_stay_id: null, status: 'available' });
         expect((await query("SELECT occupied_beds FROM rooms WHERE id='r1'")).rows[0].occupied_beds).toBe(0);
     });
@@ -104,7 +104,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
             await client.query('BEGIN');
             await client.query("SELECT id FROM patients WHERE id='p1' FOR UPDATE");
             const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
-            pending = send('POST', '/patients/p1/discharge', {}).then(r => r);
+            pending = send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) }).then(r => r);
             let blocked = false;
             for (let i = 0; i < 200; i++) {
                 blocked = (await query('SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS waiting', [pid])).rows[0].waiting;
@@ -132,7 +132,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         await markedAndPaid();
         await query("CREATE FUNCTION settlement_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic bed failure'; END $$; CREATE TRIGGER settlement_fail BEFORE UPDATE ON room_beds FOR EACH ROW EXECUTE FUNCTION settlement_fail()");
         try {
-            expect((await send('POST', '/patients/p1/discharge', {})).statusCode).toBe(500);
+            expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) + 60000 })).statusCode).toBe(500);
             expect((await query("SELECT status FROM patients WHERE id='p1'")).rows[0].status).toBe('active');
             expect((await query("SELECT status FROM stays WHERE id='s_p1'")).rows[0].status).toBe('active');
             expect((await query("SELECT current_patient_id FROM room_beds WHERE id='b1'")).rows[0].current_patient_id).toBe('p1');
@@ -152,7 +152,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         const marked = (await send('GET', '/patients/p1/financials')).json().patient;
         expect(marked).toMatchObject({ advanceBilledAmount: 2000, totalPresentDays: 10, totalAbsentDays: 3, refundDueAmount: 600 });
         await send('POST', '/payments', { id: 'refund', patientId: 'p1', cycleId: cycle, amount: -600, type: 'refund', method: 'cash' });
-        const done = await send('POST', '/patients/p1/discharge', {});
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) });
         expect(done.statusCode).toBe(200);
         expect(done.json().patient).toMatchObject({ advanceBilledAmount: 2000, totalPaidAmount: 2000, refundDueAmount: 0 });
     });
@@ -171,9 +171,206 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('legacy-paid','p1',$1,'payment',2600,CURRENT_TIMESTAMP),('legacy-refund','p1',$1,'refund',-600,CURRENT_TIMESTAMP)",[cycle]);
       const before=(await query("SELECT row_to_json(p) data FROM patients p WHERE id='p1'")).rows[0].data;
       expect((await send('GET','/patients/p1/financials')).json().patient).toMatchObject({advanceBilledAmount:2000,totalPaidAmount:2000,refundDueAmount:0});
+      expect((await send('GET',`/patients/p1/financials?checkoutAt=${Date.parse('2026-11-01T04:00:00Z')}`)).json().patient.advanceBilledAmount).toBe(2000);
       expect((await send('POST','/payments',{id:'over-refund',patientId:'p1',cycleId:cycle,type:'refund',amount:-200})).statusCode).toBe(409);
       expect((await query("SELECT row_to_json(p) data FROM patients p WHERE id='p1'")).rows[0].data).toEqual(before);
       expect((await query("SELECT total_cost::text FROM stays WHERE id='s_p1'")).rows[0].total_cost).toBe('2400.00');
     });
 
+    const at = (day: number, hour = 3, minute = 30) => new Date(Date.UTC(2026, 0, day, hour, minute));
+    async function syntheticAdmission(options: { days?: number; category?: string; attendants?: any[]; beds?: number } = {}) {
+      const days = options.days ?? 7;
+      const start = at(1, 0, 0).toISOString();
+      const planned = at(days).toISOString();
+      const id = 'p1';
+      if (options.category === 'private') await query("UPDATE rooms SET room_type='private' WHERE id='r1'");
+      const response = await send('POST', '/patients/register', {
+        ...patient(id), admissionDate: start, registrationDate: start, exitDate: planned,
+        attendants: options.attendants ?? [],
+        stays: Array.from({ length: options.beds ?? 1 }, (_, index) => ({
+          ...placement(`s${index + 1}`, id, `b${index + 1}`), admissionDate: start,
+          durationDays: days, expectedDischargeDate: at(days + 1).toISOString(), cycleId: String(Date.parse(start)),
+        })),
+      });
+      expect(response.statusCode, response.body).toBe(201);
+      return { cycle: String(Date.parse(start)), planned, attendants: response.json().patient.attendants };
+    }
+    async function markPatient(days: number, status = 'Present') {
+      for (let day = 1; day <= days; day++) expect((await send('POST', '/attendance', {
+        patientId: 'p1', date: at(day).toISOString().slice(0, 10), payload: { status },
+      })).statusCode).toBe(200);
+    }
+    async function pay(amount: number, cycleId: string, id = 'approved-payment') {
+      const result = await send('POST', '/payments', { id, patientId: 'p1', cycleId, amount, method: 'cash' });
+      expect(result.statusCode, result.body).toBe(201);
+    }
+    it.each([
+      [7, 3, 29, 1200, 0], [7, 3, 30, 1200, 0], [7, 3, 31, 1400, 200],
+      [30, 3, 31, 6000, 200], [60, 3, 31, 12000, 200],
+      [61, 3, 31, 12250, 250], [61, 3, 29, 12000, 0], [61, 3, 30, 12000, 0],
+    ])('General day %i checkout %i:%i UTC has total ₹%i and adjustment ₹%i exactly once', async (days, hour, minute, total, adjustment) => {
+      const fixture = await syntheticAdmission({ days });
+      await markPatient(days);
+      const checkoutAt = at(days, hour, minute).getTime();
+      const preview = await send('GET', `/patients/p1/financials?checkoutAt=${checkoutAt}`);
+      expect(preview.statusCode, preview.body).toBe(200);
+      expect(preview.json().patient.advanceBilledAmount).toBe(total);
+      expect((await send('POST', '/patients/p1/recalculate-billing', { checkoutAt })).statusCode).toBe(200);
+      await pay(total, fixture.cycle);
+      expect((await send('GET', '/patients/p1/financials')).json().patient).toMatchObject({ advanceBilledAmount: total, currentDueAmount: 0, refundDueAmount: 0 });
+      const discharged = await send('POST', '/patients/p1/discharge', { checkoutAt });
+      expect(discharged.statusCode, discharged.body).toBe(200);
+      expect(discharged.json().patient).toMatchObject({ status: 'discharged', exitDate: Date.parse(fixture.planned), dischargeDate: checkoutAt,
+        advanceBilledAmount: total, totalPaidAmount: total, currentDueAmount: 0, refundDueAmount: 0 });
+      const first = (await query("SELECT row_to_json(s) AS data FROM stays s WHERE patient_id='p1'")).rows;
+      const final = (await send('GET', '/patients/p1/financials')).json();
+      expect(final.patient.advanceBilledAmount).toBe(total);
+      expect(final.patient.admissionBalances[fixture.cycle].total).toBe(total);
+      const summary = first[0].data.billing_summary;
+      expect(summary.checkoutAdjustment?.amount ?? 0).toBe(adjustment);
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt: checkoutAt + 60000 })).statusCode).toBe(200);
+      expect((await query("SELECT row_to_json(s) AS data FROM stays s WHERE patient_id='p1'")).rows).toEqual(first);
+      expect((await query("SELECT id FROM payments WHERE patient_id='p1'")).rows).toHaveLength(1);
+      expect((await query("SELECT status,current_stay_id FROM room_beds WHERE id='b1'")).rows[0]).toMatchObject({ status: 'available', current_stay_id: null });
+    });
+    it('patient and attendant attendance are independent and nested IDs with the same name remain distinct', async () => {
+      const fixture = await syntheticAdmission({ days: 1, attendants: [{ name: 'Same Name' }, { name: 'Same Name' }] });
+      expect(new Set(fixture.attendants.map((a: any) => a.id)).size).toBe(2);
+      await markPatient(1, 'Absent');
+      const payload = Object.fromEntries(fixture.attendants.map((a: any) => [a.id, { attendantId: a.id, attendantName: a.name, status: 'Present' }]));
+      expect((await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload })).statusCode).toBe(200);
+      expect((await send('GET', '/patients/p1/financials')).json().patient.advanceBilledAmount).toBe(400);
+      payload[fixture.attendants[1].id].status = 'Absent';
+      await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload });
+      expect((await send('GET', '/patients/p1/financials')).json().patient.advanceBilledAmount).toBe(200);
+      await markPatient(1);
+      for (const a of fixture.attendants) payload[a.id].status = 'Absent';
+      await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload });
+      expect((await send('GET', '/patients/p1/financials')).json().patient.advanceBilledAmount).toBe(200);
+    });
+    it('pending patient or attendant attendance blocks finalization and preserves placement', async () => {
+      const fixture = await syntheticAdmission({ days: 1, attendants: [{ name: 'Required helper' }] });
+      const checkoutAt = at(1, 3, 31).getTime();
+      await pay(400, fixture.cycle);
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt })).statusCode).toBe(409);
+      await markPatient(1);
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt })).statusCode).toBe(409);
+      const helper = fixture.attendants[0];
+      await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Pending' } } });
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt })).statusCode).toBe(409);
+      expect((await query("SELECT status,current_patient_id FROM room_beds WHERE id='b1'")).rows[0]).toMatchObject({ status: 'occupied', current_patient_id: 'p1' });
+      await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } });
+      const result = await send('POST', '/patients/p1/discharge', { checkoutAt });
+      expect(result.statusCode, result.body).toBe(200);
+    });
+    it('General multiple allocated beds charge one patient and keep occupancy separate', async () => {
+      await syntheticAdmission({ days: 7, beds: 2 });
+      const bill = (await send('GET', '/patients/p1/financials')).json();
+      expect(bill.patient.advanceBilledAmount).toBe(1400);
+      expect(bill.stays.reduce((sum: number, stay: any) => sum + stay.totalCost, 0)).toBe(1400);
+      expect((await query("SELECT sum(total_cost)::text AS amount FROM stays WHERE patient_id='p1'")).rows[0].amount).toBe('1400.00');
+      expect((await query("SELECT occupied_beds FROM rooms WHERE id='r1'")).rows[0].occupied_beds).toBe(2);
+    });
+    it('Private reserves one patient base when absent, includes one attendant and charges only present extras', async () => {
+      const fixture = await syntheticAdmission({ days: 1, category: 'private', attendants: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] });
+      await markPatient(1, 'Absent');
+      const payload = Object.fromEntries(fixture.attendants.map((a: any, i: number) => [a.id, { attendantId: a.id, attendantName: a.name, status: i < 2 ? 'Present' : 'Absent' }]));
+      await send('POST', '/attendance', { patientId: 'p1', date: '2026-01-01', kind: 'attendant_attendance', payload });
+      const checkoutAt = at(1, 3, 31).getTime();
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${checkoutAt}`)).json().patient.advanceBilledAmount).toBe(900);
+      await pay(900, fixture.cycle);
+      const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.json().patient.advanceBilledAmount).toBe(900);
+    });
+    it('General-to-Private transfer owns its date once, retains threshold and persists totals atomically', async () => {
+      await syntheticAdmission({ days: 70 });
+      await send('POST', '/rooms', { id: 'r_private', roomNumber: 'Private', roomType: 'private', beds: [{ id: 'pb1', bedLabel: 'P1' }] });
+      const transfer = { requestId: 'transfer-approved', expectedStayIds: ['s1'], roomId: 'r_private', roomNumber: 'Private', roomType: 'private', bedId: 'pb1', shiftedAt: at(61).getTime(), exitDate: at(70).getTime() };
+      const response = await send('POST', '/patients/p1/transfer', transfer);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().patient.advanceBilledAmount).toBe(21000);
+      const before = (await query("SELECT id,total_cost::text,billing_summary FROM stays WHERE patient_id='p1' ORDER BY id")).rows;
+      expect(before.reduce((sum, stay) => sum + Number(stay.total_cost), 0)).toBe(21000);
+      expect(before.reduce((sum, stay) => sum + stay.billing_summary.days, 0)).toBe(70);
+      expect((await send('POST', '/patients/p1/transfer', transfer)).statusCode).toBe(200);
+      expect((await query("SELECT id,total_cost::text,billing_summary FROM stays WHERE patient_id='p1' ORDER BY id")).rows).toEqual(before);
+    });
+    it.each([true, false])('atomic rejoin confirmed=%s preserves financial history and retries without duplicate stays', async confirmed => {
+      const old = await syntheticAdmission({ days: 1 });
+      await markPatient(1);
+      await pay(200, old.cycle);
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt: at(1, 3, 31).getTime() })).statusCode).toBe(200);
+      const oldStay = (await query("SELECT row_to_json(s) AS data FROM stays s WHERE id='s1'")).rows[0].data;
+      const receipts = (await query("SELECT row_to_json(p) AS data FROM payments p WHERE patient_id='p1' ORDER BY id")).rows;
+      const saved = (await query("SELECT admission_balances FROM patients WHERE id='p1'")).rows[0].admission_balances[old.cycle];
+      const request = { requestId: `rejoin-${confirmed}`, admissionDate: at(10).getTime(), exitDate: confirmed ? at(16).getTime() : null,
+        exitDateUnconfirmed: !confirmed, roomId: 'r1', roomNumber: 'R1', roomType: 'general', bedId: 'b1', durationDays: 7 };
+      const responses = await Promise.all([send('POST', '/patients/p1/rejoin', request), send('POST', '/patients/p1/rejoin', request)]);
+      expect(responses.map(r => r.statusCode).sort()).toEqual([200, 201]);
+      const current = (await send('GET', '/patients/p1')).json();
+      expect(current).toMatchObject({ status: 'active', registrationNumber: 'p1', admissionDate: request.admissionDate, exitDate: request.exitDate });
+      expect(current.admissionBalances[old.cycle]).toEqual(saved);
+      expect((await query("SELECT id FROM stays WHERE patient_id='p1' AND status='active'")).rows).toHaveLength(1);
+      expect((await query("SELECT row_to_json(s) AS data FROM stays s WHERE id='s1'")).rows[0].data).toEqual(oldStay);
+      expect((await query("SELECT row_to_json(p) AS data FROM payments p WHERE patient_id='p1' ORDER BY id")).rows).toEqual(receipts);
+      expect((await query("SELECT current_patient_id FROM room_beds WHERE id='b1'")).rows[0].current_patient_id).toBe('p1');
+      expect((await send('POST', '/patients/p1/rejoin', { ...request, exitDate: at(17).getTime(), exitDateUnconfirmed: false })).statusCode).toBe(409);
+    });
+    it('rejoin bed conflict rolls back cycle, placement, stay and financial summaries together', async () => {
+      await syntheticAdmission({ days: 1 });
+      await markPatient(1);
+      await pay(200, String(at(1, 0, 0).getTime()));
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt: at(1, 3, 31).getTime() })).statusCode).toBe(200);
+      expect((await register('p2', 'b1')).statusCode).toBe(201);
+      const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data;
+      const result = await send('POST', '/patients/p1/rejoin', { requestId: 'failed-rejoin', admissionDate: at(10).getTime(), exitDate: null,
+        exitDateUnconfirmed: true, roomId: 'r1', roomNumber: 'R1', roomType: 'general', bedId: 'b1' });
+      expect(result.statusCode).toBe(409);
+      expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data).toEqual(before);
+      expect((await query("SELECT id FROM stays WHERE patient_id='p1'")).rows).toHaveLength(1);
+      expect((await query("SELECT current_patient_id FROM room_beds WHERE id='b1'")).rows[0].current_patient_id).toBe('p2');
+    });
+    it('legacy last-stay completion cannot bypass pending attendance or unsettled balances', async () => {
+      const fixture = await syntheticAdmission({ days: 1 });
+      const complete = { status: 'completed', completedAt: at(1, 3, 31).getTime() };
+      expect((await send('PUT', '/stays/s1', complete)).statusCode).toBe(409);
+      await markPatient(1);
+      expect((await send('PUT', '/stays/s1', complete)).statusCode).toBe(409);
+      expect((await query("SELECT status,current_patient_id FROM room_beds WHERE id='b1'")).rows[0]).toMatchObject({ status: 'occupied', current_patient_id: 'p1' });
+      await pay(200, fixture.cycle);
+      const done = await send('PUT', '/stays/s1', complete);
+      expect(done.statusCode, done.body).toBe(200);
+      expect((await send('GET', '/patients/p1')).json()).toMatchObject({ status: 'discharged', dischargeDate: complete.completedAt, currentDueAmount: 0 });
+    });
+    it('generic patient edits and stay creation cannot bypass the explicit admission lifecycle', async () => {
+      expect((await send('POST', '/patients', patient())).statusCode).toBe(201);
+      expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
+      expect((await send('PUT', '/patients/p1', { status: 'discharged', dischargeDate: Date.parse(exit) })).statusCode).toBe(409);
+      expect((await query("SELECT status FROM patients WHERE id='p1'")).rows[0].status).toBe('active');
+      await query("UPDATE patients SET status='discharged',discharge_date=$1 WHERE id='p1'", [exit]);
+      const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data;
+      expect((await send('PUT', '/patients/p1', { status: 'active', admissionDate: at(10).getTime() })).statusCode).toBe(409);
+      expect((await send('POST', '/stays', placement())).statusCode).toBe(409);
+      expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data).toEqual(before);
+      expect((await query("SELECT id FROM stays WHERE patient_id='p1'")).rows).toHaveLength(0);
+    });
+    it.each([['general', 1400, 400, 1000], ['private', 4900, 1400, 3500]])('early %s checkout preview authorizes the exact refund and survives its ledger write', async (category, advance, refundAmount, finalAmount) => {
+      const fixture = await syntheticAdmission({ days: 7, category: String(category) });
+      await markPatient(5);
+      await pay(Number(advance), fixture.cycle);
+      const refund = { id: 'early-return', patientId: 'p1', cycleId: fixture.cycle, amount: -Number(refundAmount), type: 'refund', method: 'cash' };
+      expect((await send('POST', '/payments', refund)).statusCode).toBe(409);
+      const checkoutAt = at(5, 3, 31).getTime();
+      const recalculated = await send('POST', '/patients/p1/recalculate-billing', { checkoutAt });
+      expect(recalculated.statusCode, recalculated.body).toBe(200);
+      expect(recalculated.json().patient).toMatchObject({ advanceBilledAmount: Number(finalAmount), refundDueAmount: Number(refundAmount) });
+      const returned = await send('POST', '/payments', refund);
+      expect(returned.statusCode, returned.body).toBe(201);
+      expect((await send('GET', '/patients/p1/financials')).json().patient).toMatchObject({ advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
+      const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.json().patient).toMatchObject({ exitDate: Date.parse(fixture.planned), dischargeDate: checkoutAt,
+        advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
+    });
 });

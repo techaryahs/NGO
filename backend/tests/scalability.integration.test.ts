@@ -12,7 +12,7 @@ import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 const enabled = process.env.RUN_SCALE_INTEGRATION === '1';
 describe.skipIf(!enabled)('bounded synthetic PostgreSQL scalability evidence', () => {
   const app = buildApp({ logger: false });
-  const artifactDir = new URL('../../audit/code-workflow-20261018/', import.meta.url);
+  const artifactDir = new URL('../../audit/client-billing-20261022/', import.meta.url);
   const stages: any[] = [];
   let authHeaders: { authorization: string };
   let safeTargetVerified = false;

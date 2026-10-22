@@ -1,5 +1,8 @@
+import 'dart:math';
+
 /// AttendantModel — RTDB-compatible data model for patient attendants.
 class AttendantModel {
+  final String? id;
   final String name;
   final String? age;
   final String? relation;
@@ -12,6 +15,7 @@ class AttendantModel {
   final bool isEmergencyContact;
 
   AttendantModel({
+    this.id,
     required this.name,
     this.age,
     this.relation,
@@ -24,6 +28,7 @@ class AttendantModel {
 
   Map<String, dynamic> toMap() {
     return {
+      if (id != null) 'id': id,
       'name': name,
       'age': age,
       'relation': relation,
@@ -36,6 +41,7 @@ class AttendantModel {
 
   factory AttendantModel.fromMap(Map<dynamic, dynamic> data) {
     return AttendantModel(
+      id: data['id']?.toString(),
       name: data['name']?.toString() ?? '',
       age: data['age']?.toString(),
       relation: data['relation']?.toString(),
@@ -47,17 +53,21 @@ class AttendantModel {
     );
   }
 
+  static String generateId() =>
+      'att_${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(0x7fffffff).toRadixString(16)}';
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is AttendantModel &&
+        other.id == id &&
         other.name == name &&
         other.age == age &&
         other.relation == relation;
   }
 
   @override
-  int get hashCode => name.hashCode ^ age.hashCode ^ relation.hashCode;
+  int get hashCode => Object.hash(id, name, age, relation);
 }
 
 /// PaymentModel — Represents a single payment transaction.

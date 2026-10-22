@@ -19,6 +19,9 @@ class AttendanceRow {
   final String patientName;
   final String? registrationNumber;
   final String? attendantName;
+  final String? attendantId;
+  final bool allowLegacyNameFallback;
+  final bool identityUnresolved;
   final String room;
   final List<AttendanceInterval> intervals;
   const AttendanceRow({
@@ -26,13 +29,18 @@ class AttendanceRow {
     required this.patientName,
     this.registrationNumber,
     this.attendantName,
+    this.attendantId,
+    this.allowLegacyNameFallback = true,
+    this.identityUnresolved = false,
     required this.room,
     required this.intervals,
   });
   bool get isAttendant => attendantName != null;
   String get name => attendantName ?? patientName;
   String get displayName {
-    if (isAttendant) return attendantName!;
+    if (isAttendant) {
+      return '$attendantName${identityUnresolved ? ' (identity Pending)' : ''}';
+    }
     if (registrationNumber != null && registrationNumber!.trim().isNotEmpty) {
       return '$patientName (#$registrationNumber)';
     }
@@ -40,11 +48,12 @@ class AttendanceRow {
   }
 
   bool enabled(DateTime date) =>
+      !identityUnresolved &&
       intervals.any((interval) => interval.contains(StayBilling.day(date)));
   String path(DateTime date) {
     final key = StayBilling.dateKey(date);
     if (!isAttendant) return 'attendance/daily/$key/$patientId';
-    return 'attendant_attendance/daily/$key/$patientId/${safeKey(attendantName!)}';
+    return 'attendant_attendance/daily/$key/$patientId/${safeKey(attendantId ?? attendantName!)}';
   }
 
   static String safeKey(String name) =>
@@ -89,11 +98,31 @@ class MonthlyAttendanceData {
     for (final patient in sorted) {
       final intervals = <AttendanceInterval>[];
       final attendantIntervals = <String, List<AttendanceInterval>>{};
+      final attendantNames = <String, String>{};
+      Map<String, String> rosterMap(Iterable<Map> raw) {
+        final people = raw.toList();
+        return {
+          for (var index = 0; index < people.length; index++)
+            if (people[index]['name'] != null)
+              (people[index]['id'] ??
+                      (people
+                                  .where(
+                                    (p) => p['name'] == people[index]['name'],
+                                  )
+                                  .length >
+                              1
+                          ? 'unresolved_${index}_${people[index]['name']}'
+                          : people[index]['name']))
+                  .toString(): people[index]['name']
+                  .toString(),
+        };
+      }
+
       final rooms = <String>{};
       void include(
         DateTime start,
         DateTime end,
-        Iterable<String> names,
+        Map<String, String> people,
         String room,
       ) {
         final period = PricingHelper.attendancePeriod(start, end);
@@ -103,8 +132,11 @@ class MonthlyAttendanceData {
         }
         intervals.add(interval);
         if (room.isNotEmpty) rooms.add(room);
-        for (final name in names.where((name) => name.trim().isNotEmpty)) {
-          attendantIntervals.putIfAbsent(name, () => []).add(interval);
+        for (final person in people.entries.where(
+          (person) => person.value.trim().isNotEmpty,
+        )) {
+          attendantNames[person.key] = person.value;
+          attendantIntervals.putIfAbsent(person.key, () => []).add(interval);
         }
       }
 
@@ -123,17 +155,17 @@ class MonthlyAttendanceData {
                   (current ? patient.dischargeDate : null) ??
                   stay.updatedAt;
         final snapshot = stay.patientSnapshot['attendants'];
-        final names = <String>{
-          if (snapshot is List)
-            for (final item in snapshot)
-              if (item is Map && item['name'] != null) item['name'].toString(),
-          if (current && snapshot is! List)
-            ...?patient.attendants?.map((a) => a.name),
-          if (snapshot is! List && !current)
-            ...stay.attendantLabels.map(
-              (name) => name.replaceFirst(RegExp(r' \(.*\)$'), ''),
-            ),
-        };
+        final names = rosterMap(
+          snapshot is List
+              ? snapshot.whereType<Map>()
+              : current
+              ? (patient.attendants ?? <AttendantModel>[]).map((a) => a.toMap())
+              : stay.attendantLabels.map(
+                  (name) => {
+                    'name': name.replaceFirst(RegExp(r' \(.*\)$'), ''),
+                  },
+                ),
+        );
         include(stay.admissionDate, end, names, stay.roomNumber);
       }
       if (patientStays.isEmpty) {
@@ -142,7 +174,9 @@ class MonthlyAttendanceData {
           patient.status.toLowerCase() == 'discharged'
               ? patient.dischargeDate ?? patient.exitDate ?? today
               : patient.exitDate ?? today,
-          patient.attendants?.map((a) => a.name) ?? const <String>[],
+          rosterMap(
+            (patient.attendants ?? <AttendantModel>[]).map((a) => a.toMap()),
+          ),
           patient.roomNumber ?? patient.lobby ?? '',
         );
       }
@@ -150,16 +184,21 @@ class MonthlyAttendanceData {
       // Historical attendance may contain an attendant no longer in today's roster.
       for (final entry in records.entries) {
         final parts = entry.key.split('/');
-        if (parts.first != 'attendant_attendance' || parts[3] != patient.id) {
+        if (parts.length < 5 ||
+            parts.first != 'attendant_attendance' ||
+            parts[3] != patient.id) {
           continue;
         }
         final date = DateTime.tryParse(parts[2]);
         final name = entry.value['attendantName']?.toString();
+        final identity = entry.value['attendantId']?.toString() ?? parts[4];
         if (date != null &&
             name != null &&
-            !attendantIntervals.containsKey(name) &&
+            !attendantIntervals.containsKey(identity) &&
+            !attendantNames.containsValue(name) &&
             intervals.any((interval) => interval.contains(date))) {
-          attendantIntervals[name] = intervals;
+          attendantIntervals[identity] = intervals;
+          attendantNames[identity] = name;
         }
       }
       final room = rooms.join(', ');
@@ -178,7 +217,16 @@ class MonthlyAttendanceData {
             patientId: patient.id,
             patientName: patient.fullName,
             registrationNumber: patient.registrationNumber,
-            attendantName: entry.key,
+            attendantName: attendantNames[entry.key] ?? entry.key,
+            attendantId: entry.key == attendantNames[entry.key]
+                ? null
+                : entry.key,
+            identityUnresolved: entry.key.startsWith('unresolved_'),
+            allowLegacyNameFallback:
+                attendantNames.values
+                    .where((name) => name == attendantNames[entry.key])
+                    .length ==
+                1,
             room: room,
             intervals: entry.value,
           ),
@@ -195,10 +243,14 @@ class MonthlyAttendanceEditor {
   final Map<String, Map<String, dynamic>> dirty = {};
   bool saving = false;
   MonthlyAttendanceEditor(this.data);
+  Map<String, dynamic>? _record(AttendanceRow row, DateTime date) =>
+      dirty[row.path(date)] ??
+      data.records[row.path(date)] ??
+      (row.isAttendant && row.attendantId != null && row.allowLegacyNameFallback
+          ? data.records['attendant_attendance/daily/${StayBilling.dateKey(date)}/${row.patientId}/${AttendanceRow.safeKey(row.attendantName!)}']
+          : null);
   String status(AttendanceRow row, DateTime date) =>
-      (dirty[row.path(date)] ?? data.records[row.path(date)])?['status']
-          ?.toString() ??
-      'Unmarked';
+      _record(row, date)?['status']?.toString() ?? 'Unmarked';
   bool isDirty(AttendanceRow row, DateTime date) =>
       dirty.containsKey(row.path(date));
   void edit(AttendanceRow row, DateTime date, String status) {
@@ -212,10 +264,11 @@ class MonthlyAttendanceEditor {
       return;
     }
     dirty[path] = {
-      ...?data.records[path],
+      ...?_record(row, date),
       'patientId': row.patientId,
       'patientName': row.patientName,
       if (row.isAttendant) 'attendantName': row.attendantName,
+      if (row.attendantId != null) 'attendantId': row.attendantId,
       'date': StayBilling.dateKey(date),
       'status': status,
       'source': 'manual',

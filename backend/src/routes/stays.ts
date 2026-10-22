@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { httpError } from '../validation.js';
 import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { z } from 'zod';
-import { persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
+import { approvedPricing, persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
+import { finalizeDischarge } from '../services/discharge.js';
 
 export interface RawStayRow {
   id: string;
@@ -136,6 +137,7 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   }
 
   const active = !body.status || body.status === 'active';
+  if (active && patient.status === 'discharged') throw httpError(409, 'Create a new admission through the rejoin workflow');
   if (active && (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active' AND room_id<>$2", [body.patientId, body.roomId])).rowCount) throw httpError(409, 'Complete the current room placement before moving rooms');
   if (active && ['maintenance','cleaning','unavailable'].includes(room.status)) throw httpError(409, 'Room is unavailable');
   if (active && (room.room_type === 'private' || room.room_type === 'lobby') && (await client.query("SELECT id FROM stays WHERE room_id=$1 AND status='active' AND patient_id<>$2", [body.roomId, body.patientId])).rowCount) {
@@ -150,6 +152,11 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   body.patientName = patient.full_name;
   body.roomNumber = room.room_number;
   body.roomType = room.room_type;
+  const attendants = (await client.query('SELECT id,name,relation FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [body.patientId])).rows;
+  body.patientSnapshot = { ...body.patientSnapshot, admissionDate: new Date(patient.admission_date).getTime(),
+    attendants: active ? attendants : body.patientSnapshot?.attendants ?? attendants };
+  body.cycleId ??= String(new Date(patient.admission_date).getTime());
+  if (active) body.billingSummary = { ...body.billingSummary, pricing: approvedPricing({}) };
   const res = await client.query<RawStayRow>(
     `INSERT INTO stays (
       id, patient_id, patient_name, patient_snapshot, room_id, room_number,
@@ -305,8 +312,10 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     try {
       await client.query('BEGIN');
       const created = await insertStayWithClient(client, body, user.id);
+      const patient = (await client.query('SELECT * FROM patients WHERE id=$1', [created.patient_id])).rows[0];
+      const projection = await persistBilling(client, await projectBilling(client, patient));
       await client.query('COMMIT');
-      return reply.status(201).send(formatStay(created));
+      return reply.status(201).send(formatStay(projection.stays.find(s => s.id === created.id) ?? created));
     } catch (err: unknown) {
       await client.query('ROLLBACK');
       throw err;
@@ -326,6 +335,14 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
       for (const item of body.stays) {
         const row = await insertStayWithClient(client, item, user.id);
         created.push(formatStay(row));
+      }
+      for (const patientId of [...new Set(body.stays.map(s => s.patientId))]) {
+        const patient = (await client.query('SELECT * FROM patients WHERE id=$1', [patientId])).rows[0];
+        const projection = await persistBilling(client, await projectBilling(client, patient));
+        for (let i = 0; i < created.length; i++) {
+          const authoritative = projection.stays.find(s => s.id === created[i].id);
+          if (authoritative) created[i] = formatStay(authoritative);
+        }
       }
       await client.query('COMMIT');
       return reply.status(201).send({ stays: created, ids: created.map(s => s.id) });
@@ -349,6 +366,11 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     await client.query('SELECT id FROM rooms WHERE id=$1 FOR UPDATE', [original.room_id]);
     const old = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1 FOR UPDATE', [id])).rows[0];
     if (!old) throw httpError(404, 'Stay not found');
+    if (old.status === 'active' && body.status === 'completed' && !(await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active' AND id<>$2", [old.patient_id, id])).rowCount) {
+      const projection = await finalizeDischarge(client, patient, new Date(body.completedAt ?? Date.now()));
+      await client.query('COMMIT');
+      return reply.send(formatStay(projection.stays.find(s => s.id === id)!));
+    }
     if (body.additionalDays !== undefined) {
       const extension = z.object({ additionalDays: z.number().int().min(1).max(3650),
         extensionRequestId: z.string().min(1).max(128), reason: z.string().max(2000).default('') }).safeParse(body);
@@ -453,7 +475,7 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     let responseStay = res.rows[0];
     if (extending) {
       const currentPatient = (await client.query('SELECT * FROM patients WHERE id=$1', [old.patient_id])).rows[0];
-      const projection = await persistBilling(client, await projectBilling(client, currentPatient));
+      const projection = await persistBilling(client, await projectBilling(client, currentPatient, { ignoreCheckout: true }));
       responseStay = projection.stays.find(stay => stay.id === id) ?? responseStay;
     }
     await client.query('COMMIT');

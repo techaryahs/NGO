@@ -18,6 +18,7 @@ import 'package:ngo/services/payment_service.dart';
 import 'package:ngo/services/registration_number_service.dart';
 import 'package:ngo/services/service_locator.dart';
 import 'package:ngo/utils/stay_billing.dart';
+import 'package:ngo/utils/pricing_helper.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -542,6 +543,198 @@ void main() {
     ServiceLocator().dispose();
     dotenv.loadFromString(isOptional: true, envString: '');
   });
+
+  test(
+    'client billing exposure audit validates the disposable schema without modifying records',
+    () async {
+      final source = await File(
+        p.join(
+          Directory.current.path,
+          'audit',
+          'client-billing-20261022',
+          'historical-billing-exposure.sql',
+        ),
+      ).readAsString();
+      final select = source
+          .split('-- CLIENT_BILLING_AUDIT_BEGIN')
+          .last
+          .split('-- CLIENT_BILLING_AUDIT_END')
+          .first
+          .trim();
+      expect((await queryRows(select)).single, {
+        'stays_examined': 0,
+        'duration_double_count_candidates': 0,
+        'duplicate_attendant_name_groups': 0,
+        'individual_attendant_payloads': 0,
+        'nested_attendant_payloads': 0,
+        'discharged_without_actual_timestamp': 0,
+        'actual_equals_planned_candidates': 0,
+        'finalized_segment_summary_mismatch': 0,
+      });
+    },
+  );
+
+  for (final scenario in [
+    (category: 'general', days: 70, beds: 2, late: false, estimate: 14500.0, finalAmount: 14250.0),
+    (category: 'private', days: 70, beds: 1, late: false, estimate: 51000.0, finalAmount: 50100.0),
+    (category: 'general', days: 61, beds: 1, late: true, estimate: 12250.0, finalAmount: 12250.0),
+  ]) {
+    test(
+      'Flutter ${scenario.category} estimate, stored costs and final invoice agree at day ${scenario.days} with ${scenario.beds} beds and late=${scenario.late}',
+      () async {
+        final admission = DateTime(2026, 1, 1);
+        final planned = DateTime(2026, 1, scenario.days, 9);
+        final checkout = DateTime(
+          2026,
+          1,
+          scenario.days,
+          9,
+          scenario.late ? 1 : 0,
+        );
+        await backendApi.updateSettingsCategory('pricing', {
+          'generalRoomBedPrice': 350,
+          'privateRoomBasePrice': 1100,
+          'privateRoomExtraAttendantFee': 450,
+          'privateRoomIncludedAttendants': 2,
+        });
+        await roomService.addRoom(
+          id: 'approved_room',
+          roomNumber: 'Approved QA',
+          roomIdentifier: '1A',
+          floor: 1,
+          roomType: scenario.category,
+          totalBeds: scenario.beds,
+          bedLabels: List.generate(
+            scenario.beds,
+            (index) => 'Approved${index + 1}',
+          ),
+        );
+        final room = (await roomService.getRoomDirect('approved_room'))!;
+        final estimate = PricingHelper.calculateProjectedStayCost(
+          scenario.category == 'private',
+          0,
+          scenario.days,
+          bedsCount: scenario.beds,
+          pricing: await roomService.getPricing(),
+        );
+        expect(estimate, scenario.estimate);
+        await patientService.addPatient(
+          id: 'approved_patient',
+          fullName: 'Synthetic approved billing',
+          dateOfBirth: DateTime(1990),
+          gender: 'Other',
+          contactNumber: '000',
+          emergencyContact: '000',
+          emergencyContactName: 'Synthetic',
+          medicalCondition: 'Synthetic',
+          admissionDate: admission,
+          exitDate: planned,
+          registrationNumber: 'approved_patient',
+          createdBy: 'test-uid-admin',
+          initialStays: [
+            for (var index = 0; index < scenario.beds; index++)
+              {
+                'id': 'approved_stay_$index',
+                'roomId': room.id,
+                'bedId': room.beds[index].id,
+                'admissionDate': admission.millisecondsSinceEpoch,
+                'durationDays': scenario.days,
+                'expectedDischargeDate': DateTime(
+                  2026,
+                  1,
+                  scenario.days + 1,
+                  9,
+                ).millisecondsSinceEpoch,
+                'billingSummary': {
+                  'pricing': {
+                    'generalRoomBedPrice': 350,
+                    'privateRoomBasePrice': 1100,
+                    'privateRoomExtraAttendantFee': 450,
+                    'privateRoomIncludedAttendants': 2,
+                  },
+                },
+              },
+          ],
+        );
+        expect(
+          (await queryRows(
+            "SELECT sum(total_cost)::text AS total FROM stays WHERE patient_id='approved_patient'",
+          )).single['total'],
+          scenario.estimate.toStringAsFixed(2),
+        );
+        for (var day = 1; day <= scenario.days; day++) {
+          await backendApi.postAttendance(
+            kind: 'attendance',
+            date: StayBilling.dateKey(DateTime(2026, 1, day)),
+            patientId: 'approved_patient',
+            payload: {'status': 'Present'},
+          );
+        }
+        final projected = await backendApi.financialSnapshot(
+          'approved_patient',
+          checkoutAt: checkout,
+        );
+        expect(
+          (projected['patient'] as Map)['advanceBilledAmount'],
+          scenario.finalAmount,
+        );
+        final readiness = await patientService.getDischargeReadiness(
+          'approved_patient',
+          checkoutAt: checkout,
+        );
+        expect(readiness['pending'], scenario.finalAmount);
+        await paymentService.recordPayment(
+          patientId: 'approved_patient',
+          patientName: 'Synthetic approved billing',
+          payment: PaymentModel(
+            id: 'approved_payment',
+            amount: scenario.finalAmount,
+            date: planned,
+            method: 'CASH',
+          ),
+        );
+        final settledPreview = await backendApi.financialSnapshot(
+          'approved_patient',
+        );
+        expect((settledPreview['patient'] as Map)['refundDueAmount'], 0);
+        expect(
+          (settledPreview['patient'] as Map)['advanceBilledAmount'],
+          scenario.finalAmount,
+        );
+        await patientService.dischargePatient(
+          'approved_patient',
+          checkoutAt: checkout,
+        );
+        final frozen = await backendApi.financialSnapshot('approved_patient');
+        final patient = Map<String, dynamic>.from(frozen['patient'] as Map);
+        expect(patient, containsPair('advanceBilledAmount', scenario.finalAmount));
+        expect(patient, containsPair('totalPaidAmount', scenario.finalAmount));
+        expect(patient, containsPair('currentDueAmount', 0));
+        expect(patient['exitDate'], planned.millisecondsSinceEpoch);
+        expect(patient['dischargeDate'], checkout.millisecondsSinceEpoch);
+        expect(
+          (await queryRows(
+            "SELECT sum(total_cost)::text AS total FROM stays WHERE patient_id='approved_patient'",
+          )).single['total'],
+          scenario.finalAmount.toStringAsFixed(2),
+        );
+        await patientService.dischargePatient(
+          'approved_patient',
+          checkoutAt: checkout,
+        );
+        expect(
+          (await queryRows(
+            "SELECT count(*)::int AS count FROM payments WHERE patient_id='approved_patient'",
+          )).single['count'],
+          1,
+        );
+        expect(
+          (await backendApi.financialSnapshot('approved_patient'))['patient'],
+          patient,
+        );
+      },
+    );
+  }
 
   test(
     'historical extension audit validates actual disposable schema read-only',
@@ -1870,8 +2063,10 @@ void main() {
       final attPayload = Map<String, dynamic>.from(
         pgAttendantRow['payload'] as Map,
       );
-      expect((attPayload['Mohan'] as Map)['status'], 'Present');
-      expect((attPayload['Sita'] as Map)['status'], 'Absent');
+      expect((attPayload[att1Row.attendantId] as Map)['status'], 'Present');
+      expect((attPayload[att2Row.attendantId] as Map)['status'], 'Absent');
+      expect(attPayload.keys, isNot(contains('Mohan')));
+      expect(attPayload.keys, isNot(contains('Sita')));
 
       // 3. Retrieve historical range via BackendApiService.getAttendanceRange and AttendanceService.loadMonth
       final rangeMap = await backendApi.getAttendanceRange(
@@ -2062,7 +2257,10 @@ void main() {
           payload: {'status': 'Present', 'date': day, 'source': 'manual'},
         );
       }
-      final readiness1 = await patientService.getDischargeReadiness(p1Id);
+      final readiness1 = await patientService.getDischargeReadiness(
+        p1Id,
+        checkoutAt: plannedExit,
+      );
       final pending1 = (readiness1['pending'] as num?)?.toDouble() ?? 0;
       if (pending1 > 0) {
         await paymentService.recordPayment(
@@ -2077,7 +2275,7 @@ void main() {
           ),
         );
       }
-      await patientService.dischargePatient(p1Id);
+      await patientService.dischargePatient(p1Id, checkoutAt: plannedExit);
 
       // Verify in PostgreSQL:
       // - Patient 1 is discharged, room_id cleared, bed1Id available
@@ -2429,7 +2627,7 @@ void main() {
       );
       final room = (await roomService.getRoomDirect('r_attendance_accuracy'))!;
       final admission = DateTime(2026, 4, 1, 8);
-      final exit = DateTime(2026, 4, 3, 9);
+      final exit = DateTime(2026, 4, 3, 9, 1);
       final stays = await roomService.buildRegistrationStaysPayload(
         patientId: 'p_attendance_accuracy',
         patientName: 'Synthetic attendance accuracy',
@@ -2458,14 +2656,6 @@ void main() {
       );
       await backendApi.updateSettingsCategory('pricing', {
         'generalRoomBedPrice': 200,
-      });
-      await roomService.completeStay(
-        stays.single['id'] as String,
-        completedAt: exit,
-      );
-      await backendApi.updatePatient('p_attendance_accuracy', {
-        'status': 'discharged',
-        'dischargeDate': exit.millisecondsSinceEpoch,
       });
       await paymentService.recalculatePatientAttendanceAndBilling(
         'p_attendance_accuracy',
@@ -2512,6 +2702,43 @@ void main() {
         )).single['count'],
         before,
       );
+      await mark('2026-04-03', 'Present', 400);
+      await paymentService.recordPayment(
+        patientId: 'p_attendance_accuracy',
+        patientName: 'Synthetic attendance accuracy',
+        payment: PaymentModel(
+          id: 'attendance_settlement',
+          amount: 400,
+          date: exit,
+          method: 'CASH',
+        ),
+      );
+      await roomService.completeStay(
+        stays.single['id'] as String,
+        completedAt: exit,
+      );
+      expect(
+        (await patientService.getPatient('p_attendance_accuracy'))!.status,
+        'discharged',
+      );
+      await backendApi.postAttendanceBulk(
+        kind: 'attendance',
+        date: '2026-04-01',
+        records: {
+          'p_attendance_accuracy': {
+            'status': 'Absent',
+            'patientId': 'p_attendance_accuracy',
+          },
+        },
+      );
+      await paymentService.recalculatePatientAttendanceAndBilling(
+        'p_attendance_accuracy',
+      );
+      final finalized = (await patientService.getPatient(
+        'p_attendance_accuracy',
+      ))!;
+      expect(finalized.advanceBilledAmount, 400);
+      expect(finalized.currentDueAmount, 0);
     },
   );
 
@@ -2771,7 +2998,10 @@ void main() {
           method: 'CASH',
         ),
       );
-      final readinessA = await patientService.getDischargeReadiness(patientAId);
+      final readinessA = await patientService.getDischargeReadiness(
+        patientAId,
+        checkoutAt: plannedExit,
+      );
       final remainingDueA = (readinessA['pending'] as num?)?.toDouble() ?? 0;
       if (remainingDueA > 0) {
         await paymentService.recordPayment(
@@ -2788,7 +3018,10 @@ void main() {
       }
 
       // Step 8: Discharge Patient A
-      await patientService.dischargePatient(patientAId);
+      await patientService.dischargePatient(
+        patientAId,
+        checkoutAt: plannedExit,
+      );
 
       // Step 9: Verify Bed 1 is available while Bed 2 remains occupied, and room occupancy count is 1
       final roomAfterADischarge = (await roomService.getRoomDirect(

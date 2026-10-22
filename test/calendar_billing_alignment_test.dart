@@ -224,7 +224,7 @@ void main() {
     });
   }
 
-  test('admin price changes flow through the real billing service', () async {
+  test('global settings cannot override the approved tariff', () async {
     final db = database();
     addTearDown(db.dispose);
     final service = PaymentService(db);
@@ -237,16 +237,16 @@ void main() {
           for (final key in productionAttendance().keys) key: 'Present',
         },
       );
-      expect(baseline['patients/$id/advanceBilledAmount'], 13 * rate);
-      expect(settled['patients/$id/advanceBilledAmount'], 8 * rate);
+      expect(baseline['patients/$id/advanceBilledAmount'], 13 * 200);
+      expect(settled['patients/$id/advanceBilledAmount'], 8 * 200);
       expect(
         baseline['patients/$id/advanceBilledAmount'] -
             settled['patients/$id/advanceBilledAmount'],
-        5 * rate,
+        5 * 200,
       );
       // Changing prices cannot increase the amount of a historical receipt.
       expect(settled['patients/$id/totalPaidAmount'], 2600);
-      expect(settled['patients/$id/refundDueAmount'], 2600 - 8 * rate);
+      expect(settled['patients/$id/refundDueAmount'], 2600 - 8 * 200);
     }
   });
 

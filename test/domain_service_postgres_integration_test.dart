@@ -56,42 +56,45 @@ void main() {
   }
 
   group('PatientService with PostgreSQL Backend', () {
-    test('getPatientsStream maps backend map response to Patient objects', () async {
-      final backend = createMockBackend((request) async {
-        if (request.url.path == '/api/patients') {
-          return http.Response(
-            json.encode({
-              'p_1': {
-                'id': 'p_1',
-                'fullName': 'Alice Wonderland',
-                'registrationNumber': '101',
-                'admissionDate': DateTime.now().toIso8601String(),
-                'status': 'active',
-                'dateOfBirth': '1990-01-01',
-                'gender': 'Female',
-                'contactNumber': '1234567890',
-                'emergencyContact': '9876543210',
-                'emergencyContactName': 'Bob',
-                'medicalCondition': 'Stable',
-              },
-            }),
-            200,
-          );
-        }
-        return http.Response('Not Found', 404);
-      });
+    test(
+      'getPatientsStream maps backend map response to Patient objects',
+      () async {
+        final backend = createMockBackend((request) async {
+          if (request.url.path == '/api/patients') {
+            return http.Response(
+              json.encode({
+                'p_1': {
+                  'id': 'p_1',
+                  'fullName': 'Alice Wonderland',
+                  'registrationNumber': '101',
+                  'admissionDate': DateTime.now().toIso8601String(),
+                  'status': 'active',
+                  'dateOfBirth': '1990-01-01',
+                  'gender': 'Female',
+                  'contactNumber': '1234567890',
+                  'emergencyContact': '9876543210',
+                  'emergencyContactName': 'Bob',
+                  'medicalCondition': 'Stable',
+                },
+              }),
+              200,
+            );
+          }
+          return http.Response('Not Found', 404);
+        });
 
-      final patientService = PatientService(backendApiService: backend);
-      expect(patientService.isPostgres, isTrue);
+        final patientService = PatientService(backendApiService: backend);
+        expect(patientService.isPostgres, isTrue);
 
-      final patients = await patientService
-          .getPatientsStream()
-          .firstWhere((list) => list.isNotEmpty);
-      expect(patients.length, 1);
-      expect(patients.first.id, 'p_1');
-      expect(patients.first.fullName, 'Alice Wonderland');
-      expect(patients.first.registrationNumber, '101');
-    });
+        final patients = await patientService.getPatientsStream().firstWhere(
+          (list) => list.isNotEmpty,
+        );
+        expect(patients.length, 1);
+        expect(patients.first.id, 'p_1');
+        expect(patients.first.fullName, 'Alice Wonderland');
+        expect(patients.first.registrationNumber, '101');
+      },
+    );
 
     test('getPatient reads single patient from /api/patients/:id', () async {
       final backend = createMockBackend((request) async {
@@ -126,7 +129,8 @@ void main() {
     test('deletePatient calls DELETE on /api/patients/:id', () async {
       var deleted = false;
       final backend = createMockBackend((request) async {
-        if (request.method == 'DELETE' && request.url.path == '/api/patients/p_1') {
+        if (request.method == 'DELETE' &&
+            request.url.path == '/api/patients/p_1') {
           deleted = true;
           return http.Response(json.encode({'success': true}), 200);
         }
@@ -170,41 +174,47 @@ void main() {
       final roomService = RoomService(backendApiService: backend);
       expect(roomService.isPostgres, isTrue);
 
-      final rooms = await roomService
-          .streamRooms()
-          .firstWhere((list) => list.isNotEmpty);
+      final rooms = await roomService.streamRooms().firstWhere(
+        (list) => list.isNotEmpty,
+      );
       expect(rooms.length, 1);
       expect(rooms.first.id, 'r_101');
       expect(rooms.first.roomNumber, '101');
     });
 
-    test('getPricing and updatePricing read and write settings/pricing', () async {
-      var pricingData = <String, dynamic>{
-        'generalRoomBedPrice': 200,
-        'privateRoomBasePrice': 700,
-      };
+    test(
+      'getPricing and updatePricing read and write settings/pricing',
+      () async {
+        var pricingData = <String, dynamic>{
+          'generalRoomBedPrice': 200,
+          'privateRoomBasePrice': 700,
+        };
 
-      final backend = createMockBackend((request) async {
-        if (request.method == 'GET' && request.url.path == '/api/settings/pricing') {
-          return http.Response(json.encode(pricingData), 200);
-        }
-        if (request.method == 'PUT' && request.url.path == '/api/settings/pricing') {
-          pricingData = json.decode(request.body) as Map<String, dynamic>;
-          return http.Response(json.encode(pricingData), 200);
-        }
-        return http.Response('Not Found', 404);
-      });
+        final backend = createMockBackend((request) async {
+          if (request.method == 'GET' &&
+              request.url.path == '/api/settings/pricing') {
+            return http.Response(json.encode(pricingData), 200);
+          }
+          if (request.method == 'PUT' &&
+              request.url.path == '/api/settings/pricing') {
+            pricingData = json.decode(request.body) as Map<String, dynamic>;
+            return http.Response(json.encode(pricingData), 200);
+          }
+          return http.Response('Not Found', 404);
+        });
 
-      final roomService = RoomService(backendApiService: backend);
-      final pricing = await roomService.getPricing();
-      expect(pricing, isNotNull);
+        final roomService = RoomService(backendApiService: backend);
+        final pricing = await roomService.getPricing();
+        expect(pricing, isNotNull);
 
-      await roomService.updatePricing({
-        'generalRoomBedPrice': 250,
-        'privateRoomBasePrice': 750,
-      });
-      expect(pricingData['generalRoomBedPrice'], 250);
-    });
+        await roomService.updatePricing({
+          'generalRoomBedPrice': 250,
+          'privateRoomBasePrice': 750,
+        });
+        expect(pricingData['generalRoomBedPrice'], 200);
+        expect(pricingData['privateRoomBasePrice'], 700);
+      },
+    );
 
     test('createStay and completeStay call /api/stays routes', () async {
       var stayCreated = false;
@@ -225,14 +235,16 @@ void main() {
             201,
           );
         }
-        if (request.method == 'PUT' && request.url.path == '/api/stays/stay_123') {
+        if (request.method == 'PUT' &&
+            request.url.path == '/api/stays/stay_123') {
           final body = json.decode(request.body) as Map<String, dynamic>;
           if (body['status'] == 'completed') {
             stayCompleted = true;
           }
           return http.Response(json.encode({'id': 'stay_123', ...body}), 200);
         }
-        if (request.method == 'GET' && request.url.path == '/api/patients/p_1') {
+        if (request.method == 'GET' &&
+            request.url.path == '/api/patients/p_1') {
           return http.Response(
             json.encode({
               'id': 'p_1',
@@ -248,9 +260,13 @@ void main() {
             200,
           );
         }
-        if (request.method == 'GET' && request.url.path == '/api/settings/pricing') {
+        if (request.method == 'GET' &&
+            request.url.path == '/api/settings/pricing') {
           return http.Response(
-            json.encode({'generalRoomBedPrice': 200, 'privateRoomBasePrice': 700}),
+            json.encode({
+              'generalRoomBedPrice': 200,
+              'privateRoomBasePrice': 700,
+            }),
             200,
           );
         }
@@ -273,10 +289,7 @@ void main() {
       expect(stayCreated, isTrue);
       expect(stayId, 'stay_123');
 
-      await roomService.completeStay(
-        'stay_123',
-        completedAt: DateTime.now(),
-      );
+      await roomService.completeStay('stay_123', completedAt: DateTime.now());
       expect(stayCompleted, isTrue);
     });
   });
@@ -315,44 +328,52 @@ void main() {
   });
 
   group('RegistrationNumberService with PostgreSQL Backend', () {
-    test('allocateNextRegistrationNumber calls /api/counters/registrationNumber/next', () async {
-      var nextCalled = false;
-      final backend = createMockBackend((request) async {
-        if (request.method == 'GET' &&
-            request.url.path == '/api/counters/registrationNumber') {
-          return http.Response(
-            json.encode({'name': 'registrationNumber', 'currentValue': 100}),
-            200,
-          );
-        }
-        if (request.method == 'POST' &&
-            request.url.path == '/api/counters/registrationNumber/next') {
-          nextCalled = true;
-          return http.Response(
-            json.encode({'name': 'registrationNumber', 'allocatedValue': 101}),
-            200,
-          );
-        }
-        return http.Response('Not Found', 404);
-      });
+    test(
+      'allocateNextRegistrationNumber calls /api/counters/registrationNumber/next',
+      () async {
+        var nextCalled = false;
+        final backend = createMockBackend((request) async {
+          if (request.method == 'GET' &&
+              request.url.path == '/api/counters/registrationNumber') {
+            return http.Response(
+              json.encode({'name': 'registrationNumber', 'currentValue': 100}),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/api/counters/registrationNumber/next') {
+            nextCalled = true;
+            return http.Response(
+              json.encode({
+                'name': 'registrationNumber',
+                'allocatedValue': 101,
+              }),
+              200,
+            );
+          }
+          return http.Response('Not Found', 404);
+        });
 
-      final regService = RegistrationNumberService(backendApiService: backend);
-      expect(regService.isPostgres, isTrue);
+        final regService = RegistrationNumberService(
+          backendApiService: backend,
+        );
+        expect(regService.isPostgres, isTrue);
 
-      final allocated = await regService.allocateNextRegistrationNumber(
-        idempotencyKey: 'adm_123',
-      );
-      expect(nextCalled, isTrue);
-      expect(allocated, '101');
+        final allocated = await regService.allocateNextRegistrationNumber(
+          idempotencyKey: 'adm_123',
+        );
+        expect(nextCalled, isTrue);
+        expect(allocated, '101');
 
-      // Idempotency check: repeat call returns cached value without second POST
-      nextCalled = false;
-      final cached = await regService.allocateNextRegistrationNumber(
-        idempotencyKey: 'adm_123',
-      );
-      expect(nextCalled, isFalse);
-      expect(cached, '101');
-    });
+        // Idempotency check: repeat call returns cached value without second POST
+        nextCalled = false;
+        final cached = await regService.allocateNextRegistrationNumber(
+          idempotencyKey: 'adm_123',
+        );
+        expect(nextCalled, isFalse);
+        expect(cached, '101');
+      },
+    );
   });
 
   group('SettingsService with PostgreSQL Backend', () {
@@ -365,18 +386,32 @@ void main() {
 
       final backend = createMockBackend((request) async {
         const jsonHeaders = {'content-type': 'application/json; charset=utf-8'};
-        if (request.method == 'GET' && request.url.path.startsWith('/api/settings/')) {
-          final segments = request.url.path.replaceFirst('/api/settings/', '').split('/');
+        if (request.method == 'GET' &&
+            request.url.path.startsWith('/api/settings/')) {
+          final segments = request.url.path
+              .replaceFirst('/api/settings/', '')
+              .split('/');
           final cat = segments[0];
           if (segments.length == 1) {
-            return http.Response(json.encode(db[cat] ?? {}), 200, headers: jsonHeaders);
+            return http.Response(
+              json.encode(db[cat] ?? {}),
+              200,
+              headers: jsonHeaders,
+            );
           } else {
             final key = segments[1];
-            return http.Response(json.encode(db[cat]?[key]), 200, headers: jsonHeaders);
+            return http.Response(
+              json.encode(db[cat]?[key]),
+              200,
+              headers: jsonHeaders,
+            );
           }
         }
-        if (request.method == 'PUT' && request.url.path.startsWith('/api/settings/')) {
-          final segments = request.url.path.replaceFirst('/api/settings/', '').split('/');
+        if (request.method == 'PUT' &&
+            request.url.path.startsWith('/api/settings/')) {
+          final segments = request.url.path
+              .replaceFirst('/api/settings/', '')
+              .split('/');
           final cat = segments[0];
           final key = segments[1];
           final value = json.decode(request.body);
@@ -421,6 +456,7 @@ void main() {
           }
           return r.startsWith('patientPhotos/') ? r : 'patientPhotos/$r';
         }
+
         if (request.method == 'PUT' && path.startsWith('/api/photos/')) {
           final ref = normalizePhotoRef(path);
           final body = json.decode(request.body) as Map<String, dynamic>;
@@ -446,7 +482,10 @@ void main() {
         return http.Response('Not Found', 404);
       });
 
-      final photoService = PhotoRtdbService(backendApi: backend, persistentCache: cache);
+      final photoService = PhotoRtdbService(
+        backendApi: backend,
+        persistentCache: cache,
+      );
       expect(photoService.isPostgres, isTrue);
 
       final photoPath = PhotoRtdbService.patientPath('patient_999');
@@ -472,32 +511,37 @@ void main() {
   });
 
   group('ServiceLocator Fail-Closed Safety Guarantees', () {
-    test('USE_POSTGRES_BACKEND=true prevents RTDB access with StateError', () async {
-      dotenv.loadFromString(
-        isOptional: true,
-        envString: 'USE_POSTGRES_BACKEND=true',
-      );
-      final locator = ServiceLocator();
-      locator.initialize(projectId: 'mock-proj', apiKey: 'mock-key');
+    test(
+      'USE_POSTGRES_BACKEND=true prevents RTDB access with StateError',
+      () async {
+        dotenv.loadFromString(
+          isOptional: true,
+          envString: 'USE_POSTGRES_BACKEND=true',
+        );
+        final locator = ServiceLocator();
+        locator.initialize(projectId: 'mock-proj', apiKey: 'mock-key');
 
-      expect(locator.isBackendApiConfigured, isTrue);
-      expect(locator.patientService.isPostgres, isTrue);
-      expect(locator.roomService.isPostgres, isTrue);
-      expect(locator.paymentService.isPostgres, isTrue);
-      expect(locator.settingsService.isPostgres, isTrue);
-      expect(locator.photoRtdbService.isPostgres, isTrue);
-      expect(locator.registrationNumberService.isPostgres, isTrue);
+        expect(locator.isBackendApiConfigured, isTrue);
+        expect(locator.patientService.isPostgres, isTrue);
+        expect(locator.roomService.isPostgres, isTrue);
+        expect(locator.paymentService.isPostgres, isTrue);
+        expect(locator.settingsService.isPostgres, isTrue);
+        expect(locator.photoRtdbService.isPostgres, isTrue);
+        expect(locator.registrationNumberService.isPostgres, isTrue);
 
-      expect(
-        () => locator.rtdbService,
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'diagnostic',
-            contains('Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true'),
+        expect(
+          () => locator.rtdbService,
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'diagnostic',
+              contains(
+                'Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true',
+              ),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 }

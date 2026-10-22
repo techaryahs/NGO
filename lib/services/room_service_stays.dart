@@ -461,9 +461,9 @@ extension RoomServiceStays on RoomService {
           expiryDate: expectedDischargeDate,
           attendantCount: attendantCount,
           attendantLabels: attendantLabels,
-          totalCost: costs.totalCost,
-          baseCost: costs.baseCost,
-          extraAttendantCost: costs.extraAttendantCost,
+          totalCost: i == 0 ? costs.totalCost : 0,
+          baseCost: i == 0 ? costs.baseCost : 0,
+          extraAttendantCost: i == 0 ? costs.extraAttendantCost : 0,
           status: 'active',
           bedId: bedId,
           bedNumber: int.tryParse(resolvedLabel),
@@ -853,7 +853,7 @@ extension RoomServiceStays on RoomService {
     );
     final totalCost = PricingHelper.calculateProjectedStayCost(
       isPrivate,
-      attendantCount,
+      0,
       days,
       pricing: pricing,
     );
@@ -1048,9 +1048,11 @@ extension RoomServiceStays on RoomService {
           expiryDate: expectedDischargeDate,
           attendantCount: attendantCount,
           attendantLabels: attendantLabels,
-          totalCost: costs.totalCost,
-          baseCost: costs.baseCost,
-          extraAttendantCost: costs.extraAttendantCost,
+          totalCost: bedId == bedIds.first ? costs.totalCost : 0,
+          baseCost: bedId == bedIds.first ? costs.baseCost : 0,
+          extraAttendantCost: bedId == bedIds.first
+              ? costs.extraAttendantCost
+              : 0,
           status: 'active',
           bedId: bedId,
           bedNumber: int.tryParse(resolvedLabel),

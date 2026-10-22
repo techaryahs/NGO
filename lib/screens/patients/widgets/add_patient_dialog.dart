@@ -428,7 +428,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
 
   double get _estimatedTotal => PricingHelper.calculateProjectedStayCost(
     _selectedRoom?.isPrivate ?? false,
-    _attendants.where((a) => a.nameController.text.trim().isNotEmpty).length,
+    0,
     _billingDays,
     pricing: _pricing,
     bedsCount: _selectedLobby != null ? 1 : _selectedBeds.length.clamp(1, 999),
@@ -689,6 +689,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
           );
           structuredAttendants.add(
             AttendantModel(
+              id: att.id,
               name: name,
               age: age.isNotEmpty ? age : null,
               relation: relation.isNotEmpty ? relation : null,
@@ -2665,6 +2666,7 @@ class _BedSelection extends StatelessWidget {
 }
 
 class _AttendantEntry {
+  final String id = AttendantModel.generateId();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController ageController = TextEditingController();
   final TextEditingController relationController = TextEditingController();
@@ -2723,12 +2725,6 @@ class AdmissionPaymentSummary extends StatelessWidget {
     return '₹${amount.toStringAsFixed(0)}';
   }
 
-  int _pricingInt(String key, int fallback) {
-    final value = pricing[key];
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? fallback;
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!placementSelected) return const SizedBox.shrink();
@@ -2758,54 +2754,33 @@ class AdmissionPaymentSummary extends StatelessWidget {
       );
     }
 
-    final effectiveBeds = bedsCount < 1 ? 1 : bedsCount;
-    final occupants = 1 + attendantsCount;
-    final included = _pricingInt('privateRoomIncludedAttendants', 1);
+    final currentPricing = PricingHelper.approvedPricing(pricing);
     final privateBaseRate = PricingHelper.calculateDailyCharge(
       true,
       0,
-      pricing: pricing,
+      pricing: currentPricing,
     );
     final privateLongRate = PricingHelper.calculateLongStayDailyCharge(
       true,
       0,
-      pricing: pricing,
+      pricing: currentPricing,
     );
     final generalRate = PricingHelper.calculateDailyCharge(
       false,
-      attendantsCount,
-      pricing: pricing,
+      0,
+      pricing: currentPricing,
     );
     final generalLongRate = PricingHelper.calculateLongStayDailyCharge(
       false,
-      attendantsCount,
-      pricing: pricing,
-    );
-    final baseTotal = PricingHelper.calculateProjectedStayCost(
-      isPrivateRoom,
       0,
-      days,
-      pricing: pricing,
-      bedsCount: effectiveBeds,
+      pricing: currentPricing,
     );
     final grandTotal = PricingHelper.calculateProjectedStayCost(
       isPrivateRoom,
-      attendantsCount,
+      0,
       days,
-      pricing: pricing,
-      bedsCount: effectiveBeds,
+      pricing: currentPricing,
     );
-    final bedTotal = isPrivateRoom ? baseTotal : grandTotal;
-    final extraCount = (attendantsCount - included).clamp(0, attendantsCount);
-    final attendantTotal = isPrivateRoom ? grandTotal - baseTotal : 0.0;
-    final privateExtraRate = attendantsCount > included
-        ? (PricingHelper.calculateDailyCharge(
-                true,
-                attendantsCount,
-                pricing: pricing,
-              ) -
-              privateBaseRate)
-        : 0.0;
     String rateDescription(double normal, double longStay) {
       if (days <= PricingHelper.longStayThresholdDays) {
         return '₹${normal.toStringAsFixed(0)}/day × $days days';
@@ -2900,6 +2875,16 @@ class AdmissionPaymentSummary extends StatelessWidget {
 
           // Divider
           Container(height: 0.5, color: Colors.white.withValues(alpha: 0.3)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              'Provisional patient estimate. $attendantsCount attendant(s) Pending; applicable attendants are charged only when Present. Private includes one attendant.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 11,
+              ),
+            ),
+          ),
 
           // Breakdown rows
           Padding(
@@ -2912,37 +2897,15 @@ class AdmissionPaymentSummary extends StatelessWidget {
                       ? 'Lobby · $placementLabel'
                       : isPrivateRoom
                       ? 'Private Room'
-                      : 'Grouped Beds ($bedsCount, $occupants occupants)',
-                  count: isPrivateRoom ? 1 : bedsCount,
+                      : 'General (1 patient · $bedsCount allocated beds)',
+                  count: 1,
                   rate: isPrivateRoom ? privateBaseRate : generalRate,
-                  total: bedTotal,
+                  total: grandTotal,
                   days: days,
                   rateDescription: isPrivateRoom
                       ? rateDescription(privateBaseRate, privateLongRate)
                       : rateDescription(generalRate, generalLongRate),
                 ),
-                if (isPrivateRoom && extraCount > 0) ...[
-                  const SizedBox(height: 8),
-                  _SummaryRow(
-                    icon: Icons.person_outline_rounded,
-                    label: 'Extra attendants',
-                    count: extraCount,
-                    rate: privateExtraRate,
-                    total: attendantTotal,
-                    days: days,
-                    rateDescription: rateDescription(
-                      privateExtraRate,
-                      attendantsCount > included
-                          ? PricingHelper.calculateLongStayDailyCharge(
-                                  true,
-                                  attendantsCount,
-                                  pricing: pricing,
-                                ) -
-                                privateLongRate
-                          : 0,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),

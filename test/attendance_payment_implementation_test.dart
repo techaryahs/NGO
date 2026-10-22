@@ -75,25 +75,22 @@ void main() {
         expect(bill.total, scenario.$3);
       });
     }
-    test(
-      'private occupant uses existing room tariff even when patient absent',
-      () {
-        final bill = StayBilling.calculate(
-          patient: fixtures.patient(),
-          stays: [stay(type: 'private')],
-          pricing: {
-            'privateRoomBasePrice': 850,
-            'privateRoomIncludedAttendants': 1,
-            'privateRoomExtraAttendantFee': 225,
-          },
-          attendance: {'2026-01-01': 'Absent'},
-          attendantAttendance: {
-            '2026-01-01': {'A': 'Present', 'B': 'Present'},
-          },
-        ).single;
-        expect(bill.total, 1075);
-      },
-    );
+    test('Private uses approved room base even when patient absent', () {
+      final bill = StayBilling.calculate(
+        patient: fixtures.patient(),
+        stays: [stay(type: 'private')],
+        pricing: {
+          'privateRoomBasePrice': 850,
+          'privateRoomIncludedAttendants': 1,
+          'privateRoomExtraAttendantFee': 225,
+        },
+        attendance: {'2026-01-01': 'Absent'},
+        attendantAttendance: {
+          '2026-01-01': {'A': 'Present', 'B': 'Present'},
+        },
+      ).single;
+      expect(bill.total, 900);
+    });
     test('manual rate and explicit cost override remain authoritative', () {
       final args = {
         '2026-01-01': {'A': 'Present', 'B': 'Present'},

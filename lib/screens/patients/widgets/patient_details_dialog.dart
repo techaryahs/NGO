@@ -24,13 +24,14 @@ class PatientDetailsDialog extends StatelessWidget {
   }
 
   void _showDischargeConfirmation(BuildContext context) {
+    final checkoutAt = DateTime.now();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text('Discharge Patient'),
         content: Text(
-          'Are you sure you want to discharge ${patient.fullName}? This will remove them from their assigned room.',
+          'Discharge ${patient.fullName} at ${DateFormat('dd MMM yyyy, hh:mm a').format(checkoutAt)}? Attendance and final settlement will be validated before releasing the room.',
         ),
         actions: [
           TextButton(
@@ -45,6 +46,7 @@ class PatientDetailsDialog extends StatelessWidget {
               try {
                 await ServiceLocator().patientService.dischargePatient(
                   patient.id,
+                  checkoutAt: checkoutAt,
                 );
                 if (context.mounted) {
                   Navigator.pop(context); // Close confirmation

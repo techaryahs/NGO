@@ -42,6 +42,8 @@ void main() {
             'expectedDischargeDate': exit.millisecondsSinceEpoch,
             'completedAt': completed ? exit.millisecondsSinceEpoch : null,
             'status': completed ? 'completed' : 'active',
+            if (completed) 'totalCost': 2000,
+            if (completed) 'billingSummary': {'days': 10},
             'createdAt': admission.millisecondsSinceEpoch,
             'updatedAt': exit.millisecondsSinceEpoch,
           });
@@ -64,8 +66,10 @@ void main() {
           ).single;
           expect(
             unmarked.total,
-            2600,
-            reason: 'Base stay charges do not fabricate attendance',
+            completed ? 2000 : 2600,
+            reason: completed
+                ? 'Finalized history retains its stored invoice without repricing attendance'
+                : 'The provisional estimate does not fabricate attendance',
           );
           expect(PricingHelper.calculateBillingDays(admission, exit), 13);
         }

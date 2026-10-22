@@ -477,6 +477,19 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
                       ],
                     ),
                     const SizedBox(height: 6),
+                    if (data['provisional'] == true)
+                      Text(
+                        'Provisional${data['plannedExitConfirmed'] == false ? ' ongoing estimate · exit unconfirmed' : ''} · attendance Pending',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange,
+                        ),
+                      ),
+                    if (data['checkoutAdjustment'] is Map)
+                      Text(
+                        'After 9 AM checkout adjustment (${data['checkoutAdjustment']['day']}, billable day ${data['checkoutAdjustment']['billableDay']}): ${currency.format(data['checkoutAdjustment']['amount'] ?? 0)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     Wrap(
                       spacing: 12,
                       children: [

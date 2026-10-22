@@ -720,8 +720,59 @@ class PatientService {
   Future<Map<String, dynamic>> getDischargeReadiness(
     String patientId, {
     PatientModel? patientOverride,
+    DateTime? checkoutAt,
   }) async {
     await _persistOverrideExitDate(patientId, patientOverride);
+    if (isPostgres) {
+      final actualCheckout = checkoutAt ?? DateTime.now();
+      final snapshot = await _backendApi!.recalculateBilling(
+        patientId,
+        checkoutAt: actualCheckout,
+      );
+      final patient = PatientModel.fromMap(
+        patientId,
+        Map<String, dynamic>.from(snapshot['patient'] as Map),
+      );
+      final balance =
+          patient.admissionBalances[StayBilling.currentCycle(patient)];
+      final summary = balance is Map ? balance : const <String, dynamic>{};
+      final pendingRecords = summary['pendingAttendance'] is List
+          ? summary['pendingAttendance'] as List
+          : const [];
+      final missingPatient = pendingRecords
+          .where((row) => row is Map && row['kind'] == 'attendance')
+          .length;
+      final missingAttendants = pendingRecords
+          .where((row) => row is Map && row['kind'] == 'attendant_attendance')
+          .length;
+      final pending =
+          (summary['due'] as num?)?.toDouble() ?? patient.currentDueAmount ?? 0;
+      final refundDue =
+          (summary['refundDue'] as num?)?.toDouble() ?? patient.refundDueAmount;
+      final reasons = <String>[
+        if (missingPatient > 0)
+          'Resolve $missingPatient Pending patient attendance day(s) before discharge.',
+        if (missingAttendants > 0)
+          'Resolve $missingAttendants Pending attendant attendance mark(s) before discharge.',
+        if (pending > 0.005)
+          '₹${pending.toStringAsFixed(0)} remains to be paid.',
+        if (refundDue > 0.005)
+          '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
+      ];
+      return {
+        'total': summary['total'] ?? patient.advanceBilledAmount,
+        'paid': summary['netPaid'] ?? patient.totalPaidAmount ?? 0,
+        'pending': pending,
+        'refundDue': refundDue,
+        'plannedExitDate': patient.exitDate?.millisecondsSinceEpoch,
+        'checkoutAt': actualCheckout.millisecondsSinceEpoch,
+        'checkoutAdjustment': summary['checkoutAdjustment'],
+        'missingPatientDays': missingPatient,
+        'missingAttendantMarks': missingAttendants,
+        'ready': reasons.isEmpty,
+        'reasons': reasons,
+      };
+    }
     await _resolvedPaymentService.recalculatePatientAttendanceAndBilling(
       patientId,
     );
@@ -743,9 +794,9 @@ class PatientService {
         .where((stay) => StayBilling.cycleFor(stay, patient) == cycleId)
         .toList();
     final plannedExit = _effectivePlannedExitDate(patient, cycleSegments);
-    final requiredThrough = plannedExit == null
+    final requiredThrough = (checkoutAt ?? plannedExit) == null
         ? null
-        : _lastRequiredAttendanceDay(exit: plannedExit);
+        : _lastRequiredAttendanceDay(exit: checkoutAt ?? plannedExit!);
     final start = _attendanceStartDay(
       patient,
       cycleSegments,
@@ -770,9 +821,10 @@ class PatientService {
     // Discharge needs an explicit planned exit boundary. Do not use today as
     // an implicit exit date and then ask staff to mark attendance beyond the
     // agreed stay period.
-    final needsPlannedExit = plannedExit == null;
+    final needsPlannedExit = plannedExit == null && checkoutAt == null;
 
     var missingPatientDays = 0;
+    var missingAttendantMarks = 0;
     DateTime? end;
     if (!needsPlannedExit) {
       end = requiredThrough!;
@@ -809,12 +861,47 @@ class PatientService {
           missingPatientDays++;
         }
       }
+      final attendants = await _safeRtdb.getByKeyRange(
+        'attendant_attendance/daily',
+        startKey: StayBilling.dateKey(start),
+        endKey: StayBilling.dateKey(end),
+      );
+      for (
+        var date = start;
+        !date.isAfter(end);
+        date = DateTime(date.year, date.month, date.day + 1)
+      ) {
+        final daily = attendants is Map
+            ? attendants[StayBilling.dateKey(date)]
+            : null;
+        final marks = daily is Map && daily[patientId] is Map
+            ? daily[patientId] as Map
+            : const {};
+        for (final attendant in patient.attendants ?? <AttendantModel>[]) {
+          final unique =
+              patient.attendants!
+                  .where((a) => a.name == attendant.name)
+                  .length ==
+              1;
+          final record =
+              marks[attendant.id] ??
+              (unique
+                  ? marks[attendant.name.replaceAll(RegExp(r'[.#$\[\]/]'), '_')]
+                  : null);
+          if (record is! Map ||
+              !const {'Present', 'Absent'}.contains(record['status'])) {
+            missingAttendantMarks++;
+          }
+        }
+      }
     }
     final reasons = <String>[
       if (needsPlannedExit)
         'Set the planned exit date before discharging this patient.',
       if (missingPatientDays > 0)
-        'Mark $missingPatientDays patient attendance day(s) through ${_shortDate(end!)} for planned exit ${_shortDateTime(plannedExit!)}.',
+        'Mark $missingPatientDays patient attendance day(s) through ${_shortDate(end!)} for checkout ${_shortDateTime(checkoutAt ?? plannedExit!)}.',
+      if (missingAttendantMarks > 0)
+        'Resolve $missingAttendantMarks Pending attendant attendance mark(s) before discharge.',
       if (pending > 0.005) '₹${pending.toStringAsFixed(0)} remains to be paid.',
       if (refundDue > 0.005)
         '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
@@ -826,7 +913,7 @@ class PatientService {
       'refundDue': refundDue,
       'plannedExitDate': plannedExit?.millisecondsSinceEpoch,
       'missingPatientDays': missingPatientDays,
-      'missingAttendantMarks': 0,
+      'missingAttendantMarks': missingAttendantMarks,
       'ready': reasons.isEmpty,
       'reasons': reasons,
     };
@@ -939,16 +1026,21 @@ class PatientService {
   Future<void> dischargePatient(
     String patientId, {
     PatientModel? patientOverride,
+    DateTime? checkoutAt,
   }) async {
     try {
       if (isPostgres) {
         await _persistOverrideExitDate(patientId, patientOverride);
-        await _backendApi!.dischargePatient(patientId);
+        await _backendApi!.dischargePatient(
+          patientId,
+          checkoutAt: checkoutAt ?? DateTime.now(),
+        );
         return;
       }
       final readiness = await getDischargeReadiness(
         patientId,
         patientOverride: patientOverride,
+        checkoutAt: checkoutAt ?? DateTime.now(),
       );
       if (readiness['ready'] != true) {
         throw StateError((readiness['reasons'] as List).join(' '));
@@ -957,10 +1049,7 @@ class PatientService {
       final patient = patientOverride ?? await getPatient(patientId);
       if (patient == null) throw Exception('Patient not found');
 
-      final readinessExit = readiness['plannedExitDate'];
-      final actualDischargeDate = readinessExit is int
-          ? DateTime.fromMillisecondsSinceEpoch(readinessExit)
-          : patient.exitDate!;
+      final actualDischargeDate = checkoutAt ?? DateTime.now();
       final billingAdmissionDate =
           patient.registrationDate ?? patient.admissionDate;
 
@@ -969,7 +1058,6 @@ class PatientService {
       // legacy stay cleanup succeeding.
       await updatePatient(patientId, {
         'status': 'discharged',
-        'exitDate': actualDischargeDate.millisecondsSinceEpoch,
         'dischargeDate': actualDischargeDate.millisecondsSinceEpoch,
       });
 

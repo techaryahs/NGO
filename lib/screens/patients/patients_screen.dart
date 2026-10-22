@@ -31,6 +31,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
   static const _pageSize = 25;
   int _visiblePatients = _pageSize;
   final Set<String> _locallyDeletedPatientIds = <String>{};
+  final Map<String, Map<String, dynamic>> _pendingRejoinRequests = {};
 
   String? _notesWithoutPlacement(String? notes) {
     final retained = (notes ?? '')
@@ -207,7 +208,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
             caseSensitive: false,
           ).firstMatch(patient.notes ?? '')?.group(1)?.trim();
 
-    final placements = <_RejoinPlacement>[const _RejoinPlacement.unassigned()];
+    final postgres = ServiceLocator().patientService.isPostgres;
+    final placements = <_RejoinPlacement>[
+      if (!postgres) const _RejoinPlacement.unassigned(),
+    ];
     for (final room in rooms) {
       if (room.status == 'maintenance' || room.status == 'unavailable') {
         continue;
@@ -353,22 +357,24 @@ class _PatientsScreenState extends State<PatientsScreen> {
                                     ),
                             ),
                           ),
-                      const SizedBox(height: 10),
-                      const _RejoinSectionTitle(
-                        icon: Icons.person_outline_rounded,
-                        label: 'Assign later',
-                      ),
-                      _RejoinPlacementTile(
-                        placement: placements.firstWhere(
-                          (placement) => placement.isUnassigned,
+                      if (!postgres) ...[
+                        const SizedBox(height: 10),
+                        const _RejoinSectionTitle(
+                          icon: Icons.person_outline_rounded,
+                          label: 'Assign later',
                         ),
-                        selected: selected.isUnassigned,
-                        onTap: () => setDialogState(
-                          () => selected = placements.firstWhere(
+                        _RejoinPlacementTile(
+                          placement: placements.firstWhere(
                             (placement) => placement.isUnassigned,
                           ),
+                          selected: selected.isUnassigned,
+                          onTap: () => setDialogState(
+                            () => selected = placements.firstWhere(
+                              (placement) => placement.isUnassigned,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -390,14 +396,171 @@ class _PatientsScreenState extends State<PatientsScreen> {
     );
   }
 
+  Future<({DateTime? exit, bool unconfirmed})?> _chooseRejoinExit(
+    PatientModel patient,
+    _RejoinPlacement placement,
+  ) async {
+    final pricing = await ServiceLocator().roomService.getPricing();
+    if (!mounted) return null;
+    var unconfirmed = true;
+    DateTime? exit;
+    return showDialog<({DateTime? exit, bool unconfirmed})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) {
+          final days = PricingHelper.calculateBillingDays(DateTime.now(), exit);
+          final estimate = placement.isUnassigned
+              ? 0.0
+              : PricingHelper.calculateProjectedStayCost(
+                  placement.room?.isPrivate ?? false,
+                  0,
+                  days,
+                  pricing: pricing,
+                );
+          return AlertDialog(
+            title: const Text('Rejoining planned exit'),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Exit date unconfirmed'),
+                    subtitle: const Text(
+                      'Keep this stay ongoing until a date is confirmed.',
+                    ),
+                    value: unconfirmed,
+                    onChanged: (value) => update(() => unconfirmed = value),
+                  ),
+                  if (!unconfirmed)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.calendar_today),
+                      label: Text(
+                        exit == null
+                            ? 'Choose confirmed exit date and time'
+                            : DateFormat('dd MMM yyyy, h:mm a').format(exit!),
+                      ),
+                      onPressed: () async {
+                        final today = DateTime.now();
+                        final date = await showDatePicker(
+                          context: dialogContext,
+                          initialDate:
+                              exit ?? today.add(const Duration(days: 6)),
+                          firstDate: DateTime(
+                            today.year,
+                            today.month,
+                            today.day,
+                          ),
+                          lastDate: today.add(const Duration(days: 3650)),
+                        );
+                        if (date == null || !dialogContext.mounted) return;
+                        final time = await showTimePicker(
+                          context: dialogContext,
+                          initialTime: const TimeOfDay(hour: 9, minute: 0),
+                        );
+                        if (time != null) {
+                          update(
+                            () => exit = DateTime(
+                              date.year,
+                              date.month,
+                              date.day,
+                              time.hour,
+                              time.minute,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Provisional ${unconfirmed ? 'ongoing $days-day' : '$days-day'} estimate: ₹${estimate.toStringAsFixed(0)}',
+                  ),
+                  const Text(
+                    'Attendant attendance remains Pending. Only attendants marked Present add charges. Final billing uses actual attendance.',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: !unconfirmed && exit == null
+                    ? null
+                    : () => Navigator.pop(dialogContext, (
+                        exit: unconfirmed ? null : exit,
+                        unconfirmed: unconfirmed,
+                      )),
+                child: const Text('Confirm rejoin'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _rejoinPatient(PatientModel patient) async {
     try {
+      final retry = _pendingRejoinRequests[patient.id];
+      if (retry != null) {
+        await ServiceLocator().backendApiService.rejoinPatient(
+          patient.id,
+          retry,
+        );
+        _pendingRejoinRequests.remove(patient.id);
+        if (!mounted) return;
+        setState(() => _selectedFilter = 'active');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rejoining request completed.')),
+        );
+        return;
+      }
       final placement = await _chooseRejoinPlacement(patient);
       if (placement == null) return;
+
+      final exitChoice = await _chooseRejoinExit(patient, placement);
+      if (exitChoice == null) return;
 
       final now = DateTime.now();
       final patientService = ServiceLocator().patientService;
       final roomService = ServiceLocator().roomService;
+      if (patientService.isPostgres) {
+        final payload = <String, dynamic>{
+          'requestId': roomService.generateStayId(),
+          'admissionDate': now.millisecondsSinceEpoch,
+          'exitDate': exitChoice.exit?.millisecondsSinceEpoch,
+          'exitDateUnconfirmed': exitChoice.unconfirmed,
+          'roomId': placement.room?.id ?? 'lobby:${placement.lobbyName}',
+          'roomNumber': placement.room?.roomIdentifier ?? placement.lobbyName!,
+          'roomType': placement.room?.roomType ?? 'lobby',
+          if (placement.bed != null) 'bedId': placement.bed!.id,
+          'durationDays': PricingHelper.calculateBillingDays(
+            now,
+            exitChoice.exit,
+          ),
+        };
+        _pendingRejoinRequests[patient.id] = payload;
+        await ServiceLocator().backendApiService.rejoinPatient(
+          patient.id,
+          payload,
+        );
+        _pendingRejoinRequests.remove(patient.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Patient rejoined: ${placement.label}. ${exitChoice.unconfirmed ? 'Ongoing estimate; exit unconfirmed.' : 'Planned exit confirmed.'}',
+            ),
+          ),
+        );
+        setState(() => _selectedFilter = 'active');
+        return;
+      }
       final priorStays = await roomService
           .getStaysByPatientStream(patient.id)
           .first;
@@ -449,8 +612,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
           ? 0.0
           : PricingHelper.calculateProjectedStayCost(
               placement.room?.isPrivate ?? false,
-              patient.attendants?.length ?? 0,
-              PricingHelper.advanceDays,
+              0,
+              PricingHelper.calculateBillingDays(now, exitChoice.exit),
               pricing: pricing,
             );
       final baseUpdates = <String, dynamic>{
@@ -477,7 +640,8 @@ class _PatientsScreenState extends State<PatientsScreen> {
         'bedLabels': null,
         'lobby': null,
         'notes': _notesWithoutPlacement(patient.notes),
-        'exitDate': null,
+        'exitDate': exitChoice.exit?.millisecondsSinceEpoch,
+        'exitDateUnconfirmed': exitChoice.unconfirmed,
       };
       // Reactivate first as unassigned. If the chosen bed is taken between
       // opening and confirming the dialog, the patient safely remains active
@@ -496,7 +660,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
             roomNumber: placement.room!.roomIdentifier,
             roomType: placement.room!.roomType,
             admissionDate: now,
-            durationDays: PricingHelper.advanceDays,
+            durationDays: PricingHelper.calculateBillingDays(
+              now,
+              exitChoice.exit,
+            ),
             attendantCount: patient.attendants?.length ?? 0,
             attendantLabels: (patient.attendants ?? const <AttendantModel>[])
                 .map(
@@ -549,7 +716,10 @@ class _PatientsScreenState extends State<PatientsScreen> {
           patientName: patient.fullName,
           lobbyName: placement.lobbyName!,
           admissionDate: now,
-          durationDays: PricingHelper.advanceDays,
+          durationDays: PricingHelper.calculateBillingDays(
+            now,
+            exitChoice.exit,
+          ),
           attendantCount: patient.attendants?.length ?? 0,
           attendantLabels: (patient.attendants ?? const <AttendantModel>[])
               .map(

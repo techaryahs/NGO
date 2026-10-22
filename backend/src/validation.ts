@@ -22,7 +22,7 @@ const stayBillingUpdates = z.record(stayId, z.object({
 }).strict());
 const bed = z.object({ id: id.nullable().optional(), bedLabel: text.nullable().optional(), bedNumber: z.union([text, integer]).nullable().optional(), status: z.enum(['available', 'occupied', 'maintenance', 'cleaning', 'reserved']).nullable().optional(), currentPatientId: id.nullable().optional(), currentStayId: stayId.nullable().optional(), lastCleaned: date.nullable().optional() }).passthrough();
 const room = z.object({ id: id.nullable().optional(), roomNumber: text, roomType: text, floor: integer.nullable().optional(), maxAttendants: integer.nullable().optional(), currentAttendants: integer.nullable().optional(), totalBeds: integer.nullable().optional(), occupiedBeds: integer.nullable().optional(), version: integer.nullable().optional(), expectedVersion: integer.nullable().optional(), beds: z.array(bed).nullable().optional(), expectedVacancyDate: date.nullable().optional() }).passthrough();
-const patient = z.object({ id: id.nullable().optional(), fullName: text, dateOfBirth: date, gender: text, contactNumber: z.string(), emergencyContact: z.string(), emergencyContactName: z.string(), medicalCondition: z.string(), admissionDate: date, registrationNumber: id.nullable().optional(), attendants: z.array(z.object({ name: text }).passthrough()).nullable().optional(), bedIds: z.array(id).nullable().optional(), bedLabels: z.array(z.string()).nullable().optional() }).passthrough();
+const patient = z.object({ id: id.nullable().optional(), fullName: text, dateOfBirth: date, gender: text, contactNumber: z.string(), emergencyContact: z.string(), emergencyContactName: z.string(), medicalCondition: z.string(), admissionDate: date, registrationNumber: id.nullable().optional(), attendants: z.array(z.object({ id: id.nullable().optional(), name: text }).passthrough()).nullable().optional(), bedIds: z.array(id).nullable().optional(), bedLabels: z.array(z.string()).nullable().optional() }).passthrough();
 const stay = z.object({ id: stayId.nullable().optional(), patientId: id, roomId: id, bedId: id.nullable().optional(), durationDays: z.number().int().positive().nullable().optional(), admissionDate: date.nullable().optional(), expectedDischargeDate: date.nullable().optional(), expiryDate: date.nullable().optional(), completedAt: date.nullable().optional(), status: z.enum(['active', 'completed', 'cancelled']).nullable().optional() }).passthrough();
 const registerStay = stay.partial({ patientId: true });
 const registerAttendanceItem = z.object({
@@ -39,6 +39,11 @@ const transferPatient = z.object({
   roomNumber: text, roomType: text, bedId: id.nullable().optional(),
   shiftedAt: date, exitDate: date.nullable().optional(),
 });
+const rejoinPatient = z.object({
+  requestId: stayId, admissionDate: date, exitDate: date.nullable(), exitDateUnconfirmed: z.boolean(),
+  roomId: id, roomNumber: text, roomType: text, bedId: id.nullable().optional(),
+  durationDays: z.number().int().min(1).max(3650).optional(),
+}).strict().refine(v => v.exitDateUnconfirmed === (v.exitDate === null), 'Choose a confirmed exit date or explicitly unconfirmed exit');
 const signedPaymentMoney = z.union([z.number().finite(), z.string()]).refine(value => /^-?\d{1,10}(\.\d{1,2})?$/.test(String(value)), 'Use a decimal with at most two fractional digits');
 const paymentDate = date.refine(value => {
   if (typeof value !== 'string') return true;
@@ -71,6 +76,7 @@ export async function validateDomainRequest(request: FastifyRequest): Promise<vo
     else if (path === '/api/patients') schema = patient;
     else if (path === '/api/patients/register') schema = registerPatient;
     else if (path === '/api/patients/:id/transfer') schema = transferPatient;
+    else if (path === '/api/patients/:id/rejoin') schema = rejoinPatient;
     else if (path === '/api/patients/:id') schema = patient.partial();
     else if (path === '/api/stays') schema = stay;
     else if (path === '/api/stays/batch') schema = z.object({ stays: z.array(stay).min(1) });
