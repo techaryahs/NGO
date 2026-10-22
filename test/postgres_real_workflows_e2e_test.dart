@@ -545,6 +545,138 @@ void main() {
   });
 
   test(
+    'discharge readiness/cancel preserves booking and ignores a stale active preview through real services',
+    () async {
+      final pid = AttendantModel.generateId();
+      final rid = AttendantModel.generateId();
+      final sid = AttendantModel.generateId();
+      final aid = AttendantModel.generateId();
+      final admission = DateTime.parse('2026-10-22T11:57:00Z');
+      final planned = DateTime.parse('2026-10-31T03:30:00Z');
+      final checkout = DateTime.parse('2026-10-22T11:59:55.196Z');
+      final cycle = admission.millisecondsSinceEpoch.toString();
+      await roomService.addRoom(
+        id: rid,
+        roomNumber: 'Preview QA',
+        roomIdentifier: '1D',
+        floor: 1,
+        roomType: 'general',
+        totalBeds: 1,
+        bedLabels: ['QA'],
+      );
+      final room = (await roomService.getRoomDirect(rid))!;
+      await backendApi.registerPatient({
+        'id': pid,
+        'fullName': 'Synthetic preview',
+        'dateOfBirth': '1990-01-01',
+        'gender': 'Other',
+        'contactNumber': '',
+        'emergencyContact': '',
+        'emergencyContactName': '',
+        'medicalCondition': '',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'registrationDate': admission.millisecondsSinceEpoch,
+        'registrationNumber': pid,
+        'exitDate': planned.millisecondsSinceEpoch,
+        'attendants': [
+          {'id': aid, 'name': 'Synthetic helper', 'startDate': '2026-10-22'},
+        ],
+        'stays': [
+          {
+            'id': sid,
+            'roomId': rid,
+            'bedId': room.beds.single.id,
+            'admissionDate': admission.millisecondsSinceEpoch,
+            'durationDays': 9,
+            'expectedDischargeDate': planned.millisecondsSinceEpoch,
+            'cycleId': cycle,
+          },
+        ],
+      });
+      for (var day = 22; day <= 31; day++) {
+        await backendApi.postAttendance(
+          patientId: pid,
+          date: '2026-10-$day',
+          kind: 'attendance',
+          payload: {'status': 'Present'},
+        );
+        await backendApi.postAttendance(
+          patientId: pid,
+          date: '2026-10-$day',
+          kind: 'attendant_attendance',
+          payload: {
+            aid: {'attendantId': aid, 'status': 'Present'},
+          },
+        );
+      }
+      for (var index = 0; index < 2; index++) {
+        await paymentService.recordPayment(
+          patientId: pid,
+          patientName: 'Synthetic preview',
+          payment: PaymentModel(
+            id: AttendantModel.generateId(),
+            amount: 2000,
+            method: 'CASH',
+            date: admission,
+            cycleId: cycle,
+          ),
+        );
+      }
+      // Simulate the stale preview already present in production, locally only.
+      await backendApi.recalculateBilling(pid, checkoutAt: checkout);
+      Future<List<Map<String, dynamic>>> stored() => queryRows(
+        '''SELECT
+      (SELECT to_jsonb(p) FROM patients p WHERE id=\$1) AS patient,
+      (SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM stays s WHERE patient_id=\$1) AS stays,
+      (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM payments p WHERE patient_id=\$1) AS payments,
+      (SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM attendance_records a WHERE patient_id=\$1) AS attendance''',
+        [pid],
+      );
+      final before = await stored();
+      final requests = <String>[];
+      diagnosticClient.beforeSend = (request) async {
+        requests.add('${request.method} ${request.url.path}');
+      };
+      final override = PatientModel.fromMap(
+        pid,
+        Map<String, dynamic>.from(
+          (await backendApi.financialSnapshot(pid))['patient'] as Map,
+        ),
+      );
+      for (var retry = 0; retry < 2; retry++) {
+        final readiness = await patientService.getDischargeReadiness(
+          pid,
+          patientOverride: override,
+          checkoutAt: checkout,
+        );
+        expect(readiness, containsPair('total', 400));
+        expect(readiness, containsPair('refundDue', 3600));
+        expect(readiness['ready'], isFalse);
+        final overview =
+            (await backendApi.financialSnapshot(pid))['patient'] as Map;
+        expect(overview['advanceBilledAmount'], 4000);
+        expect(overview['totalPaidAmount'], 4000);
+        expect(overview['refundDueAmount'], 0);
+        expect(overview['currentDueAmount'], 0);
+      }
+      expect(requests.every((request) => request.startsWith('GET ')), isTrue);
+      expect(await stored(), before);
+      final boundary = await patientService.getDischargeReadiness(
+        pid,
+        checkoutAt: planned,
+      );
+      expect(boundary['total'], 3600);
+      expect(boundary['refundDue'], 400);
+      expect(await stored(), before);
+      await expectLater(
+        patientService.dischargePatient(pid, checkoutAt: checkout),
+        throwsA(isA<Exception>()),
+      );
+      expect(await stored(), before);
+    },
+  );
+
+  test(
     '3800 General bill: partial 1400 and remaining 2400 through real Flutter services retain both receipts and dashboard/profile balances',
     () async {
       final pid = AttendantModel.generateId(),
@@ -884,8 +1016,8 @@ void main() {
       final source = await File(
         p.join(
           Directory.current.path,
-          'audit',
-          'client-billing-20261022',
+          'test',
+          'fixtures',
           'historical-billing-exposure.sql',
         ),
       ).readAsString();
@@ -1054,7 +1186,7 @@ void main() {
         expect((settledPreview['patient'] as Map)['refundDueAmount'], 0);
         expect(
           (settledPreview['patient'] as Map)['advanceBilledAmount'],
-          scenario.finalAmount,
+          scenario.estimate,
         );
         await patientService.dischargePatient(
           'approved_patient',

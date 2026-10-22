@@ -673,8 +673,10 @@ void main() {
 
         int patientPatchCalls = 0;
         int stayCompleteCalls = 0;
+        final readinessRequests = <http.Request>[];
 
         final backend = createMockBackend((request) async {
+          readinessRequests.add(request);
           final path = request.url.path;
           if (path.endsWith('/financials') ||
               path.endsWith('/recalculate-billing')) {
@@ -775,9 +777,22 @@ void main() {
         // 1. Check initial discharge readiness (unpaid ₹200 -> ready: false)
         final initialReadiness = await patientService.getDischargeReadiness(
           'p_discharge_1',
+          patientOverride: PatientModel.fromMap('p_discharge_1', {
+            ...patientRow,
+            'exitDate': exitMs + const Duration(days: 1).inMilliseconds,
+          }),
         );
         expect(initialReadiness['ready'], isFalse);
         expect(initialReadiness['pending'], 200.0);
+        expect(patientPatchCalls, 0);
+        expect(readinessRequests, hasLength(1));
+        expect(readinessRequests.single.method, 'GET');
+        expect(readinessRequests.single.url.path, endsWith('/financials'));
+        expect(
+          readinessRequests.single.url.queryParameters['checkoutAt'],
+          isNotNull,
+        );
+        expect(patientRow['exitDate'], exitMs);
 
         // 2. Record ₹200 payment
         await paymentService.recordPayment(

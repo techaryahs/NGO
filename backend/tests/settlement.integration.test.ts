@@ -217,7 +217,8 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       expect(preview.json().patient.advanceBilledAmount).toBe(total);
       expect((await send('POST', '/patients/p1/recalculate-billing', { checkoutAt })).statusCode).toBe(200);
       await pay(total, fixture.cycle);
-      expect((await send('GET', '/patients/p1/financials')).json().patient).toMatchObject({ advanceBilledAmount: total, currentDueAmount: 0, refundDueAmount: 0 });
+      // A settlement quote must not replace the ordinary booking projection.
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${checkoutAt}`)).json().patient).toMatchObject({ advanceBilledAmount: total, currentDueAmount: 0, refundDueAmount: 0 });
       const discharged = await send('POST', '/patients/p1/discharge', { checkoutAt });
       expect(discharged.statusCode, discharged.body).toBe(200);
       expect(discharged.json().patient).toMatchObject({ status: 'discharged', exitDate: Date.parse(fixture.planned), dischargeDate: checkoutAt,
@@ -367,10 +368,95 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       expect(recalculated.json().patient).toMatchObject({ advanceBilledAmount: Number(finalAmount), refundDueAmount: Number(refundAmount) });
       const returned = await send('POST', '/payments', refund);
       expect(returned.statusCode, returned.body).toBe(201);
-      expect((await send('GET', '/patients/p1/financials')).json().patient).toMatchObject({ advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${checkoutAt}`)).json().patient).toMatchObject({ advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
       const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
       expect(done.statusCode, done.body).toBe(200);
       expect(done.json().patient).toMatchObject({ exitDate: Date.parse(fixture.planned), dischargeDate: checkoutAt,
         advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
+    });
+    async function octoberBooking(category = 'general', absentDays: number[] = []) {
+      const start = '2026-10-22T11:57:00Z', planned = '2026-10-31T03:30:00Z';
+      const bookingCycle = String(Date.parse(start));
+      if (category === 'private') await query("UPDATE rooms SET room_type='private' WHERE id='r1'");
+      const registered = await send('POST', '/patients/register', {
+        ...patient(), admissionDate: start, registrationDate: start, exitDate: planned,
+        attendants: [{ id: 'october-attendant', name: 'Synthetic', startDate: '2026-10-22' }],
+        stays: [{ ...placement('october-stay'), admissionDate: start, durationDays: 9,
+          expectedDischargeDate: planned, cycleId: bookingCycle }],
+      });
+      expect(registered.statusCode, registered.body).toBe(201);
+      const attendant = registered.json().patient.attendants[0];
+      for (let day = 22; day <= 31; day++) {
+        const date = `2026-10-${day}`;
+        expect((await send('POST', '/attendance', { patientId: 'p1', date, payload: { status: 'Present' } })).statusCode).toBe(200);
+        expect((await send('POST', '/attendance', { patientId: 'p1', date, kind: 'attendant_attendance', payload: {
+          [attendant.id]: { attendantId: attendant.id, status: absentDays.includes(day) ? 'Absent' : 'Present' },
+        } })).statusCode).toBe(200);
+      }
+      return { cycle: bookingCycle, planned: Date.parse(planned), checkoutAt: Date.parse('2026-10-22T11:59:55.196Z') };
+    }
+    const persistedFinancialState = async () => (await query(`SELECT
+      (SELECT jsonb_agg(to_jsonb(p)) FROM patients p WHERE id='p1') AS patient,
+      (SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM stays s WHERE patient_id='p1') AS stays,
+      (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM payments p WHERE patient_id='p1') AS payments,
+      (SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM attendance_records a WHERE patient_id='p1') AS attendance`)).rows[0];
+
+    it('October preview/cancel is read-only; stale active checkout cannot truncate booking or authorize an excess collection', async () => {
+      const f = await octoberBooking();
+      await pay(2000, f.cycle, 'october-first');
+      await pay(2000, f.cycle, 'october-second');
+      // Reproduce the already persisted production preview in the isolated DB.
+      expect((await send('POST', '/patients/p1/recalculate-billing', { checkoutAt: f.checkoutAt })).json().patient)
+        .toMatchObject({ advanceBilledAmount: 400, totalPaidAmount: 4000, refundDueAmount: 3600 });
+      const before = await persistedFinancialState();
+      for (let retry = 0; retry < 2; retry++) {
+        expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.checkoutAt}`)).json().patient)
+          .toMatchObject({ advanceBilledAmount: 400, totalPaidAmount: 4000, refundDueAmount: 3600 });
+        expect((await send('GET', '/patients/p1/financials')).json().patient)
+          .toMatchObject({ advanceBilledAmount: 4000, totalPaidAmount: 4000, currentDueAmount: 0, refundDueAmount: 0 });
+      }
+      expect(await persistedFinancialState()).toEqual(before);
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.planned}`)).json().patient.advanceBilledAmount).toBe(3600);
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.planned + 60000}`)).json().patient.advanceBilledAmount).toBe(4000);
+      const rejected = await send('POST', '/patients/p1/discharge', { checkoutAt: f.checkoutAt });
+      expect(rejected.statusCode).toBe(409);
+      expect(rejected.body).toContain('refund 3600.00');
+      expect(await persistedFinancialState()).toEqual(before);
+      expect((await send('POST', '/payments', { id: 'excess', patientId: 'p1', cycleId: f.cycle, amount: 1, collectOutstanding: true })).statusCode).toBe(409);
+      // A deliberate ordinary recalculation repairs only this current projection.
+      expect((await send('POST', '/patients/p1/recalculate-billing', {})).json().patient.advanceBilledAmount).toBe(4000);
+      const stored = (await query("SELECT admission_balances FROM patients WHERE id='p1'")).rows[0].admission_balances[f.cycle];
+      expect(stored.checkoutAt).toBeNull();
+    });
+
+    it.each([['general', 400], ['private', 700]])('confirmed early %s checkout ignores future Present marks and freezes actual settlement', async (category, total) => {
+      const f = await octoberBooking(String(category));
+      await pay(Number(total), f.cycle);
+      const done = await send('POST', '/patients/p1/discharge', { checkoutAt: f.checkoutAt });
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.json().patient).toMatchObject({ status: 'discharged', dischargeDate: f.checkoutAt,
+        advanceBilledAmount: total, totalPaidAmount: total, currentDueAmount: 0, refundDueAmount: 0 });
+      expect((await send('GET', '/patients/p1/financials')).json().patient.advanceBilledAmount).toBe(total);
+      expect((await query("SELECT count(*)::int AS count FROM attendance_records WHERE patient_id='p1'")).rows[0].count).toBe(20);
+    });
+
+    it('partial payment and attendee absences retain booking rates and the existing 09:00 settlement boundary', async () => {
+      const f = await octoberBooking('general', [25, 31]);
+      await pay(1400, f.cycle);
+      const before = await persistedFinancialState();
+      expect((await send('GET', '/patients/p1/financials')).json().patient)
+        .toMatchObject({ advanceBilledAmount: 3600, totalPaidAmount: 1400, currentDueAmount: 2200 });
+      // Booking includes Oct 31; actual checkout at 09:00 excludes that date.
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.planned}`)).json().patient)
+        .toMatchObject({ advanceBilledAmount: 3400, currentDueAmount: 2000 });
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.planned + 60000}`)).json().patient.advanceBilledAmount).toBe(3600);
+      expect(await persistedFinancialState()).toEqual(before);
+      await send('POST', '/patients/p1/recalculate-billing', { checkoutAt: f.checkoutAt });
+      const remaining = { id: 'remaining', patientId: 'p1', cycleId: f.cycle, amount: 2200, collectOutstanding: true };
+      expect((await send('POST', '/payments', remaining)).statusCode).toBe(201);
+      expect((await send('POST', '/payments', remaining)).statusCode).toBe(200);
+      expect((await send('GET', '/patients/p1/financials')).json().patient)
+        .toMatchObject({ advanceBilledAmount: 3600, totalPaidAmount: 3600, currentDueAmount: 0, refundDueAmount: 0 });
+      expect((await query("SELECT count(*)::int AS count FROM payments WHERE patient_id='p1'")).rows[0].count).toBe(2);
     });
 });

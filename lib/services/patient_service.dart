@@ -727,10 +727,11 @@ class PatientService {
     PatientModel? patientOverride,
     DateTime? checkoutAt,
   }) async {
-    await _persistOverrideExitDate(patientId, patientOverride);
     if (isPostgres) {
       final actualCheckout = checkoutAt ?? DateTime.now();
-      final snapshot = await _backendApi!.recalculateBilling(
+      // Readiness is a hypothetical settlement, never an admission edit.
+      // In particular, do not persist a stale profile's planned exit override.
+      final snapshot = await _backendApi!.financialSnapshot(
         patientId,
         checkoutAt: actualCheckout,
       );
@@ -778,6 +779,7 @@ class PatientService {
         'reasons': reasons,
       };
     }
+    await _persistOverrideExitDate(patientId, patientOverride);
     await _resolvedPaymentService.recalculatePatientAttendanceAndBilling(
       patientId,
     );

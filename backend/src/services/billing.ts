@@ -89,10 +89,13 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     asOf?: number;
     checkoutAt?: Date;
     ignoreCheckout?: boolean;
+    // Explicit refund mutations retain the legacy settlement quote context.
+    // Ordinary active booking reads must never adopt an uncommitted preview.
+    useSavedCheckout?: boolean;
 } = {}) {
     const currentCycle = String(new Date(patient.admission_date).getTime());
     const savedCheckout = patient.admission_balances?.[currentCycle]?.checkoutAt;
-    if (!options.checkoutAt && !options.ignoreCheckout && patient.status !== 'discharged' && savedCheckout != null) options = { ...options, checkoutAt: new Date(savedCheckout) };
+    if (!options.checkoutAt && options.useSavedCheckout && !options.ignoreCheckout && patient.status !== 'discharged' && savedCheckout != null) options = { ...options, checkoutAt: new Date(savedCheckout) };
     const sourceStays = options.source?.stays ?? (await client.query("SELECT * FROM stays WHERE patient_id=$1 ORDER BY admission_date,id", [patient.id])).rows;
     const stays = sourceStays.map(s =>
         options.stayEndDates?.[s.id] ? { ...s, expected_discharge_date: options.stayEndDates[s.id] } : s);

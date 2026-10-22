@@ -70,7 +70,11 @@ type LockedPatient = {
 async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, before: RawPaymentRow | null, after: RawPaymentRow | null) {
   // The ledger mutation and this read occur under the same patient row lock.
   // A saved patient/admission summary never authorizes a refund.
-  const projection = await projectBilling(client, patient);
+  // Only an explicit refund mutation uses a previously requested settlement
+  // quote. Collections and ordinary reads use the active booking period.
+  const projection = await projectBilling(client, patient, {
+    useSavedCheckout: Number(before?.amount) < 0 || Number(after?.amount) < 0,
+  });
   const changes = new Map<string, { paid: number; refunded: number }>();
   for (const [row, direction] of [[before, -1], [after, 1]] as const) {
     if (!row) continue;
