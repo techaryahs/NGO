@@ -55,6 +55,7 @@ const paymentDate = date.refine(value => {
 const paymentFields = z.object({
   id: z.string().min(1).max(128).nullable().optional(), patientId: id, cycleId: id.nullable().optional(),
   collectOutstanding: z.boolean().optional(),
+  checkoutAt: z.number().finite().refine(v => Number.isFinite(new Date(v).getTime()), 'Invalid checkout time').optional(),
   transactionId: z.string().max(128).nullable().optional(), amount: signedPaymentMoney,
   totalAmount: signedPaymentMoney.nullable().optional(), paidAmount: signedPaymentMoney.nullable().optional(), pendingAmount: signedPaymentMoney.nullable().optional(),
   type: z.enum(['payment', 'refund']).nullable().optional(), date: paymentDate.nullable().optional(),

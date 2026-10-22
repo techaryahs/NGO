@@ -450,10 +450,6 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     }
     if (!context.mounted) return;
     final currency = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-    final ready = readiness['ready'] == true;
-    final reasons = readiness['reasons'] is List
-        ? List<String>.from(readiness['reasons'])
-        : const <String>[];
     final plannedExitValue = readiness['plannedExitDate'];
     final plannedExitDate = plannedExitValue is int
         ? DateTime.fromMillisecondsSinceEpoch(plannedExitValue)
@@ -462,124 +458,231 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         ? 'Not decided'
         : DateFormat('dd MMM yyyy, hh:mm a').format(plannedExitDate);
     var isSubmitting = false;
+    String? settlementError;
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          title: const Text('Discharge Patient'),
-          content: SizedBox(
-            width: 480,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Final balance for ${currentPatient.fullName}'),
-                const SizedBox(height: 14),
-                Text('Total charged: ${currency.format(readiness['total'])}'),
-                Text('Paid amount: ${currency.format(readiness['paid'])}'),
-                Text(
-                  'Pending amount: ${currency.format(readiness['pending'])}',
-                ),
-                Text('Refund due: ${currency.format(readiness['refundDue'])}'),
-                Text('Planned exit: $plannedExitText'),
-                Text(
-                  'Actual checkout: ${DateFormat('dd MMM yyyy, hh:mm a').format(checkoutAt)} (Asia/Kolkata)',
-                ),
-                if (readiness['checkoutAdjustment'] is Map)
-                  Text(
-                    'After 9 AM adjustment: ${currency.format(readiness['checkoutAdjustment']['amount'] ?? 0)}',
-                  ),
-                const SizedBox(height: 14),
-                if (ready)
-                  const Text(
-                    'Attendance and payment checks are complete. The patient can be discharged.',
-                    style: TextStyle(color: Color(0xFF3B6D11)),
-                  )
-                else ...[
-                  const Text(
-                    'Discharge is blocked:',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
+        builder: (dialogContext, setDialogState) {
+          final ready = readiness['ready'] == true && settlementError == null;
+          final refundDue = (readiness['refundDue'] as num?)?.toDouble() ?? 0;
+          final earlyCheckout =
+              plannedExitDate != null && checkoutAt.isBefore(plannedExitDate);
+          final reasons = readiness['reasons'] is List
+              ? List<String>.from(readiness['reasons'])
+              : const <String>[];
+          Future<void> refreshSettlement() async {
+            final updated = await ServiceLocator().patientService
+                .getDischargeReadiness(
+                  currentPatient.id,
+                  checkoutAt: checkoutAt,
+                );
+            if (dialogContext.mounted) {
+              setDialogState(() {
+                readiness = updated;
+                settlementError = null;
+              });
+            }
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: const Text('Discharge Patient'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Settlement preview for ${currentPatient.fullName}'),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Charge through proposed checkout: ${currency.format(readiness['total'])}',
                     ),
-                  ),
-                  for (final reason in reasons) Text('• $reason'),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF3B6D11),
-              ),
-              onPressed: isSubmitting
-                  ? null
-                  : () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: !ready || isSubmitting
-                  ? null
-                  : () async {
-                      setDialogState(() => isSubmitting = true);
-                      try {
-                        await ServiceLocator().patientService.dischargePatient(
-                          currentPatient.id,
-                          patientOverride: currentPatient,
-                          checkoutAt: checkoutAt,
-                        );
-                        if (dialogContext.mounted) {
-                          Navigator.pop(dialogContext);
-                        }
-                        if (mounted) {
-                          final messenger = ScaffoldMessenger.of(this.context);
-                          Navigator.pop(this.context);
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              content: Text('Patient discharged successfully'),
-                              backgroundColor: Color(0xFF3B6D11),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (dialogContext.mounted) {
-                          setDialogState(() => isSubmitting = false);
-                          ScaffoldMessenger.of(dialogContext).showSnackBar(
-                            SnackBar(
-                              content: Text('Error: ${e.toString()}'),
-                              backgroundColor: const Color(0xFFD32F2F),
-                            ),
-                          );
-                        }
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF3B6D11),
-                foregroundColor: Colors.white,
-                elevation: 2,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
+                    Text(
+                      'Net payments received: ${currency.format(readiness['paid'])}',
+                    ),
+                    Text(
+                      'Pending amount: ${currency.format(readiness['pending'])}',
+                    ),
+                    Text(
+                      'Refund due: ${currency.format(readiness['refundDue'])}',
+                    ),
+                    Text('Planned exit: $plannedExitText'),
+                    Text(
+                      'Proposed checkout: ${DateFormat('dd MMM yyyy, hh:mm a').format(checkoutAt)} (Asia/Kolkata)',
+                    ),
+                    if (readiness['checkoutAdjustment'] is Map)
+                      Text(
+                        'Checkout-day charge already included: ${currency.format(readiness['checkoutAdjustment']['amount'] ?? 0)}',
+                      ),
+                    if (earlyCheckout && refundDue > 0.005) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        'Early checkout refund: ${currency.format(refundDue)} must be returned to the patient because they are leaving before the planned exit. The final charge covers only the billable period through the proposed checkout, rather than the full booking.',
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Return the money using the agreed payment method, then record the refund below. Discharge will be checked again after the refund is saved.',
+                      ),
+                    ],
+                    if (settlementError != null)
+                      Text(
+                        settlementError!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    const SizedBox(height: 14),
+                    if (ready)
+                      const Text(
+                        'Attendance and payment checks are complete. The patient can be discharged.',
+                        style: TextStyle(color: Color(0xFF3B6D11)),
+                      )
+                    else ...[
+                      const Text(
+                        'Discharge is blocked:',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      for (final reason in reasons) Text('• $reason'),
+                    ],
+                  ],
                 ),
               ),
-              child: isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text(ready ? 'Confirm discharge' : 'Discharge blocked'),
             ),
-          ],
-        ),
+            actions: [
+              if (refundDue > 0.005)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.currency_rupee),
+                  label: Text('Refund ${currency.format(refundDue)}'),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          setDialogState(() => isSubmitting = true);
+                          try {
+                            await showRefundDialog(
+                              dialogContext,
+                              currentPatient,
+                              cycleId: StayBilling.currentCycle(currentPatient),
+                              checkoutAt: checkoutAt,
+                            );
+                            if (dialogContext.mounted) {
+                              await refreshSettlement();
+                            }
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              setDialogState(
+                                () => settlementError =
+                                    'Could not refresh settlement: $e',
+                              );
+                            }
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => isSubmitting = false);
+                            }
+                          }
+                        },
+                ),
+              if (settlementError != null)
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          setDialogState(() => isSubmitting = true);
+                          try {
+                            await refreshSettlement();
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              setDialogState(
+                                () => settlementError =
+                                    'Could not refresh settlement: $e',
+                              );
+                            }
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => isSubmitting = false);
+                            }
+                          }
+                        },
+                  child: const Text('Refresh settlement'),
+                ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF3B6D11),
+                ),
+                onPressed: isSubmitting
+                    ? null
+                    : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: !ready || isSubmitting
+                    ? null
+                    : () async {
+                        setDialogState(() => isSubmitting = true);
+                        try {
+                          await ServiceLocator().patientService
+                              .dischargePatient(
+                                currentPatient.id,
+                                patientOverride: currentPatient,
+                                checkoutAt: checkoutAt,
+                              );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (mounted) {
+                            final messenger = ScaffoldMessenger.of(
+                              this.context,
+                            );
+                            Navigator.pop(this.context);
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Patient discharged successfully',
+                                ),
+                                backgroundColor: Color(0xFF3B6D11),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (dialogContext.mounted) {
+                            setDialogState(() => isSubmitting = false);
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                content: Text('Error: ${e.toString()}'),
+                                backgroundColor: const Color(0xFFD32F2F),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF3B6D11),
+                  foregroundColor: Colors.white,
+                  elevation: 2,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                ),
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(ready ? 'Confirm discharge' : 'Discharge blocked'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

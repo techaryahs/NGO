@@ -67,12 +67,13 @@ type LockedPatient = {
   admission_balances: Record<string, Record<string, any>>;
 };
 
-async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, before: RawPaymentRow | null, after: RawPaymentRow | null) {
+async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, before: RawPaymentRow | null, after: RawPaymentRow | null, checkoutAt?: Date) {
   // The ledger mutation and this read occur under the same patient row lock.
   // A saved patient/admission summary never authorizes a refund.
   // Only an explicit refund mutation uses a previously requested settlement
   // quote. Collections and ordinary reads use the active booking period.
   const projection = await projectBilling(client, patient, {
+    checkoutAt,
     useSavedCheckout: Number(before?.amount) < 0 || Number(after?.amount) < 0,
   });
   const changes = new Map<string, { paid: number; refunded: number }>();
@@ -188,6 +189,10 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const paymentId = body.id || `pay_${randomUUID()}`;
     const patientId = body.patientId;
     const amount = String(body.amount);
+    const checkoutAt = body.checkoutAt == null ? undefined : new Date(body.checkoutAt);
+    if (checkoutAt && (body.type !== 'refund' || !Number.isFinite(checkoutAt.getTime()))) {
+      throw httpError(400, 'Checkout settlement context is only valid for a refund');
+    }
     const decimal = (value: unknown) => Number(value).toFixed(2);
     const trimmedTx = typeof body.transactionId === 'string' && body.transactionId.trim().length > 0
       ? body.transactionId.trim()
@@ -200,6 +205,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       totalAmount: decimal(body.totalAmount ?? amount), paidAmount: decimal(body.paidAmount ?? amount), pendingAmount: decimal(body.pendingAmount ?? 0),
       paymentStatus: body.paymentStatus || 'Paid', method: body.method || 'cash', date: body.date != null ? new Date(body.date).getTime() : null,
       ...(body.collectOutstanding === true ? { collectOutstanding: true } : {}),
+      ...(checkoutAt ? { checkoutAt: checkoutAt.getTime() } : {}),
       receiptNumber: trimmedReceipt, checkNumber: body.checkNumber || null, bankName: body.bankName || null,
       transactionId: trimmedTx, source: body.source || 'manual', notes: body.notes || null,
     })).digest('hex');
@@ -245,6 +251,15 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       // established receipt workflows may intentionally record an advance.
       // Check after idempotency so replaying a committed payment still succeeds
       // when that payment has already reduced the outstanding amount to zero.
+      if (checkoutAt) {
+        const current = patient.rows[0] as any;
+        if (current.status === 'discharged' || body.cycleId !== String(new Date(current.admission_date).getTime()))
+          throw httpError(409, 'Checkout refund must belong to the active admission');
+        if (checkoutAt < new Date(current.admission_date)) throw httpError(400, 'Checkout cannot precede admission');
+        const placements = (await client.query("SELECT admission_date FROM stays WHERE patient_id=$1 AND status='active'", [patientId])).rows;
+        if (!placements.length || placements.some(s => checkoutAt < new Date(s.admission_date)))
+          throw httpError(409, 'Reconcile the current placement before recording a checkout refund');
+      }
       if (body.collectOutstanding === true) {
         if ((body.type || 'payment') !== 'payment') throw httpError(400, 'Outstanding collection must be a payment');
         const projection = await projectBilling(client, patient.rows[0]);
@@ -287,7 +302,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         ]
       );
 
-      const balances = await applyPaymentDelta(client, patient.rows[0], null, insertRes.rows[0]);
+      const balances = await applyPaymentDelta(client, patient.rows[0], null, insertRes.rows[0], checkoutAt);
 
       await client.query('COMMIT');
       const rowToFormat = {

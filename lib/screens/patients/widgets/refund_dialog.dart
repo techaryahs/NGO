@@ -9,17 +9,28 @@ Future<bool?> showRefundDialog(
   BuildContext context,
   PatientModel patient, {
   String? cycleId,
+  DateTime? checkoutAt,
 }) async {
   return await showDialog<bool>(
     context: context,
-    builder: (_) => RefundDialog(patient: patient, cycleId: cycleId),
+    builder: (_) => RefundDialog(
+      patient: patient,
+      cycleId: cycleId,
+      checkoutAt: checkoutAt,
+    ),
   );
 }
 
 class RefundDialog extends StatefulWidget {
   final PatientModel patient;
   final String? cycleId;
-  const RefundDialog({super.key, required this.patient, this.cycleId});
+  final DateTime? checkoutAt;
+  const RefundDialog({
+    super.key,
+    required this.patient,
+    this.cycleId,
+    this.checkoutAt,
+  });
   @override
   State<RefundDialog> createState() => _RefundDialogState();
 }
@@ -44,12 +55,16 @@ class _RefundDialogState extends State<RefundDialog> {
     try {
       final updates = await ServiceLocator().paymentService.billingUpdates(
         widget.patient.id,
+        checkoutAt: widget.checkoutAt,
       );
       balances =
           Map<String, dynamic>.from(
             updates['patients/${widget.patient.id}/admissionBalances'] as Map,
           )..removeWhere(
-            (_, value) => value is! Map || (value['refundDue'] as num) <= 0.005,
+            (id, value) =>
+                value is! Map ||
+                (value['refundDue'] as num) <= 0.005 ||
+                (widget.checkoutAt != null && id != widget.cycleId),
           );
       cycle = balances.containsKey(widget.cycleId)
           ? widget.cycleId
@@ -96,6 +111,7 @@ class _RefundDialogState extends State<RefundDialog> {
         receiptNumber: receipt.text,
         transactionId: transaction.text,
         requestId: _requestId,
+        checkoutAt: widget.checkoutAt,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -142,6 +158,12 @@ class _RefundDialogState extends State<RefundDialog> {
                     const Text(
                       'Record money already returned to the patient. This updates the balance and adds a refund to the transaction ledger.',
                     ),
+                    if (widget.checkoutAt != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Early-checkout settlement for ${DateFormat('dd MMM yyyy, hh:mm a').format(widget.checkoutAt!)}. The refundable amount is calculated through this proposed checkout, rather than the full booking.',
+                      ),
+                    ],
                     if (balances.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(16),
@@ -197,10 +219,7 @@ class _RefundDialogState extends State<RefundDialog> {
                           labelText: 'Refund method',
                         ),
                         items: const [
-                          DropdownMenuItem(
-                            value: 'cash',
-                            child: Text('Cash'),
-                          ),
+                          DropdownMenuItem(value: 'cash', child: Text('Cash')),
                           DropdownMenuItem(
                             value: 'online',
                             child: Text('UPI QR / Online'),
@@ -227,12 +246,16 @@ class _RefundDialogState extends State<RefundDialog> {
                         controller: transaction,
                         enabled: !saving,
                         decoration: const InputDecoration(
-                          labelText: 'Transaction / reference number (optional)',
+                          labelText:
+                              'Transaction / reference number (optional)',
                         ),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_today_rounded, size: 16),
+                        icon: const Icon(
+                          Icons.calendar_today_rounded,
+                          size: 16,
+                        ),
                         onPressed: saving
                             ? null
                             : () async {
@@ -263,7 +286,11 @@ class _RefundDialogState extends State<RefundDialog> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 20,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(

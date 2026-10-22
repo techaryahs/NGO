@@ -188,6 +188,7 @@ class GatedBilling extends PaymentService {
     String patientId, {
     Map<String, dynamic>? patientData,
     List<StayModel>? stays,
+    DateTime? checkoutAt,
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {

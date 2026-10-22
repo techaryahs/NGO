@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/screens/patients/widgets/refund_dialog.dart';
+import 'package:ngo/screens/patients/patient_profile_screen.dart';
 import 'package:ngo/screens/payments/patient_financial_dialog.dart';
 import 'package:ngo/screens/payments/payments_screen.dart';
 import 'package:ngo/services/backend_api_service.dart';
@@ -13,6 +15,31 @@ import 'package:ngo/services/service_locator.dart';
 class _FakePatientService extends Fake implements PatientService {
   final List<PatientModel> _patients;
   _FakePatientService(this._patients);
+  Map<String, dynamic> readiness = {};
+  int dischargeCalls = 0;
+  bool failRefresh = false;
+  final checkoutRequests = <DateTime?>[];
+  @override
+  Future<Map<String, dynamic>> getDischargeReadiness(
+    String patientId, {
+    PatientModel? patientOverride,
+    DateTime? checkoutAt,
+  }) async {
+    checkoutRequests.add(checkoutAt);
+    if (failRefresh && checkoutRequests.length > 1) {
+      throw StateError('Settlement refresh unavailable');
+    }
+    return Map.of(readiness);
+  }
+
+  @override
+  Future<void> dischargePatient(
+    String patientId, {
+    PatientModel? patientOverride,
+    DateTime? checkoutAt,
+  }) async {
+    dischargeCalls++;
+  }
 
   @override
   Stream<List<PatientModel>> getPatientsStream() =>
@@ -23,11 +50,16 @@ class _FakePatientService extends Fake implements PatientService {
       _patients.where((p) => p.id == patientId).firstOrNull;
 }
 
+class _FakeRoomService extends Fake implements RoomService {}
+
 class _FakePaymentService extends Fake implements PaymentService {
   final List<Map<String, dynamic>> ledger;
   final Map<String, dynamic> billing;
   final List<StayModel> stays;
   final List<Map<String, dynamic>> recordedRefunds = [];
+  Completer<void>? refundGate;
+  Object? refundFailure;
+  VoidCallback? onRefund;
 
   _FakePaymentService({
     required this.ledger,
@@ -47,6 +79,7 @@ class _FakePaymentService extends Fake implements PaymentService {
     String patientId, {
     Map<String, dynamic>? patientData,
     List<StayModel>? stays,
+    DateTime? checkoutAt,
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async => billing;
@@ -61,7 +94,10 @@ class _FakePaymentService extends Fake implements PaymentService {
     String receiptNumber = '',
     String transactionId = '',
     String? requestId,
+    DateTime? checkoutAt,
   }) async {
+    await refundGate?.future;
+    if (refundFailure != null) throw refundFailure!;
     recordedRefunds.add({
       'patientId': patientId,
       'cycleId': cycleId,
@@ -71,7 +107,9 @@ class _FakePaymentService extends Fake implements PaymentService {
       'receiptNumber': receiptNumber,
       'transactionId': transactionId,
       'requestId': requestId,
+      'checkoutAt': checkoutAt,
     });
+    onRefund?.call();
     return 'refund_ok_123';
   }
 }
@@ -79,16 +117,150 @@ class _FakePaymentService extends Fake implements PaymentService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  for (final outcome in ['success', 'failure', 'cancel', 'refresh_failure']) {
+    final fails = outcome == 'failure';
+    testWidgets('discharge early refund: $outcome', (tester) async {
+      tester.view.physicalSize = const Size(1600, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final admission = DateTime.now().subtract(const Duration(minutes: 5));
+      final planned = DateTime.now().add(const Duration(days: 9));
+      final cycle = admission.millisecondsSinceEpoch.toString();
+      final patient = PatientModel.fromMap('refund-card', {
+        'fullName': 'Synthetic early checkout',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'exitDate': planned.millisecondsSinceEpoch,
+        'status': 'active',
+        'advanceBilledAmount': 4000,
+        'totalPaidAmount': 4000,
+        'currentDueAmount': 0,
+      });
+      final patients = _FakePatientService([patient])
+        ..readiness = {
+          'total': 400,
+          'paid': 4000,
+          'pending': 0,
+          'refundDue': 3600,
+          'ready': false,
+          'reasons': ['₹3600 must be refunded first.'],
+          'plannedExitDate': planned.millisecondsSinceEpoch,
+        };
+      final payments = _FakePaymentService(
+        ledger: [],
+        stays: [],
+        billing: {
+          'patients/refund-card/admissionBalances': {
+            cycle: {'refundDue': 3600},
+          },
+        },
+      )..refundGate = Completer<void>();
+      if (fails) {
+        payments.refundFailure = StateError('Refund was rejected by server');
+      }
+      payments.onRefund = () {
+        patients.failRefresh = outcome == 'refresh_failure';
+        patients.readiness.addAll({
+          'paid': 400,
+          'refundDue': 0,
+          'ready': true,
+          'reasons': [],
+        });
+      };
+      ServiceLocator().patientService = patients;
+      ServiceLocator().paymentService = payments;
+      ServiceLocator().roomService = _FakeRoomService();
+      await tester.pumpWidget(
+        MaterialApp(home: PatientProfileScreen(patient: patient)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discharge Patient'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Early checkout refund: ₹3,600'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Proposed checkout:'), findsOneWidget);
+      await tester.tap(find.text('Refund ₹3,600'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(RefundDialog), findsOneWidget);
+      expect(find.widgetWithText(TextField, '3600.00'), findsOneWidget);
+      if (outcome == 'cancel') {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(RefundDialog),
+            matching: find.text('Cancel'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(payments.recordedRefunds, isEmpty);
+        expect(patients.dischargeCalls, 0);
+        expect(find.text('Refund ₹3,600'), findsOneWidget);
+        expect(find.text('Confirm discharge'), findsNothing);
+        return;
+      }
+      await tester.tap(find.widgetWithText(FilledButton, 'Record refund paid'));
+      await tester.pump();
+      expect(payments.recordedRefunds, isEmpty);
+      expect(patients.dischargeCalls, 0);
+      payments.refundGate!.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      if (fails) {
+        expect(find.text('Refund was rejected by server'), findsOneWidget);
+        expect(find.byType(RefundDialog), findsOneWidget);
+        expect(payments.recordedRefunds, isEmpty);
+      } else if (outcome == 'refresh_failure') {
+        expect(payments.recordedRefunds, hasLength(1));
+        expect(
+          find.textContaining('Could not refresh settlement:'),
+          findsOneWidget,
+        );
+        expect(find.text('Confirm discharge'), findsNothing);
+        patients.failRefresh = false;
+        await tester.tap(find.text('Refresh settlement'));
+        await tester.pumpAndSettle();
+        expect(find.text('Confirm discharge'), findsOneWidget);
+      } else {
+        expect(find.byType(RefundDialog), findsNothing);
+        expect(find.text('Confirm discharge'), findsOneWidget);
+        expect(find.text('Refund ₹3,600'), findsNothing);
+        expect(
+          payments.recordedRefunds.single['checkoutAt'],
+          patients.checkoutRequests.first,
+        );
+        expect(patients.checkoutRequests, hasLength(2));
+        expect(patients.checkoutRequests.first, patients.checkoutRequests.last);
+      }
+      expect(patients.dischargeCalls, 0);
+    });
+  }
+
   group('BackendApiException Server Error Formatting', () {
     test('extracts message from json response body correctly', () {
-      const jsonBody = '{"statusCode":409,"error":"Conflict","message":"Refund exceeds the remaining excess payment"}';
+      const jsonBody =
+          '{"statusCode":409,"error":"Conflict","message":"Refund exceeds the remaining excess payment"}';
       final msg = BackendApiException.extractMessage(jsonBody);
       expect(msg, 'Refund exceeds the remaining excess payment');
 
-      final exception = BackendApiException(409, 'POST', serverMessage: msg, responseBody: jsonBody);
+      final exception = BackendApiException(
+        409,
+        'POST',
+        serverMessage: msg,
+        responseBody: jsonBody,
+      );
       expect(exception.statusCode, 409);
-      expect(exception.serverMessage, 'Refund exceeds the remaining excess payment');
-      expect(exception.message, contains('POST failed (HTTP 409): Refund exceeds the remaining excess payment'));
+      expect(
+        exception.serverMessage,
+        'Refund exceeds the remaining excess payment',
+      );
+      expect(
+        exception.message,
+        contains(
+          'POST failed (HTTP 409): Refund exceeds the remaining excess payment',
+        ),
+      );
     });
 
     test('extracts error field when message is absent', () {
@@ -163,12 +335,12 @@ void main() {
       ServiceLocator().paymentService = fakePaymentService;
     });
 
-    testWidgets('loads excess amount and pre-fills ₹1,200 refundable balance', (tester) async {
+    testWidgets('loads excess amount and pre-fills ₹1,200 refundable balance', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(
-            body: RefundDialog(patient: testPatient),
-          ),
+          home: Scaffold(body: RefundDialog(patient: testPatient)),
         ),
       );
 
@@ -179,7 +351,12 @@ void main() {
 
       // Verified dialog header & contents
       expect(find.text('Record refund paid'), findsNWidgets(2));
-      expect(find.text('Record money already returned to the patient. This updates the balance and adds a refund to the transaction ledger.'), findsOneWidget);
+      expect(
+        find.text(
+          'Record money already returned to the patient. This updates the balance and adds a refund to the transaction ledger.',
+        ),
+        findsOneWidget,
+      );
 
       // Verified pre-filled refund amount of 1200.00
       expect(find.widgetWithText(TextField, '1200.00'), findsOneWidget);
@@ -188,22 +365,28 @@ void main() {
       expect(find.text('Cash'), findsOneWidget);
 
       // Verified confirm button
-      expect(find.widgetWithText(FilledButton, 'Record refund paid'), findsOneWidget);
+      expect(
+        find.widgetWithText(FilledButton, 'Record refund paid'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('records refund with valid values and invokes PaymentService', (tester) async {
+    testWidgets('records refund with valid values and invokes PaymentService', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(
-            body: RefundDialog(patient: testPatient),
-          ),
+          home: Scaffold(body: RefundDialog(patient: testPatient)),
         ),
       );
 
       await tester.pumpAndSettle();
 
       // Tap confirm button
-      final recordButton = find.widgetWithText(FilledButton, 'Record refund paid');
+      final recordButton = find.widgetWithText(
+        FilledButton,
+        'Record refund paid',
+      );
       expect(recordButton, findsOneWidget);
       await tester.tap(recordButton);
       await tester.pumpAndSettle();
@@ -262,55 +445,60 @@ void main() {
       );
     });
 
-    testWidgets('renders Payments Dashboard with Record Refund header button, summary cards and filter chips', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: PaymentsScreen(),
+    testWidgets(
+      'renders Payments Dashboard with Record Refund header button, summary cards and filter chips',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: PaymentsScreen())),
+        );
+
+        await tester.pumpAndSettle();
+
+        // Header and tile refund buttons
+        expect(find.text('Record Refund'), findsWidgets);
+        expect(find.text('Show QR Code'), findsOneWidget);
+
+        // Summary cards
+        expect(find.text('Total Outstanding Due'), findsOneWidget);
+        expect(find.text('Net Collected'), findsOneWidget);
+        expect(find.text('Total Refund Due'), findsOneWidget);
+
+        // Filter chips
+        expect(find.textContaining('All Patients'), findsOneWidget);
+        expect(find.textContaining('Due Patients'), findsOneWidget);
+        expect(find.textContaining('Refund Due ('), findsOneWidget);
+
+        // Patient billing tile displays excess and Record Refund action
+        expect(find.text('Patient With Refund Due'), findsOneWidget);
+        expect(find.textContaining('Excess: ₹1,200'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PatientFinancialDialog displays admission cycles and transaction history',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PatientFinancialDialog(initialPatient: testPatient),
+            ),
           ),
-        ),
-      );
+        );
 
-      await tester.pumpAndSettle();
+        await tester.pumpAndSettle();
 
-      // Header and tile refund buttons
-      expect(find.text('Record Refund'), findsWidgets);
-      expect(find.text('Show QR Code'), findsOneWidget);
+        // Financial overview metrics
+        expect(find.text('Total Billed'), findsOneWidget);
+        expect(find.text('Net Paid'), findsOneWidget);
+        expect(find.text('Outstanding Due'), findsOneWidget);
+        expect(find.text('Refund Due (Excess)'), findsOneWidget);
 
-      // Summary cards
-      expect(find.text('Total Outstanding Due'), findsOneWidget);
-      expect(find.text('Net Collected'), findsOneWidget);
-      expect(find.text('Total Refund Due'), findsOneWidget);
-
-      // Filter chips
-      expect(find.textContaining('All Patients'), findsOneWidget);
-      expect(find.textContaining('Due Patients'), findsOneWidget);
-      expect(find.textContaining('Refund Due ('), findsOneWidget);
-
-      // Patient billing tile displays excess and Record Refund action
-      expect(find.text('Patient With Refund Due'), findsOneWidget);
-      expect(find.textContaining('Excess: ₹1,200'), findsOneWidget);
-    });
-
-    testWidgets('PatientFinancialDialog displays admission cycles and transaction history', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: PatientFinancialDialog(initialPatient: testPatient),
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      // Financial overview metrics
-      expect(find.text('Total Billed'), findsOneWidget);
-      expect(find.text('Net Paid'), findsOneWidget);
-      expect(find.text('Outstanding Due'), findsOneWidget);
-      expect(find.text('Refund Due (Excess)'), findsOneWidget);
-
-      // Excess banner
-      expect(find.textContaining('Payment exceeded by ₹1,200.00'), findsOneWidget);
-    });
+        // Excess banner
+        expect(
+          find.textContaining('Payment exceeded by ₹1,200.00'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

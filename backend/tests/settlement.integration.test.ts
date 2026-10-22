@@ -440,6 +440,54 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       expect((await query("SELECT count(*)::int AS count FROM attendance_records WHERE patient_id='p1'")).rows[0].count).toBe(20);
     });
 
+    it('early refund uses an explicit checkout quote without persisting readiness, retries safely and permits discharge', async () => {
+      const f = await octoberBooking();
+      await pay(2000, f.cycle, 'first');
+      await pay(2000, f.cycle, 'second');
+      const before = await persistedFinancialState();
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.checkoutAt}`)).json().patient.refundDueAmount).toBe(3600);
+      expect(await persistedFinancialState()).toEqual(before);
+      const refund = { id: 'explicit-checkout-refund', patientId: 'p1', cycleId: f.cycle, amount: -3600,
+        type: 'refund', method: 'cash', checkoutAt: f.checkoutAt };
+      expect((await send('POST', '/payments', { ...refund, amount: -3601 })).statusCode).toBe(409);
+      expect(await persistedFinancialState()).toEqual(before);
+      const returned = await send('POST', '/payments', refund);
+      expect(returned.statusCode, returned.body).toBe(201);
+      expect((await send('POST', '/payments', refund)).statusCode).toBe(200);
+      // The checkout context is part of the payment retry identity.
+      expect((await send('POST', '/payments', { ...refund, checkoutAt: f.planned })).statusCode).toBe(409);
+      expect((await query("SELECT count(*)::int AS n,sum(amount)::text AS net FROM payments WHERE patient_id='p1'")).rows[0])
+        .toEqual({ n: 3, net: '400.00' });
+      expect((await send('GET', `/patients/p1/financials?checkoutAt=${f.checkoutAt}`)).json().patient)
+        .toMatchObject({ advanceBilledAmount: 400, totalPaidAmount: 400, currentDueAmount: 0, refundDueAmount: 0 });
+      const done = await send('POST', '/patients/p1/discharge', { checkoutAt: f.checkoutAt });
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.json().patient).toMatchObject({ status: 'discharged', advanceBilledAmount: 400,
+        totalPaidAmount: 400, totalRefundedAmount: 3600, refundDueAmount: 0 });
+      expect((await send('POST', '/payments', refund)).statusCode).toBe(200);
+    });
+
+    it('concurrent early refunds cannot spend the same excess and invalid checkout contexts leave no ledger row', async () => {
+      const f = await octoberBooking();
+      await pay(4000, f.cycle);
+      const refund = { patientId: 'p1', cycleId: f.cycle, amount: -3600,
+        type: 'refund', method: 'cash', checkoutAt: f.checkoutAt };
+      const before = await persistedFinancialState();
+      for (const invalid of [
+        { ...refund, cycleId: 'wrong-cycle' },
+        { ...refund, checkoutAt: Date.parse('2026-10-21T11:00:00Z') },
+        { ...refund, checkoutAt: 'invalid' },
+        { ...refund, type: 'payment', amount: 1 },
+      ]) {
+        expect((await send('POST', '/payments', { id: 'invalid', ...invalid })).statusCode).toBeGreaterThanOrEqual(400);
+        expect(await persistedFinancialState()).toEqual(before);
+      }
+      const results = await Promise.all(['concurrent-one', 'concurrent-two'].map(id => send('POST', '/payments', { id, ...refund })));
+      expect(results.map(r => r.statusCode).sort()).toEqual([201, 409]);
+      expect((await query("SELECT count(*)::int AS n,sum(amount)::text AS net FROM payments WHERE patient_id='p1'")).rows[0])
+        .toEqual({ n: 2, net: '400.00' });
+    });
+
     it('partial payment and attendee absences retain booking rates and the existing 09:00 settlement boundary', async () => {
       const f = await octoberBooking('general', [25, 31]);
       await pay(1400, f.cycle);

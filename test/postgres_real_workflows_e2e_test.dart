@@ -673,6 +673,49 @@ void main() {
         throwsA(isA<Exception>()),
       );
       expect(await stored(), before);
+      final refundDate = DateTime.parse('2026-10-22T12:00:00Z');
+      final requestId = AttendantModel.generateId();
+      final refundId = await paymentService.recordRefund(
+        patientId: pid,
+        cycleId: cycle,
+        amount: 3600,
+        date: refundDate,
+        method: 'cash',
+        requestId: requestId,
+        checkoutAt: checkout,
+      );
+      expect(
+        await paymentService.recordRefund(
+          patientId: pid,
+          cycleId: cycle,
+          amount: 3600,
+          date: refundDate,
+          method: 'cash',
+          requestId: requestId,
+          checkoutAt: checkout,
+        ),
+        refundId,
+      );
+      final refunded = await patientService.getDischargeReadiness(
+        pid,
+        checkoutAt: checkout,
+      );
+      expect(refunded['refundDue'], 0);
+      expect(refunded['paid'], 400);
+      expect(refunded['ready'], isTrue);
+      expect(
+        (await queryRows(
+          'SELECT count(*)::int AS n,sum(amount)::text AS net FROM payments WHERE patient_id=\$1',
+          [pid],
+        )).single,
+        {'n': 3, 'net': '400.00'},
+      );
+      await patientService.dischargePatient(pid, checkoutAt: checkout);
+      final finalPatient =
+          (await backendApi.financialSnapshot(pid))['patient'] as Map;
+      expect(finalPatient['status'], 'discharged');
+      expect(finalPatient['refundDueAmount'], 0);
+      expect(finalPatient['totalRefundedAmount'], 3600);
     },
   );
 

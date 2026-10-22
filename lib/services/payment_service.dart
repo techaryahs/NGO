@@ -185,6 +185,7 @@ class PaymentService {
     String patientId, {
     Map<String, dynamic>? patientData,
     List<StayModel>? stays,
+    DateTime? checkoutAt,
     Map<String, String?> patientAttendanceOverrides = const {},
     Map<String, Map<String, String?>> attendantAttendanceOverrides = const {},
   }) async {
@@ -192,7 +193,10 @@ class PaymentService {
         patientData == null &&
         patientAttendanceOverrides.isEmpty &&
         attendantAttendanceOverrides.isEmpty) {
-      final snapshot = await _backendApi!.financialSnapshot(patientId);
+      final snapshot = await _backendApi!.financialSnapshot(
+        patientId,
+        checkoutAt: checkoutAt,
+      );
       final patient = Map<String, dynamic>.from(snapshot['patient'] as Map);
       return {
         'financialSnapshot/stays': snapshot['stays'],
@@ -902,6 +906,7 @@ class PaymentService {
     String receiptNumber = '',
     String transactionId = '',
     String? requestId,
+    DateTime? checkoutAt,
   }) async {
     if (!amount.isFinite || amount <= 0) {
       throw ArgumentError('Enter a positive refund amount');
@@ -917,7 +922,10 @@ class PaymentService {
       'transactionId': transactionId.trim(),
       'cycleId': cycleId,
       'type': 'refund',
-      'notes': 'Refund recorded',
+      'notes': checkoutAt == null
+          ? 'Refund recorded'
+          : 'Early checkout refund for proposed checkout ${checkoutAt.toUtc().toIso8601String()}',
+      if (checkoutAt != null) 'checkoutAt': checkoutAt.millisecondsSinceEpoch,
     };
     final raw = isPostgres
         ? await _backendApi!.refresh('patients/$patientId')
@@ -937,18 +945,23 @@ class PaymentService {
           (priorRefund.transactionId ?? '').trim() != transactionId.trim()) {
         throw StateError('This refund ID is already recorded differently.');
       }
-      return priorRefund.id;
+      // Preserve existing ordinary refund retries. Checkout refunds must reach
+      // the server so a reused ID cannot silently change its settlement date.
+      if (!isPostgres || checkoutAt == null) return priorRefund.id;
     }
     final stays = await loadStays(patientId);
     final before = await billingUpdates(
       patientId,
       patientData: isPostgres ? null : Map<String, dynamic>.from(raw),
       stays: stays,
+      checkoutAt: checkoutAt,
     );
     final balance =
         (before['patients/$patientId/admissionBalances'] as Map?)?[cycleId];
-    if (balance is! Map ||
-        amount > ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005) {
+    if (priorRefund == null &&
+        (balance is! Map ||
+            amount >
+                ((balance['refundDue'] as num?)?.toDouble() ?? 0) + 0.005)) {
       throw StateError('Refund exceeds the remaining excess payment');
     }
     final id =
