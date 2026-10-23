@@ -1,3 +1,4 @@
+import 'package:ngo/utils/pricing_helper.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -466,5 +467,156 @@ void main() {
 
     expect(find.text('₹200/day × 60 + ₹250/day × 10 days'), findsOneWidget);
     expect(find.text('₹14,500'), findsOneWidget);
+  });
+
+  group('Planned checkout 09:00 boundary regression tests', () {
+    final admission = DateTime(2026, 1, 1, 10, 59);
+
+    test('January 1 admission, January 2 checkout at 08:59 -> ₹200 (1 day)', () {
+      final exit = DateTime(2026, 1, 2, 8, 59);
+      final days = PricingHelper.calculateStayDays(admission, exit);
+      expect(days, 1);
+      final cost = PricingHelper.calculateProjectedStayCost(false, 0, days);
+      expect(cost, 200.0);
+    });
+
+    test('January 1 admission, January 2 checkout at 09:00 -> ₹200 (1 day)', () {
+      final exit = DateTime(2026, 1, 2, 9, 0);
+      final days = PricingHelper.calculateStayDays(admission, exit);
+      expect(days, 1);
+      final cost = PricingHelper.calculateProjectedStayCost(false, 0, days);
+      expect(cost, 200.0);
+    });
+
+    test('January 1 admission, January 2 checkout at 09:01 -> ₹400 (2 days)', () {
+      final exit = DateTime(2026, 1, 2, 9, 1);
+      final days = PricingHelper.calculateStayDays(admission, exit);
+      expect(days, 2);
+      final cost = PricingHelper.calculateProjectedStayCost(false, 0, days);
+      expect(cost, 400.0);
+    });
+
+    test('General bed with no attendee', () {
+      final daysAt9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 0),
+      );
+      expect(daysAt9, 1);
+      expect(
+        PricingHelper.calculateProjectedStayCost(false, 0, daysAt9),
+        200.0,
+      );
+
+      final daysAfter9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 1),
+      );
+      expect(daysAfter9, 2);
+      expect(
+        PricingHelper.calculateProjectedStayCost(false, 0, daysAfter9),
+        400.0,
+      );
+    });
+
+    test('General bed with a separately billable attendee', () {
+      final daysAt9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 0),
+      );
+      expect(daysAt9, 1);
+      // General bed: (1 patient + 1 attendant) * ₹200/day = ₹400 for 1 day
+      expect(
+        PricingHelper.calculateProjectedStayCost(false, 1, daysAt9),
+        400.0,
+      );
+
+      final daysAfter9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 1),
+      );
+      expect(daysAfter9, 2);
+      // 2 days * ₹400/day = ₹800
+      expect(
+        PricingHelper.calculateProjectedStayCost(false, 1, daysAfter9),
+        800.0,
+      );
+    });
+
+    test('Private room, where one attendee is included', () {
+      final daysAt9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 0),
+      );
+      expect(daysAt9, 1);
+      // Private room: ₹700 includes 1 attendant = ₹700 for 1 day
+      expect(
+        PricingHelper.calculateProjectedStayCost(true, 1, daysAt9),
+        700.0,
+      );
+
+      final daysAfter9 = PricingHelper.calculateStayDays(
+        admission,
+        DateTime(2026, 1, 2, 9, 1),
+      );
+      expect(daysAfter9, 2);
+      // 2 days * ₹700/day = ₹1,400
+      expect(
+        PricingHelper.calculateProjectedStayCost(true, 1, daysAfter9),
+        1400.0,
+      );
+    });
+
+    testWidgets(
+      'AdmissionPaymentSummary displays 1-day estimate at 09:00 checkout vs 2-day at 09:01',
+      (WidgetTester tester) async {
+        final days0900 = PricingHelper.calculateStayDays(
+          admission,
+          DateTime(2026, 1, 2, 9, 0),
+        );
+        expect(days0900, 1);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AdmissionPaymentSummary(
+                bedsCount: 1,
+                attendantsCount: 0,
+                isPrivateRoom: false,
+                days: days0900,
+                placementSelected: true,
+                pricingLoaded: true,
+                pricing: const {'generalRoomBedPrice': 200},
+              ),
+            ),
+          ),
+        );
+        expect(find.text('1-day estimate'), findsOneWidget);
+        expect(find.text('₹200'), findsAtLeastNWidgets(1));
+
+        final days0901 = PricingHelper.calculateStayDays(
+          admission,
+          DateTime(2026, 1, 2, 9, 1),
+        );
+        expect(days0901, 2);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AdmissionPaymentSummary(
+                bedsCount: 1,
+                attendantsCount: 0,
+                isPrivateRoom: false,
+                days: days0901,
+                placementSelected: true,
+                pricingLoaded: true,
+                pricing: const {'generalRoomBedPrice': 200},
+              ),
+            ),
+          ),
+        );
+        expect(find.text('2-day estimate'), findsOneWidget);
+        expect(find.text('₹400'), findsAtLeastNWidgets(1));
+      },
+    );
   });
 }

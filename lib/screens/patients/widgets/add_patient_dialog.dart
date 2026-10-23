@@ -421,10 +421,7 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
     return PricingHelper.calculateStayDays(start, _selectedExitDate);
   }
 
-  int get _billingDays => PricingHelper.calculateBillingDays(
-    _selectedRegistrationDate ?? DateTime.now(),
-    _selectedExitDate,
-  );
+  int get _billingDays => _plannedStayDays;
 
   double get _estimatedTotal => PricingHelper.calculateProjectedStayCost(
     _selectedRoom?.isPrivate ?? false,
