@@ -5,7 +5,7 @@
 ; -----------------------------------------------------------------------------
 
 #define MyAppName "NGO Management"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "Aryahs World Infotech(OPC) Pvt. Ltd."
 #define MyAppExeName "ngo.exe"
 #define MyAppCopyright "Copyright (C) 2026 Aryahs World Infotech(OPC) Pvt. Ltd."

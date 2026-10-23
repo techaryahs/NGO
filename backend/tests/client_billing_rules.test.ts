@@ -222,4 +222,164 @@ describe('approved client billing rules', () => {
     expect(result.balances[cycle]).toMatchObject({ total: 1234, finalized: true, segmentCharges: { s0: 1234 } });
     expect(result.stays[0].total_cost).toBe('1234.00');
   });
+
+  describe('9:00 AM cutoff and advance payment / extension settlement consistency', () => {
+    it('planned exit at or before 9:00 AM bills 8 days (₹1,600) for general bed', async () => {
+      // Jan 1 admission, planned exit Jan 9 at 09:00 IST (03:30 UTC) -> 8 billable days (Jan 1..8)
+      const patient = {
+        id: 'p_8days',
+        admission_date: at(1, 0, 0),
+        registration_date: at(1, 0, 0),
+        status: 'active',
+        exit_date: at(9, 3, 30), // 09:00 IST
+        attendants: [],
+      };
+      const stays = [{
+        id: 's0',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: at(1, 0, 0),
+        created_at: at(1, 0, 0),
+        updated_at: at(9, 3, 30),
+        expected_discharge_date: at(9, 3, 30),
+        cycle_id: cycle,
+        room_type: 'general',
+      }];
+      const source = {
+        stays,
+        records: [],
+        receipts: [],
+        roster: [],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const client = {} as unknown as pg.PoolClient;
+      const result = await projectBilling(client, patient as any, { source: source as any });
+      expect(result.balances[cycle].total).toBe(1600);
+      expect(result.balances[cycle].segmentDays['s0']).toBe(8);
+    });
+
+    it('planned exit after 9:00 AM bills 9 days (₹1,800) for general bed', async () => {
+      // Jan 1 admission, planned exit Jan 9 at 09:01 IST (03:31 UTC) -> 9 billable days (Jan 1..9)
+      const patient = {
+        id: 'p_9days',
+        admission_date: at(1, 0, 0),
+        registration_date: at(1, 0, 0),
+        status: 'active',
+        exit_date: at(9, 3, 31), // 09:01 IST
+        attendants: [],
+      };
+      const stays = [{
+        id: 's0',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: at(1, 0, 0),
+        created_at: at(1, 0, 0),
+        updated_at: at(9, 3, 31),
+        expected_discharge_date: at(9, 3, 31),
+        cycle_id: cycle,
+        room_type: 'general',
+      }];
+      const source = {
+        stays,
+        records: [],
+        receipts: [],
+        roster: [],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const client = {} as unknown as pg.PoolClient;
+      const result = await projectBilling(client, patient as any, { source: source as any });
+      expect(result.balances[cycle].total).toBe(1800);
+      expect(result.balances[cycle].segmentDays['s0']).toBe(9);
+    });
+
+    it('stay extended after ₹1,600 advance payment collects only remaining ₹400 difference', async () => {
+      // Patient paid ₹1,600 advance for 8 days, then extended stay to Jan 11 at 09:00 AM (10 days -> ₹2,000)
+      const patient = {
+        id: 'p_extension',
+        admission_date: at(1, 0, 0),
+        registration_date: at(1, 0, 0),
+        status: 'active',
+        exit_date: at(11, 3, 30), // 09:00 IST -> Jan 1..10 (10 days)
+        attendants: [],
+      };
+      const stays = [{
+        id: 's0',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: at(1, 0, 0),
+        created_at: at(1, 0, 0),
+        updated_at: at(11, 3, 30),
+        expected_discharge_date: at(11, 3, 30),
+        cycle_id: cycle,
+        room_type: 'general',
+      }];
+      const source = {
+        stays,
+        records: [],
+        receipts: [{
+          id: 'pay_1',
+          patient_id: patient.id,
+          amount: '1600.00',
+          payment_date: at(1, 1, 0),
+          cycle_id: cycle,
+        }],
+        roster: [],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const client = {} as unknown as pg.PoolClient;
+      const result = await projectBilling(client, patient as any, { source: source as any });
+      expect(result.balances[cycle].total).toBe(2000);
+      expect(result.balances[cycle].paid).toBe(1600);
+      expect(result.balances[cycle].due).toBe(400);
+      expect(result.balances[cycle].refundDue).toBe(0);
+    });
+
+    it('calculates refund due when patient overpaid in advance', async () => {
+      // Patient paid ₹1,800 advance, actual checkout at 09:00 AM on Jan 9 (8 days -> ₹1,600)
+      const patient = {
+        id: 'p_refund',
+        admission_date: at(1, 0),
+        registration_date: at(1, 0),
+        status: 'discharged',
+        exit_date: at(9, 3, 30),
+        discharge_date: at(9, 3, 30),
+        attendants: [],
+      };
+      const stays = [{
+        id: 's0',
+        patient_id: patient.id,
+        status: 'completed',
+        admission_date: at(1, 0),
+        created_at: at(1, 0),
+        updated_at: at(9, 3, 30),
+        completed_at: at(9, 3, 30),
+        cycle_id: cycle,
+        room_type: 'general',
+      }];
+      const records = Array.from({ length: 8 }, (_, i) => ({
+        kind: 'attendance',
+        day: at(i + 1).toISOString().slice(0, 10),
+        payload: { status: 'Present' },
+      }));
+      const source = {
+        stays,
+        records,
+        receipts: [{
+          id: 'pay_1',
+          patient_id: patient.id,
+          amount: '1800.00',
+          payment_date: at(1, 1, 0),
+          cycle_id: cycle,
+        }],
+        roster: [],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const client = {} as unknown as pg.PoolClient;
+      const result = await projectBilling(client, patient as any, { source: source as any, finalize: true, checkoutAt: at(9, 3, 30) });
+      expect(result.balances[cycle].total).toBe(1600);
+      expect(result.balances[cycle].paid).toBe(1800);
+      expect(result.balances[cycle].due).toBe(0);
+      expect(result.balances[cycle].refundDue).toBe(200);
+    });
+  });
 });

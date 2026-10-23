@@ -289,7 +289,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.textContaining('1A (Floor Ground - General)'),
+          find.textContaining('1A (First Floor - General)'),
           findsWidgets,
         );
       },
@@ -390,15 +390,15 @@ void main() {
         await tester.pumpAndSettle();
 
         // VERIFY: Floor 2 room (2A) is visible, Floor 1 room (1A) is NOT
-        expect(find.textContaining('2A (Floor First - General)'), findsWidgets);
+        expect(find.textContaining('2A (Second Floor - General)'), findsWidgets);
         expect(
-          find.textContaining('1A (Floor Ground - General)'),
+          find.textContaining('1A (First Floor - General)'),
           findsNothing,
         );
 
         // 3. Select Room 2A
         await tester.tap(
-          find.textContaining('2A (Floor First - General)').last,
+          find.textContaining('2A (Second Floor - General)').last,
           warnIfMissed: false,
         );
         await tester.pumpAndSettle();

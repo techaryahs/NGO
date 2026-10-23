@@ -9,8 +9,8 @@ import 'package:ngo/services/stay_history_service.dart';
 import 'package:ngo/utils/pricing_helper.dart';
 import 'package:ngo/utils/stay_billing.dart';
 
-int stamp(int day, [int hour = 9]) =>
-    DateTime(2026, 1, day, hour).millisecondsSinceEpoch;
+int stamp(int day, [int hour = 9, int minute = 0]) =>
+    DateTime(2026, 1, day, hour, minute).millisecondsSinceEpoch;
 String get cycle => stamp(1).toString();
 Map<String, dynamic> segment(
   String id,
@@ -48,12 +48,14 @@ PatientModel patient({
   String status = 'discharged',
   int admission = 1,
   int? exit,
+  int exitHour = 9,
+  int exitMinute = 0,
 }) => PatientModel.fromMap('p', {
   'fullName': 'Patient',
   'admissionDate': stamp(admission),
   'registrationDate': stamp(admission),
   'status': status,
-  if (exit != null) 'exitDate': stamp(exit),
+  if (exit != null) 'exitDate': stamp(exit, exitHour, exitMinute),
   'payments': payments,
   'roomId': 'general',
   'roomNumber': 'general',
@@ -430,14 +432,14 @@ void main() {
           StayBilling.dateKey(DateTime(2026, 1, day)): 'Absent',
       };
       final sixty = StayBilling.calculate(
-        patient: patient(status: 'active', exit: 70),
+        patient: patient(status: 'active', exit: 70, exitMinute: 1),
         stays: [StayModel.fromMap('general', data)],
         pricing: {},
         attendance: absent,
         calendarDayBilling: true,
       ).single;
       final sixtyOne = StayBilling.calculate(
-        patient: patient(status: 'active', exit: 71),
+        patient: patient(status: 'active', exit: 71, exitMinute: 1),
         stays: [StayModel.fromMap('general', data)],
         pricing: {},
         attendance: absent,

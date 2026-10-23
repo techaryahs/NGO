@@ -399,7 +399,7 @@ class AddRoomFloorSelection extends StatelessWidget {
             Expanded(
               child: AddRoomFloorOption(
                 floor: 1,
-                label: 'Ground Floor',
+                label: 'First Floor',
                 rooms: roomConfig?.getFloor(1)?.getAllRooms() ?? [],
                 isSelected: selectedFloor == 1,
                 onTap: () => onFloorSelected(1),
@@ -409,7 +409,7 @@ class AddRoomFloorSelection extends StatelessWidget {
             Expanded(
               child: AddRoomFloorOption(
                 floor: 2,
-                label: 'First Floor',
+                label: 'Second Floor',
                 rooms: roomConfig?.getFloor(2)?.getAllRooms() ?? [],
                 isSelected: selectedFloor == 2,
                 onTap: () => onFloorSelected(2),

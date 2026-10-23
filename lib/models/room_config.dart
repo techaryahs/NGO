@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 /// Room Configuration Model - Loads from room_config.json
 ///
 /// Defines the hospital's room structure:
-/// - Floor 1 (Ground): 1A (Private), 1B-D (General)
-/// - Floor 2 (First): 2A-B (Private), 2C-E (General)
+/// - Floor 1 (First Floor): 1A (Private), 1B-D (General)
+/// - Floor 2 (Second Floor): 2A-B (Private), 2C-E (General)
 class RoomConfig {
   final List<FloorConfig> floors;
   final Map<String, int> defaultBedCounts;

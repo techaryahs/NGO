@@ -38,7 +38,7 @@ describe('historical long-stay pricing', () => {
   });
 });
 
-const at = (day: number) => new Date(Date.UTC(2026, 0, day)).toISOString();
+const at = (day: number, hour = 3, minute = 31) => new Date(Date.UTC(2026, 0, day, hour, minute)).toISOString();
 const cycle = String(Date.parse(at(1)));
 function fixture(options: { days?: number; type?: string; absent?: number; records?: any[]; stays?: any[]; receipts?: any[]; manual?: string; longRate?: string } = {}) {
   const patient = { id: 'synthetic', status: 'active', admission_date: at(1), registration_date: at(1), exit_date: at(options.days ?? 70), attendants: [] };

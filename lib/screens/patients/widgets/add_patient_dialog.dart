@@ -2456,7 +2456,7 @@ class _RoomDropdown extends StatelessWidget {
             size: 20,
           ),
           items: rooms.map((room) {
-            final floorName = room.floor == 1 ? 'Ground' : 'First';
+            final floorName = room.floor == 1 ? 'First Floor' : 'Second Floor';
             final roomTypeLabel = room.isPrivate ? 'Private' : 'General';
             final availableBeds = BedHelper.selectableAvailableBeds(
               room,
@@ -2466,7 +2466,7 @@ class _RoomDropdown extends StatelessWidget {
               value: room,
               enabled: availableBeds > 0,
               child: Text(
-                '${room.roomIdentifier} (Floor $floorName - $roomTypeLabel) - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',
+                '${room.roomIdentifier} ($floorName - $roomTypeLabel) - $availableBeds ${availableBeds == 1 ? 'bed' : 'beds'} available',
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,

@@ -175,7 +175,16 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             }
             else
             { end = patient.discharge_date ?? new Date(Math.max(...segments.map(s => new Date(s.completed_at ?? s.updated_at).getTime()))); isActualCheckout = true; }
-            let exclusive = isActualCheckout ? checkoutEnd(end) : nextDay(dayKey(end));
+            const checkoutDay = patient.exit_date ? dayKey(patient.exit_date) : null;
+            const hasCheckoutAttendance = Boolean(
+                checkoutDay && (attendance.has(checkoutDay) || attendants.has(checkoutDay))
+            );
+            let exclusive = isActualCheckout
+                ? checkoutEnd(end)
+                : patient.exit_date
+                    ? ((afterCheckoutCutoff(end) || hasCheckoutAttendance) ? nextDay(dayKey(end)) : dayKey(end))
+                    : nextDay(dayKey(end));
+            if (exclusive <= start) exclusive = nextDay(start);
             let billableDays = 0;
             for (let d = start; d < exclusive; d = nextDay(d)) {
                 const candidates = segments.filter(s => {

@@ -9,7 +9,7 @@ class BedHelper {
   }
 
   static const _roomBedLabels = {
-    '1A': {'bed1': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
+    '1A': {'bed1': 'Bed 1/2', 'bed2': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
     '1B': {
       'bed1': 'Bed 3/4',
       'bed2': 'Bed 3/4',
@@ -58,8 +58,8 @@ class BedHelper {
       '11': 'Bed 22/23',
       '12': 'Bed 22/23',
     },
-    '2A': {'bed1': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
-    '2B': {'bed1': 'Bed 3/4', '1': 'Bed 3/4', '2': 'Bed 3/4'},
+    '2A': {'bed1': 'Bed 1/2', 'bed2': 'Bed 1/2', '1': 'Bed 1/2', '2': 'Bed 1/2'},
+    '2B': {'bed1': 'Bed 3/4', 'bed2': 'Bed 3/4', '1': 'Bed 3/4', '2': 'Bed 3/4'},
     '2C': {
       'bed1': 'Bed 5/6',
       'bed2': 'Bed 5/6',
@@ -176,6 +176,17 @@ class BedHelper {
     RoomModel room, {
     Set<String> selectedBedIds = const {},
   }) {
+    // A private room is strictly single-occupancy. If any bed is occupied by
+    // another patient, no beds in this room are selectable for a new admission.
+    if (room.isPrivate) {
+      final occupiedByOther = room.beds.any(
+        (b) => !b.isAvailable && !selectedBedIds.contains(b.id),
+      );
+      if (occupiedByOther) {
+        return const [];
+      }
+    }
+
     final groups = <String, List<BedModel>>{};
     for (final bed in room.beds) {
       final label = getBedDisplayName(

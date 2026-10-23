@@ -283,9 +283,20 @@ class StayBilling {
 
         DateTime exclusiveEnd;
         if (calendarDayBilling) {
+          final checkoutDayKey = patient.exitDate != null
+              ? dateKey(billingDay(patient.exitDate!))
+              : null;
+          final hasCheckoutAttendance = checkoutDayKey != null &&
+              (attendance.containsKey(checkoutDayKey) ||
+                  attendantAttendance.containsKey(checkoutDayKey));
           if (isActualCheckout) {
             final late = PricingHelper.afterCheckoutCutoff(end);
             exclusiveEnd = late
+                ? billingDay(end).add(const Duration(days: 1))
+                : billingDay(end);
+          } else if (patient.exitDate != null) {
+            final late = PricingHelper.afterCheckoutCutoff(end);
+            exclusiveEnd = (late || hasCheckoutAttendance)
                 ? billingDay(end).add(const Duration(days: 1))
                 : billingDay(end);
           } else {

@@ -176,7 +176,7 @@ class CensusSummaryWidget extends StatelessWidget {
                     // Floor 1 Stats
                     _FloorCensusCard(
                       floor: 1,
-                      label: "Ground Floor",
+                      label: "First Floor",
                       rooms: RoomModel.floor1Rooms,
                       patients: floor1Patients,
                       vacantBeds: floor1VacantBeds,
@@ -186,7 +186,7 @@ class CensusSummaryWidget extends StatelessWidget {
                     // Floor 2 Stats
                     _FloorCensusCard(
                       floor: 2,
-                      label: "First Floor",
+                      label: "Second Floor",
                       rooms: RoomModel.floor2Rooms,
                       patients: floor2Patients,
                       vacantBeds: floor2VacantBeds,
