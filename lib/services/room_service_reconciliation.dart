@@ -23,10 +23,10 @@ extension RoomServiceReconciliation on RoomService {
       final activeStays = parseStaysFromData(
         rawStays,
       ).where((stay) => stay.status == 'active').toList();
-      final activeIds = activeStays.map((stay) => stay.id).toSet();
+      final fixedBeds = reconcileBedsWithActiveStays(room.beds, activeStays);
       final orphaned = room.beds.any(
         (bed) =>
-            bed.currentStayId != null && !activeIds.contains(bed.currentStayId),
+            bed.isOccupied && !fixedBeds.any((f) => f.id == bed.id && f.isOccupied),
       );
       final lastChanged = rawRoom['lastUpdated'] is num
           ? (rawRoom['lastUpdated'] as num).toInt()
@@ -38,17 +38,8 @@ extension RoomServiceReconciliation on RoomService {
               reservationGrace.inMilliseconds) {
         return false;
       }
-      final fixedBeds = room.beds.map((bed) {
-        if (bed.currentStayId == null ||
-            activeIds.contains(bed.currentStayId)) {
-          return bed;
-        }
-        return bed.copyWith(
-          status: 'available',
-          clearPatientId: true,
-          clearStayId: true,
-        );
-      }).toList();
+
+
       final occupied = fixedBeds.where((bed) => bed.isOccupied).length;
       final status = room.status == 'maintenance'
           ? 'maintenance'

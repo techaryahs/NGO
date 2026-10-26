@@ -3,6 +3,7 @@ import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'firebase_auth_rest_service.dart';
 import 'backend_api_service.dart';
+import 'service_locator.dart';
 
 class AuthService {
   final FirebaseAuthRestService _auth;
@@ -17,10 +18,20 @@ class AuthService {
     PersistentCache? persistentCache,
   }) : _auth = authService,
        _rtdb = rtdbService,
-       _backendApi = backendApiService,
+       _backendApi =
+           backendApiService ??
+           (rtdbService == null ? _tryLocatorBackendApi() : null),
        _persistentCache = persistentCache;
 
-  bool get isPostgres => _backendApi != null;
+  static BackendApiService? _tryLocatorBackendApi() {
+    try {
+      return ServiceLocator().backendApiService;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isPostgres => _backendApi != null || _rtdb == null;
 
   FirebaseRTDBRestService get _safeRtdb {
     final rtdb = _rtdb;

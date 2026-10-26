@@ -5,7 +5,6 @@ import '../models/bed_model.dart';
 import '../models/room_model.dart';
 import '../models/stay_model.dart';
 import '../utils/pricing_helper.dart';
-import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
@@ -58,17 +57,15 @@ class RoomService {
   // ── Internal accessors for part files ──────────────────────────────────────
   BackendApiService? get backendApi {
     if (_injectedBackendApi != null) return _injectedBackendApi;
+    if (_injectedRtdb != null) return null;
     try {
-      if (AppConfig.usePostgresBackend) {
-        return ServiceLocator().backendApiService;
-      }
-      return null;
+      return ServiceLocator().backendApiService;
     } catch (_) {
       return null;
     }
   }
 
-  bool get isPostgres => backendApi != null || AppConfig.usePostgresBackend;
+  bool get isPostgres => backendApi != null || _injectedRtdb == null;
 
   FirebaseRTDBRestService get rtdb {
     if (_injectedRtdb != null) return _injectedRtdb;
@@ -130,6 +127,119 @@ class RoomService {
       (a, b) => a.effectiveExpiryDate.compareTo(b.effectiveExpiryDate),
     );
     return stays.first.effectiveExpiryDate;
+  }
+
+  /// Reconciles bed occupancy statuses against currently active stays.
+  ///
+  /// A bed is marked occupied only when a valid active stay occupies it.
+  /// Stale, historical, discharged, or cancelled stay references are cleared
+  /// to 'available'. Maintenance beds are preserved.
+  List<BedModel> reconcileBedsWithActiveStays(
+    List<BedModel> beds,
+    List<StayModel> activeStays,
+  ) {
+    if (beds.isEmpty) return beds;
+
+    if (activeStays.isEmpty) {
+      return beds.map((bed) {
+        if (bed.isMaintenance) return bed;
+        if (bed.isOccupied) {
+          return bed.copyWith(
+            status: 'available',
+            clearPatientId: true,
+            clearStayId: true,
+          );
+        }
+        return bed;
+      }).toList();
+    }
+
+    final remainingStays = List<StayModel>.from(activeStays);
+    final matchedStayByBedIndex = <int, StayModel>{};
+
+    // Pass 1: match by exact stay ID
+    for (var i = 0; i < beds.length; i++) {
+      final bed = beds[i];
+      if (bed.isMaintenance) continue;
+      if (bed.currentStayId != null && bed.currentStayId!.isNotEmpty) {
+        final matchIndex =
+            remainingStays.indexWhere((s) => s.id == bed.currentStayId);
+        if (matchIndex != -1) {
+          matchedStayByBedIndex[i] = remainingStays.removeAt(matchIndex);
+        }
+      }
+    }
+
+    // Pass 2: match by bedId
+    for (var i = 0; i < beds.length; i++) {
+      if (matchedStayByBedIndex.containsKey(i)) continue;
+      final bed = beds[i];
+      if (bed.isMaintenance) continue;
+      final matchIndex = remainingStays.indexWhere((s) => s.bedId == bed.id);
+      if (matchIndex != -1) {
+        matchedStayByBedIndex[i] = remainingStays.removeAt(matchIndex);
+      }
+    }
+
+    // Pass 3: match by currentPatientId
+    for (var i = 0; i < beds.length; i++) {
+      if (matchedStayByBedIndex.containsKey(i)) continue;
+      final bed = beds[i];
+      if (bed.isMaintenance) continue;
+      if (bed.currentPatientId != null && bed.currentPatientId!.isNotEmpty) {
+        final matchIndex =
+            remainingStays.indexWhere((s) => s.patientId == bed.currentPatientId);
+        if (matchIndex != -1) {
+          matchedStayByBedIndex[i] = remainingStays.removeAt(matchIndex);
+        }
+      }
+    }
+
+    // Pass 4: match by bedLabel / bedNumber
+    for (var i = 0; i < beds.length; i++) {
+      if (matchedStayByBedIndex.containsKey(i)) continue;
+      final bed = beds[i];
+      if (bed.isMaintenance) continue;
+      final matchIndex = remainingStays.indexWhere(
+        (s) =>
+            (s.bedLabel != null && s.bedLabel == bed.bedLabel) ||
+            (s.bedNumber != null && s.bedNumber.toString() == bed.bedLabel),
+      );
+      if (matchIndex != -1) {
+        matchedStayByBedIndex[i] = remainingStays.removeAt(matchIndex);
+      }
+    }
+
+    // Pass 5: if any active stays remain unmatched in this room,
+    // match them to any remaining non-maintenance beds
+    for (var i = 0; i < beds.length && remainingStays.isNotEmpty; i++) {
+      if (matchedStayByBedIndex.containsKey(i)) continue;
+      final bed = beds[i];
+      if (bed.isMaintenance) continue;
+      matchedStayByBedIndex[i] = remainingStays.removeAt(0);
+    }
+
+    return List.generate(beds.length, (i) {
+      final bed = beds[i];
+      if (bed.isMaintenance) return bed;
+      final matchedStay = matchedStayByBedIndex[i];
+      if (matchedStay != null) {
+        return bed.copyWith(
+          status: 'occupied',
+          currentStayId: matchedStay.id,
+          currentPatientId: matchedStay.patientId,
+        );
+      } else {
+        if (bed.isOccupied) {
+          return bed.copyWith(
+            status: 'available',
+            clearPatientId: true,
+            clearStayId: true,
+          );
+        }
+        return bed;
+      }
+    });
   }
 
   /// Generic stream combiner (used by rooms + stays streams).

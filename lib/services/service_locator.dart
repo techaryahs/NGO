@@ -45,111 +45,67 @@ class ServiceLocator {
   PersistentCache? _persistentCache;
 
   bool get isInitialized => _authRestService != null;
-  bool get isPostgresMode => _rtdbService == null && _backendApiService != null;
+  bool get isPostgresMode => _backendApiService != null;
 
-  /// Initialize services with Firebase project configuration
+  /// Initialize services with Firebase Auth and PostgreSQL Backend API configuration
   void initialize({
     required String projectId,
     required String apiKey,
     String? databaseUrl,
   }) {
+    if (isInitialized && _backendApiService != null) {
+      return;
+    }
     if (isInitialized) {
-      if (isPostgresMode == AppConfig.usePostgresBackend) {
-        return;
-      }
       dispose();
     }
     _persistentCache = PersistentCache.open();
-    _persistentCache?.dataSource = AppConfig.usePostgresBackend
-        ? 'postgres:${AppConfig.backendApiUrl}'
-        : 'rtdb:${AppConfig.firebaseDatabaseUrl}';
+    _persistentCache?.dataSource = 'postgres:${AppConfig.backendApiUrl}';
 
-    // Initialize auth service first
+    // Initialize Firebase Auth REST service (Authentication only)
     _authRestService = FirebaseAuthRestService(apiKey: apiKey);
 
-    // Initialize backend API service
+    // Initialize authoritative PostgreSQL Backend API service
     _backendApiService = BackendApiService(
       baseUrl: AppConfig.backendApiUrl,
       getAuthToken: () async => await _authRestService?.getIdToken(),
       persistentCache: _persistentCache,
     );
 
-    if (AppConfig.usePostgresBackend) {
-      _rtdbService = null;
-      _photoRtdbService = PhotoRtdbService(
-        backendApi: _backendApiService,
-        persistentCache: _persistentCache,
-      );
-      _registrationNumberService = RegistrationNumberService(
-        backendApiService: _backendApiService,
-      );
-      _patientService = PatientService(
-        backendApiService: _backendApiService,
-        photos: _photoRtdbService,
-        registrationNumberService: _registrationNumberService,
-      );
-      _roomService = RoomService(backendApiService: _backendApiService);
-      _paymentService = PaymentService(null, _backendApiService);
-      _settingsService = SettingsService(null, _backendApiService);
-      _notificationService = NotificationService(
-        patientService: _patientService!,
-      );
-      _authService = AuthService(
-        authService: _authRestService!,
-        backendApiService: _backendApiService,
-        persistentCache: _persistentCache,
-      );
-      _photoMigrationService = PhotoMigrationService(
-        backendApi: _backendApiService,
-        photos: _photoRtdbService!,
-      );
-      _inventoryExpenseService = InventoryExpenseService(
-        backendApiService: _backendApiService,
-      );
-      _sponsorshipService = SponsorshipService(
-        backendApiService: _backendApiService,
-      );
-    } else {
-      // Initialize RTDB service with auth token callback
-      _rtdbService = FirebaseRTDBRestService(
-        projectId: projectId,
-        databaseUrl: databaseUrl,
-        getAuthToken: () async {
-          final token = await _authRestService?.getIdToken();
-          return token;
-        },
-        persistentCache: _persistentCache,
-      );
-
-      // Initialize other services
-      _authService = AuthService(
-        authService: _authRestService!,
-        rtdbService: _rtdbService!,
-        persistentCache: _persistentCache,
-      );
-      _patientService = PatientService(rtdbService: _rtdbService!);
-      _roomService = RoomService(rtdbService: _rtdbService!);
-      _inventoryExpenseService = InventoryExpenseService(
-        rtdbService: _rtdbService!,
-      );
-      _sponsorshipService = SponsorshipService(rtdbService: _rtdbService!);
-      _paymentService = PaymentService(_rtdbService!);
-      _notificationService = NotificationService(
-        patientService: _patientService!,
-      );
-      _settingsService = SettingsService(_rtdbService!);
-      _photoRtdbService = PhotoRtdbService(
-        rtdb: _rtdbService!,
-        persistentCache: _persistentCache,
-      );
-      _photoMigrationService = PhotoMigrationService(
-        rtdb: _rtdbService!,
-        photos: _photoRtdbService!,
-      );
-      _registrationNumberService = RegistrationNumberService(
-        rtdbService: _rtdbService!,
-      );
-    }
+    _rtdbService = null;
+    _photoRtdbService = PhotoRtdbService(
+      backendApi: _backendApiService,
+      persistentCache: _persistentCache,
+    );
+    _registrationNumberService = RegistrationNumberService(
+      backendApiService: _backendApiService,
+    );
+    _patientService = PatientService(
+      backendApiService: _backendApiService,
+      photos: _photoRtdbService,
+      registrationNumberService: _registrationNumberService,
+    );
+    _roomService = RoomService(backendApiService: _backendApiService);
+    _paymentService = PaymentService(null, _backendApiService);
+    _settingsService = SettingsService(null, _backendApiService);
+    _notificationService = NotificationService(
+      patientService: _patientService!,
+    );
+    _authService = AuthService(
+      authService: _authRestService!,
+      backendApiService: _backendApiService,
+      persistentCache: _persistentCache,
+    );
+    _photoMigrationService = PhotoMigrationService(
+      backendApi: _backendApiService,
+      photos: _photoRtdbService!,
+    );
+    _inventoryExpenseService = InventoryExpenseService(
+      backendApiService: _backendApiService,
+    );
+    _sponsorshipService = SponsorshipService(
+      backendApiService: _backendApiService,
+    );
   }
 
   /// Get Auth REST service instance
@@ -162,20 +118,13 @@ class ServiceLocator {
     return _authRestService!;
   }
 
-  /// Get RTDB REST service instance
+  /// Firebase RTDB has been retired as an application data source.
+  /// Always throws [StateError] to prevent any fallback to RTDB.
   FirebaseRTDBRestService get rtdbService {
-    if (AppConfig.usePostgresBackend) {
-      throw StateError(
-        'Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true. '
-        'All database operations must route through BackendApiService.',
-      );
-    }
-    if (_rtdbService == null) {
-      throw Exception(
-        'ServiceLocator not initialized. Call initialize() first.',
-      );
-    }
-    return _rtdbService!;
+    throw StateError(
+      'Firebase RTDB is disabled when USE_POSTGRES_BACKEND=true. '
+      'All database operations must route through BackendApiService.',
+    );
   }
 
   /// Get Auth service instance
@@ -187,6 +136,8 @@ class ServiceLocator {
     }
     return _authService!;
   }
+
+  set authService(AuthService? service) => _authService = service;
 
   /// Get Patient service instance
   PatientService get patientService {
@@ -326,16 +277,11 @@ class ServiceLocator {
       _backendApiService = service;
 
   /// Whether Backend API service is configured and ready
-  bool get isBackendApiConfigured =>
-      AppConfig.usePostgresBackend && _backendApiService != null;
+  bool get isBackendApiConfigured => _backendApiService != null;
 
-  /// Refreshes all active data streams in whichever backend mode is active.
+  /// Refreshes all active data streams in the PostgreSQL backend API.
   void retryAllStreams() {
-    if (AppConfig.usePostgresBackend) {
-      _backendApiService?.retryAll();
-    } else {
-      _rtdbService?.retryAll();
-    }
+    _backendApiService?.retryAll();
   }
 
   /// Opens and validates the disposable local cache before the UI starts.

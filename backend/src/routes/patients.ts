@@ -305,6 +305,19 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     try {
       await client.query('BEGIN');
 
+      if (body.registrationNumber) {
+        const regNumber = String(body.registrationNumber).trim();
+        if (regNumber.length > 0) {
+          const dupReg = await client.query(
+            'SELECT id FROM patients WHERE LOWER(registration_number) = LOWER($1) AND id <> $2',
+            [regNumber, patientId]
+          );
+          if (dupReg.rowCount) {
+            throw httpError(409, `Registration number "${regNumber}" is already assigned to another patient.`);
+          }
+        }
+      }
+
       const insertPatientSql = `
         INSERT INTO patients (
           id, full_name, search_key, date_of_birth, age, gender,
@@ -818,6 +831,20 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (body.status === 'discharged' && activeStays.rowCount) {
         throw httpError(409, 'Complete active stays before discharging the patient');
       }
+
+      if (body.registrationNumber != null) {
+        const regNumber = String(body.registrationNumber).trim();
+        if (regNumber.length > 0 && regNumber.toLowerCase() !== (existing.rows[0].registration_number || '').toLowerCase()) {
+          const dupReg = await client.query(
+            'SELECT id FROM patients WHERE LOWER(registration_number) = LOWER($1) AND id <> $2',
+            [regNumber, id]
+          );
+          if (dupReg.rowCount) {
+            throw httpError(409, `Registration number "${regNumber}" is already assigned to another patient.`);
+          }
+        }
+      }
+
       // PUT historically acts as a partial update. Preserve omitted optional fields.
       body = { ...formatPatient(existing.rows[0]), ...body };
       if ((request.body as Record<string, unknown>).fullName && !Object.hasOwn(request.body as object, 'searchKey')) body.searchKey = String(body.fullName).toLowerCase();

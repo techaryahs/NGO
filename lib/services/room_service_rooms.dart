@@ -90,10 +90,19 @@ extension RoomServiceRooms on RoomService {
     final now = DateTime.now();
     final List<RoomModel> enriched = rooms.map((room) {
       final roomStays = activeStays.where((s) => s.roomId == room.id).toList();
-      final meta = computeStatusMeta(room, roomStays, now);
-      return room.copyWith(
+      final reconciledBeds = reconcileBedsWithActiveStays(room.beds, roomStays);
+      final attendants = room.isPrivate
+          ? roomStays.fold<int>(0, (sum, stay) => sum + stay.attendantCount)
+          : room.currentAttendants;
+      final roomWithBeds = room.copyWith(
+        beds: reconciledBeds,
+        occupiedBeds: reconciledBeds.where((b) => b.isOccupied).length,
+        currentAttendants: attendants,
+      );
+      final meta = computeStatusMeta(roomWithBeds, roomStays, now);
+      return roomWithBeds.copyWith(
         status: meta.dbStatus,
-        occupiedBeds: room.actualOccupiedBeds,
+        occupiedBeds: roomWithBeds.actualOccupiedBeds,
         expectedVacancyDate: meta.expectedVacancyDate,
       );
     }).toList();
@@ -143,10 +152,19 @@ extension RoomServiceRooms on RoomService {
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
 
-      final meta = computeStatusMeta(room, roomStays, DateTime.now());
-      return room.copyWith(
+      final reconciledBeds = reconcileBedsWithActiveStays(room.beds, roomStays);
+      final attendants = room.isPrivate
+          ? roomStays.fold<int>(0, (sum, stay) => sum + stay.attendantCount)
+          : room.currentAttendants;
+      final roomWithBeds = room.copyWith(
+        beds: reconciledBeds,
+        occupiedBeds: reconciledBeds.where((b) => b.isOccupied).length,
+        currentAttendants: attendants,
+      );
+      final meta = computeStatusMeta(roomWithBeds, roomStays, DateTime.now());
+      return roomWithBeds.copyWith(
         status: meta.dbStatus,
-        occupiedBeds: room.actualOccupiedBeds,
+        occupiedBeds: roomWithBeds.actualOccupiedBeds,
         expectedVacancyDate: meta.expectedVacancyDate,
       );
     } catch (e) {
@@ -300,10 +318,22 @@ extension RoomServiceRooms on RoomService {
         staysData,
       ).where((s) => s.roomId == roomId && s.status == 'active').toList();
 
-      final computed = computeStatusMeta(room, activeStays, DateTime.now());
+      final reconciledBeds = reconcileBedsWithActiveStays(room.beds, activeStays);
+      final attendants = room.isPrivate
+          ? activeStays.fold<int>(0, (sum, stay) => sum + stay.attendantCount)
+          : room.currentAttendants;
+      final roomWithBeds = room.copyWith(
+        beds: reconciledBeds,
+        occupiedBeds: reconciledBeds.where((b) => b.isOccupied).length,
+        currentAttendants: attendants,
+      );
+
+      final computed = computeStatusMeta(roomWithBeds, activeStays, DateTime.now());
       final patchData = {
         'status': computed.dbStatus,
-        'occupiedBeds': room.actualOccupiedBeds,
+        'occupiedBeds': roomWithBeds.actualOccupiedBeds,
+        'currentAttendants': attendants,
+        'beds': bedsToRtdbMap(reconciledBeds),
         'expectedVacancyDate':
             computed.expectedVacancyDate?.millisecondsSinceEpoch,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -375,7 +405,16 @@ extension RoomServiceRooms on RoomService {
           stay.totalExtendedDays == 0;
     });
 
-    final occupiedCount = room.actualOccupiedBeds;
+    if (activeStays.isEmpty) {
+      return const RoomStatusMeta(
+        dbStatus: 'available',
+        uiStatus: 'Available',
+        expectedVacancyDate: null,
+      );
+    }
+
+    final reconciledBeds = reconcileBedsWithActiveStays(room.beds, activeStays);
+    final occupiedCount = reconciledBeds.where((b) => b.isOccupied).length;
     if (hasPendingDischarge) {
       return RoomStatusMeta(
         dbStatus: 'pending_discharge',

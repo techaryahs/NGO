@@ -103,7 +103,6 @@ FIREBASE_API_KEY=test-key
           'message',
           allOf(
             contains('FIREBASE_PROJECT_ID'),
-            contains('FIREBASE_DATABASE_URL'),
             contains('FIREBASE_AUTH_DOMAIN'),
           ),
         )),
@@ -162,7 +161,7 @@ FIREBASE_AUTH_DOMAIN=ngo-management-system-new-as.firebaseapp.com
       );
     });
 
-    test('RTDB service and Auth service receive configuration from AppConfig', () {
+    test('PostgreSQL BackendApiService and Firebase Auth receive configuration from AppConfig while RTDB is retired', () {
       dotenv.loadFromString(envString: validEnv);
       AppConfig.validate();
 
@@ -170,15 +169,12 @@ FIREBASE_AUTH_DOMAIN=ngo-management-system-new-as.firebaseapp.com
       locator.initialize(
         projectId: AppConfig.firebaseProjectId,
         apiKey: AppConfig.firebaseApiKey,
-        databaseUrl: AppConfig.firebaseDatabaseUrl,
       );
 
-      expect(locator.rtdbService.projectId, 'ngo-management-system-new-as');
-      expect(
-        locator.rtdbService.databaseUrl,
-        'https://ngo-management-system-new-as-default-rtdb.asia-southeast1.firebasedatabase.app',
-      );
+      expect(locator.isBackendApiConfigured, isTrue);
+      expect(locator.backendApiService.baseUrl, AppConfig.backendApiUrl);
       expect(locator.authRestService.apiKey, 'test-sample-client-api-key-12345');
+      expect(() => locator.rtdbService, throwsA(isA<StateError>()));
     });
 
     test('safeSummary never leaks the actual API key string', () {

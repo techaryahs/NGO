@@ -22,10 +22,7 @@ class AppConfig {
   static String get firebaseProjectId =>
       dotenv.isInitialized ? (dotenv.env['FIREBASE_PROJECT_ID']?.trim() ?? '') : '';
 
-  /// Firebase Realtime Database URL read from `.env`.
-  ///
-  /// This is the authoritative source for the database URL. Individual
-  /// services must obtain the URL exclusively through AppConfig / ServiceLocator.
+  /// Legacy Firebase Realtime Database URL read from `.env` (optional; RTDB retired).
   static String get firebaseDatabaseUrl =>
       dotenv.isInitialized ? (dotenv.env['FIREBASE_DATABASE_URL']?.trim() ?? '') : '';
 
@@ -55,10 +52,9 @@ class AppConfig {
         : configured;
   }
 
-  /// Whether to route data access to PostgreSQL backend API instead of Firebase RTDB.
-  static bool get usePostgresBackend => dotenv.isInitialized
-      ? (dotenv.env['USE_POSTGRES_BACKEND']?.trim().toLowerCase() == 'true')
-      : false;
+  /// PostgreSQL is the sole authoritative application data store.
+  /// Firebase is retained strictly for Authentication.
+  static bool get usePostgresBackend => true;
 
   /// Active environment name (e.g. 'production', 'development', 'testing').
   static String get environment => dotenv.isInitialized
@@ -96,10 +92,10 @@ class AppConfig {
     'Environment': environment,
     'Firebase project': firebaseProjectId.isEmpty ? 'NOT_CONFIGURED' : firebaseProjectId,
     'Database host': firebaseDatabaseUrl.isEmpty
-        ? 'NOT_CONFIGURED'
+        ? 'RETIRED (PostgreSQL only)'
         : (Uri.tryParse(firebaseDatabaseUrl)?.host ?? firebaseDatabaseUrl),
     'Auth domain': firebaseAuthDomain.isEmpty ? 'NOT_CONFIGURED' : firebaseAuthDomain,
-    'Backend mode': usePostgresBackend ? 'PostgreSQL ($backendApiUrl)' : 'Firebase RTDB',
+    'Backend mode': 'PostgreSQL ($backendApiUrl)',
     'API key configured': isApiKeyConfigured ? 'yes' : 'no',
     'Payment backend configured': isPaymentBackendConfigured ? 'yes' : 'no',
   };
@@ -125,7 +121,6 @@ class AppConfig {
 
     final missing = <String>[];
     if (firebaseProjectId.isEmpty) missing.add('FIREBASE_PROJECT_ID');
-    if (firebaseDatabaseUrl.isEmpty) missing.add('FIREBASE_DATABASE_URL');
     if (firebaseApiKey.isEmpty) missing.add('FIREBASE_API_KEY');
     if (firebaseAuthDomain.isEmpty) missing.add('FIREBASE_AUTH_DOMAIN');
 
@@ -147,9 +142,10 @@ class AppConfig {
       );
     }
 
-    if (firebaseDatabaseUrl.contains('d8c06') ||
-        firebaseDatabaseUrl.contains('ngov-org') ||
-        !firebaseDatabaseUrl.contains('ngo-management-system-new-as')) {
+    if (firebaseDatabaseUrl.isNotEmpty &&
+        (firebaseDatabaseUrl.contains('d8c06') ||
+            firebaseDatabaseUrl.contains('ngov-org') ||
+            !firebaseDatabaseUrl.contains('ngo-management-system-new-as'))) {
       throw StateError(
         'Invalid FIREBASE_DATABASE_URL: "$firebaseDatabaseUrl".\n'
         'The application must target the new database URL for "ngo-management-system-new-as".',
@@ -174,7 +170,7 @@ class AppConfig {
     }
 
     // Production guardrails for backend API configuration
-    if (usePostgresBackend && isProduction) {
+    if (isProduction) {
       if (isLocalhostUrl(backendApiUrl)) {
         throw StateError(
           'Production configuration error: BACKEND_API_URL cannot target localhost/loopback ("$backendApiUrl").\n'

@@ -1833,9 +1833,9 @@ void main() {
   test(
     'Environment & Safety Verification: PostgreSQL 16 schema and default feature flag',
     () async {
-      // Verify default AppConfig when .env does not enable USE_POSTGRES_BACKEND
+      // Verify default AppConfig always enables PostgreSQL backend (RTDB retired)
       dotenv.loadFromString(isOptional: true, envString: '');
-      expect(AppConfig.usePostgresBackend, isFalse);
+      expect(AppConfig.usePostgresBackend, isTrue);
 
       // Re-enable for the rest of the test
       dotenv.loadFromString(

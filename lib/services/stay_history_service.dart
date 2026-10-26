@@ -1,4 +1,3 @@
-import '../config/app_config.dart';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../models/room_model.dart';
@@ -21,10 +20,7 @@ class StayHistoryService {
 
   factory StayHistoryService.fromLocator() {
     final locator = ServiceLocator();
-    if (AppConfig.usePostgresBackend) {
-      return StayHistoryService(null, locator.backendApiService);
-    }
-    return StayHistoryService(locator.rtdbService);
+    return StayHistoryService(null, locator.backendApiService);
   }
 
   Future<dynamic> _get(String path) =>

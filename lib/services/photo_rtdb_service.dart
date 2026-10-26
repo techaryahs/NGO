@@ -13,22 +13,32 @@ import 'package:path_provider/path_provider.dart';
 import '../cache/persistent_cache.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'backend_api_service.dart';
+import 'service_locator.dart';
 
-/// Targeted RTDB photo records. Patient and stay metadata never contain bytes.
+/// Targeted photo records backed by PostgreSQL API (or injected mock RTDB in legacy tests).
 class PhotoRtdbService {
   PhotoRtdbService({
     FirebaseRTDBRestService? rtdb,
     BackendApiService? backendApi,
     PersistentCache? persistentCache,
   }) : _rtdb = rtdb,
-       _backendApi = backendApi,
+       _backendApi =
+           backendApi ?? (rtdb == null ? _tryLocatorBackendApi() : null),
        _persistentCache = persistentCache;
+
+  static BackendApiService? _tryLocatorBackendApi() {
+    try {
+      return ServiceLocator().backendApiService;
+    } catch (_) {
+      return null;
+    }
+  }
 
   final FirebaseRTDBRestService? _rtdb;
   final BackendApiService? _backendApi;
   final PersistentCache? _persistentCache;
 
-  bool get isPostgres => _backendApi != null;
+  bool get isPostgres => _backendApi != null || _rtdb == null;
 
   FirebaseRTDBRestService get _safeRtdb {
     final rtdb = _rtdb;

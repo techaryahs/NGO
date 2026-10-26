@@ -17,19 +17,14 @@ void main() {
     dotenv.loadFromString(isOptional: true, envString: '');
   });
 
-  test('PostgreSQL feature flag is disabled unless explicitly true', () {
-    for (final value in ['', 'false', '1', 'enabled']) {
+  test('PostgreSQL backend is always enabled as the sole application data store', () {
+    for (final value in ['', 'false', '0', 'TRUE', 'true']) {
       dotenv.loadFromString(
         isOptional: true,
         envString: 'USE_POSTGRES_BACKEND=$value',
       );
-      expect(AppConfig.usePostgresBackend, isFalse);
+      expect(AppConfig.usePostgresBackend, isTrue);
     }
-    dotenv.loadFromString(
-      isOptional: true,
-      envString: 'USE_POSTGRES_BACKEND=TRUE',
-    );
-    expect(AppConfig.usePostgresBackend, isTrue);
   });
 
   test('backend URL defaults for missing and blank configuration', () {
@@ -74,7 +69,7 @@ void main() {
   });
 
   test(
-    'disabled mode keeps Firebase domain services and disposes the client',
+    'ServiceLocator never falls back to Firebase RTDB even if USE_POSTGRES_BACKEND=false is set in .env',
     () async {
       SharedPreferences.setMockInitialValues({});
       dotenv.loadFromString(
@@ -83,15 +78,15 @@ void main() {
       );
       final locator = ServiceLocator();
       locator.initialize(projectId: 'synthetic', apiKey: 'synthetic');
-      expect(locator.rtdbService.projectId, 'synthetic');
-      expect(locator.patientService, isNotNull);
-      expect(locator.registrationNumberService, isNotNull);
-      expect(locator.isBackendApiConfigured, isFalse);
+      expect(locator.isBackendApiConfigured, isTrue);
+      expect(locator.patientService.isPostgres, isTrue);
+      expect(locator.registrationNumberService.isPostgres, isTrue);
+      expect(() => locator.rtdbService, throwsA(isA<StateError>()));
       // Auth restoration is asynchronous; let it finish before disposal.
       await Future<void>.delayed(Duration.zero);
       locator.dispose();
       expect(() => locator.backendApiService, throwsException);
-      expect(() => locator.rtdbService, throwsException);
+      expect(() => locator.rtdbService, throwsA(isA<StateError>()));
     },
   );
 
@@ -331,5 +326,121 @@ BACKEND_API_URL=http://46.202.167.86:8808/api
     expect((profile as Map)['role'], 'admin');
 
     await cache.close();
+  });
+
+  test('reconciled advance payments, payment history, registration numbers, and room occupancy route via PostgreSQL API', () async {
+    final requestedUrls = <String>[];
+    final admissionMs = 1787196600000;
+    const upiId = 'upi_78872293db2bf1ea37273e07deb48e11a2950085cf84010e367fcd5af0fbf996';
+
+    final client = MockClient((request) async {
+      requestedUrls.add('${request.method} ${request.url.path}');
+      expect(request.url.host, isNot(contains('firebasedatabase.app')));
+      if (request.url.path == '/api/patients/-P01po5yZfRSwP3UDFLN') {
+        return http.Response(
+          jsonEncode({
+            'id': '-P01po5yZfRSwP3UDFLN',
+            'fullName': 'Taraknath Pal',
+            'registrationNumber': '5132',
+            'dateOfBirth': DateTime(1965, 1, 1).millisecondsSinceEpoch,
+            'age': 61,
+            'gender': 'Male',
+            'contactNumber': '9876543210',
+            'emergencyContact': '9876543211',
+            'emergencyContactName': 'Kin',
+            'medicalCondition': 'Treatment',
+            'admissionDate': admissionMs,
+            'status': 'discharged',
+            'totalPaidAmount': 25900.0,
+            'currentDueAmount': 0.0,
+            'advanceBilledAmount': 25900.0,
+            'payments': [
+              {
+                'id': upiId,
+                'patientId': '-P01po5yZfRSwP3UDFLN',
+                'cycleId': '$admissionMs',
+                'amount': 10000.0,
+                'method': 'UPI',
+                'type': 'Advance Payment',
+                'transactionId': '449581259384',
+                'receiptNumber': '6966',
+                'date': admissionMs,
+              },
+            ],
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/api/payments') {
+        return http.Response(
+          jsonEncode({
+            upiId: {
+              'id': upiId,
+              'patientId': '-P01po5yZfRSwP3UDFLN',
+              'cycleId': '$admissionMs',
+              'amount': 10000.0,
+              'method': 'UPI',
+              'type': 'Advance Payment',
+              'transactionId': '449581259384',
+              'receiptNumber': '6966',
+              'date': admissionMs,
+            },
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/api/rooms') {
+        return http.Response(
+          jsonEncode({
+            'r_2c': {
+              'id': 'r_2c',
+              'roomNumber': '2C',
+              'roomIdentifier': '2C',
+              'floor': 2,
+              'roomType': 'general',
+              'totalBeds': 6,
+              'occupiedBeds': 2,
+              'status': 'partially_occupied',
+              'beds': [
+                {
+                  'id': 'r_2c_3',
+                  'bedLabel': '3',
+                  'status': 'occupied',
+                  'currentPatientId': 'p_1792653066208754_a70a4b731afc0975e593ce40',
+                },
+                {
+                  'id': 'r_2c_5',
+                  'bedLabel': '5',
+                  'status': 'occupied',
+                  'currentPatientId': 'p_1792581651923638_6b674d3190bc6d8df34ddebd',
+                },
+              ],
+            },
+          }),
+          200,
+        );
+      }
+      return http.Response('{}', 200);
+    });
+
+    final backendApi = BackendApiService(
+      baseUrl: 'http://46.202.167.86:8808/api',
+      getAuthToken: () async => 'firebase-jwt-token',
+      client: client,
+    );
+    ServiceLocator().backendApiService = backendApi;
+
+    final patient = await ServiceLocator().backendApiService.get('patients/-P01po5yZfRSwP3UDFLN') as Map;
+    expect(patient['registrationNumber'], '5132');
+    expect(patient['totalPaidAmount'], 25900.0);
+    expect((patient['payments'] as List).single['id'], upiId);
+    expect((patient['payments'] as List).single['amount'], 10000.0);
+
+    final rooms = await ServiceLocator().backendApiService.get('rooms') as Map;
+    expect((rooms['r_2c'] as Map)['occupiedBeds'], 2);
+
+    expect(requestedUrls, contains('GET /api/patients/-P01po5yZfRSwP3UDFLN'));
+    expect(requestedUrls, contains('GET /api/rooms'));
+    backendApi.dispose();
   });
 }

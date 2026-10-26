@@ -3,7 +3,6 @@ import 'dart:math';
 import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
-import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'payment_service.dart';
@@ -35,13 +34,23 @@ class PatientService {
     RoomService? roomService,
     PaymentService? paymentService,
   }) : _rtdb = rtdbService,
-       _backendApi = backendApiService,
+       _backendApi =
+           backendApiService ??
+           (rtdbService == null ? _tryLocatorBackendApi() : null),
        _photos = photos,
        _registrationNumbers = registrationNumberService,
        _roomService = roomService,
        _paymentService = paymentService;
 
-  bool get isPostgres => _backendApi != null || AppConfig.usePostgresBackend;
+  static BackendApiService? _tryLocatorBackendApi() {
+    try {
+      return ServiceLocator().backendApiService;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isPostgres => _backendApi != null || _rtdb == null;
 
   FirebaseRTDBRestService get _safeRtdb {
     if (_rtdb != null) return _rtdb;
@@ -487,17 +496,31 @@ class PatientService {
           });
         } on BackendApiException catch (e) {
           if (e.statusCode == 409) {
+            if (e.message.toLowerCase().contains('registration number')) {
+              throw StateError(e.message);
+            }
             throw _resolvedRoomService.bedConflict(e.message);
           }
           rethrow;
         }
         return patientId;
       }
+
+      final existingWithReg = await getPatientByRegistrationNumber(
+        registrationNumber,
+        excludingPatientId: patientId,
+      );
+      if (existingWithReg != null) {
+        throw StateError(
+          'Registration number "$registrationNumber" is already assigned to another patient.',
+        );
+      }
+
       await _safeRtdb.patch('', {'$_patientsPath/$patientId': patient.toMap()});
 
       return patientId;
     } catch (e) {
-      if (e is BedConflictException) rethrow;
+      if (e is BedConflictException || e is StateError) rethrow;
       throw Exception('Failed to add patient: $e');
     }
   }
@@ -581,12 +604,18 @@ class PatientService {
           final existing = await getPatient(patientId);
           final existingReg = existing?.registrationNumber?.trim();
           final proposedReg = updates['registrationNumber']?.toString().trim();
-          if (existingReg != null &&
-              existingReg.isNotEmpty &&
-              proposedReg != existingReg) {
-            throw StateError(
-              'Patient registration number is immutable and cannot be changed.',
+          if (proposedReg != null &&
+              proposedReg.isNotEmpty &&
+              proposedReg.toLowerCase() != (existingReg ?? '').toLowerCase()) {
+            final duplicate = await getPatientByRegistrationNumber(
+              proposedReg,
+              excludingPatientId: patientId,
             );
+            if (duplicate != null) {
+              throw StateError(
+                'Registration number "$proposedReg" is already assigned to another patient.',
+              );
+            }
           }
         }
         await _backendApi!.updatePatient(patientId, updates);
@@ -598,19 +627,25 @@ class PatientService {
         return;
       }
 
-      // Registration number is strictly immutable after creation.
+      // Registration number uniqueness check on update
       if (updates.containsKey('registrationNumber')) {
         final existingRaw = await _safeRtdb.get(
           '$_patientsPath/$patientId/registrationNumber',
         );
         final existingReg = existingRaw?.toString().trim();
         final proposedReg = updates['registrationNumber']?.toString().trim();
-        if (existingReg != null &&
-            existingReg.isNotEmpty &&
-            proposedReg != existingReg) {
-          throw StateError(
-            'Patient registration number is immutable and cannot be changed.',
+        if (proposedReg != null &&
+            proposedReg.isNotEmpty &&
+            proposedReg.toLowerCase() != (existingReg ?? '').toLowerCase()) {
+          final duplicate = await getPatientByRegistrationNumber(
+            proposedReg,
+            excludingPatientId: patientId,
           );
+          if (duplicate != null) {
+            throw StateError(
+              'Registration number "$proposedReg" is already assigned to another patient.',
+            );
+          }
         }
       }
 

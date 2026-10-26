@@ -5,7 +5,6 @@ import '../models/patient_model.dart';
 import '../models/stay_model.dart';
 import '../utils/stay_billing.dart';
 import '../utils/pricing_helper.dart';
-import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
@@ -44,17 +43,15 @@ class PaymentService {
 
   BackendApiService? get _backendApi {
     if (_injectedBackendApi != null) return _injectedBackendApi;
+    if (_injectedRtdb != null) return null;
     try {
-      if (AppConfig.usePostgresBackend) {
-        return ServiceLocator().backendApiService;
-      }
-      return null;
+      return ServiceLocator().backendApiService;
     } catch (_) {
       return null;
     }
   }
 
-  bool get isPostgres => _backendApi != null || AppConfig.usePostgresBackend;
+  bool get isPostgres => _backendApi != null || _injectedRtdb == null;
 
   FirebaseRTDBRestService get _safeRtdb {
     if (_injectedRtdb != null) return _injectedRtdb;

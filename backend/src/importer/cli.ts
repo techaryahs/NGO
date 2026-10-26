@@ -3,14 +3,15 @@ import { runFirebaseImport } from './index.js';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg.startsWith('--') && !['--dry-run', '--apply', '--strict'].includes(arg)) ||
+  if (args.some((arg) => arg.startsWith('--') && !['--dry-run', '--apply', '--strict', '--reconcile'].includes(arg)) ||
       (args.includes('--dry-run') && args.includes('--apply'))) {
-    console.error('Usage: npm run import:firebase -- <export.json> [--dry-run | --apply] [--strict]');
+    console.error('Usage: npm run import:firebase -- <export.json> [--dry-run | --apply] [--strict] [--reconcile]');
     process.exitCode = 1;
     return;
   }
   const dryRun = !args.includes('--apply');
   const strict = args.includes('--strict');
+  const reconcile = args.includes('--reconcile');
   const fileArg = args.find((a) => !a.startsWith('--'));
 
   if (!fileArg || args.filter((a) => !a.startsWith('--')).length !== 1) {
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   console.log('='.repeat(70));
   console.log(`Source File : ${targetFile}`);
   console.log(`Dry Run     : ${dryRun ? 'YES (Database will NOT be modified)' : 'NO (Live Changes)'}`);
+  console.log(`Reconcile   : ${reconcile ? 'YES (Preserve existing PG records)' : 'NO'}`);
   console.log(`Strict Mode : ${strict ? 'YES' : 'NO'}`);
   console.log('='.repeat(70));
 
@@ -32,7 +34,8 @@ async function main(): Promise<void> {
     const stats = await runFirebaseImport({
       filePath: targetFile,
       dryRun,
-      strict,
+      strict: args.includes('--strict') ? true : (reconcile ? false : undefined),
+      reconcile,
       onProgress: (msg) => console.log(msg),
     });
 

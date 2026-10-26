@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import '../config/app_config.dart';
 import 'backend_api_service.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'service_locator.dart';
@@ -87,17 +86,15 @@ class RegistrationNumberService {
 
   BackendApiService? get _backendApi {
     if (_injectedBackendApi != null) return _injectedBackendApi;
+    if (_injectedRtdb != null) return null;
     try {
-      if (AppConfig.usePostgresBackend) {
-        return ServiceLocator().backendApiService;
-      }
-      return null;
+      return ServiceLocator().backendApiService;
     } catch (_) {
       return null;
     }
   }
 
-  bool get isPostgres => _backendApi != null || AppConfig.usePostgresBackend;
+  bool get isPostgres => _backendApi != null || _injectedRtdb == null;
 
   FirebaseRTDBRestService get _rtdb =>
       _injectedRtdb ?? ServiceLocator().rtdbService;

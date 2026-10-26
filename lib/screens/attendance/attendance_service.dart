@@ -1,4 +1,3 @@
-import '../../config/app_config.dart';
 import '../../models/patient_model.dart';
 import '../../models/stay_model.dart';
 import '../../services/backend_api_service.dart';
@@ -318,8 +317,7 @@ class MonthlyAttendanceEditor {
     final submitted = Map<String, Map<String, dynamic>>.from(dirty);
     final affected = affectedPatientIds;
     final currentPatch = patch;
-    final usePostgres =
-        backendApi != null || (db == null && AppConfig.usePostgresBackend);
+    final usePostgres = backendApi != null || db == null;
     try {
       if (usePostgres) {
         final api = backendApi ?? ServiceLocator().backendApiService;
@@ -358,9 +356,8 @@ class MonthlyAttendanceEditor {
           );
         }
       } else {
-        final rtdb = db ?? ServiceLocator().rtdbService;
         // REST PATCH also updates partitioned SQLite and targeted shared streams.
-        await rtdb.patch('', currentPatch);
+        await db.patch('', currentPatch);
       }
       data.records.addAll(submitted);
       for (final entry in submitted.entries) {
@@ -405,8 +402,7 @@ class AttendanceService {
     );
   }
 
-  bool get isPostgres =>
-      _backendApi != null || (_db == null && AppConfig.usePostgresBackend);
+  bool get isPostgres => _backendApi != null || _db == null;
 
   Future<MonthlyAttendanceData> loadMonth(DateTime month) async {
     final first = StayBilling.dateKey(DateTime(month.year, month.month, 1));

@@ -2,12 +2,22 @@ import fs from 'fs';
 import { createHash } from 'node:crypto';
 import { getClient } from '../db/index.js';
 import { attendantId } from '../db/identifiers.js';
+import { receiptCycle } from '../services/billing.js';
 
 export interface ImportOptions {
   filePath: string;
   dryRun?: boolean;
   strict?: boolean;
+  reconcile?: boolean;
   onProgress?: (message: string) => void;
+}
+
+export interface ReconciliationSummary {
+  patients: { source: number; matched: number; imported: number; conflicting: number };
+  stays: { source: number; matched: number; imported: number; unresolved: number };
+  payments: { source: number; matched: number; imported: number; deduplicated: number; conflicting: number; unresolved: number };
+  attendance: { source: number; matched: number; imported: number; unresolved: number };
+  photos: { source: number; matched: number; imported: number };
 }
 
 export interface ImportStats {
@@ -30,6 +40,7 @@ export interface ImportStats {
     sourceTotalPatientDue: number;
     dbTotalPatientDue: number;
   };
+  reconciliation?: ReconciliationSummary;
   warnings: string[];
   durationMs: number;
   committed: boolean;
@@ -99,6 +110,7 @@ function safeError(err: unknown): string {
 export async function runFirebaseImport(options: ImportOptions): Promise<ImportStats> {
   const startTime = Date.now();
   const log = options.onProgress || console.log;
+  const reconcileMode = options.reconcile === true;
 
   log(`[Importer] Reading Firebase export from ${options.filePath}...`);
   if (!fs.existsSync(options.filePath)) {
@@ -108,6 +120,14 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
   const rawJson = fs.readFileSync(options.filePath, 'utf8');
   const data = JSON.parse(rawJson);
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Export root must be an object');
+
+  const reconciliation: ReconciliationSummary = {
+    patients: { source: 0, matched: 0, imported: 0, conflicting: 0 },
+    stays: { source: 0, matched: 0, imported: 0, unresolved: 0 },
+    payments: { source: 0, matched: 0, imported: 0, deduplicated: 0, conflicting: 0, unresolved: 0 },
+    attendance: { source: 0, matched: 0, imported: 0, unresolved: 0 },
+    photos: { source: 0, matched: 0, imported: 0 },
+  };
 
   const stats: ImportStats = {
     rooms: { processed: 0, imported: 0, updated: 0, failed: 0 },
@@ -129,6 +149,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
       sourceTotalPatientDue: 0,
       dbTotalPatientDue: 0,
     },
+    ...(reconcileMode ? { reconciliation } : {}),
     warnings: [],
     durationMs: 0,
     committed: false,
@@ -402,10 +423,51 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
     log('[Importer] Step 4/11: Migrating patients and attendants...');
     const patientsBranch = data.patients || {};
     const validPatientIds = new Set<string>();
+    const existingPgPatients = new Map<string, any>();
+    const existingPgRegNumbers = new Map<string, string>();
+
+    if (reconcileMode) {
+      const existingRes = await client.query(
+        'SELECT id, registration_number, admission_date, updated_at FROM patients'
+      );
+      for (const row of existingRes.rows || []) {
+        if (row.id) {
+          validPatientIds.add(row.id);
+          existingPgPatients.set(row.id, row);
+          if (row.registration_number) {
+            existingPgRegNumbers.set(String(row.registration_number).trim().toLowerCase(), row.id);
+          }
+        }
+      }
+    }
 
     for (const [patientId, p] of Object.entries<any>(patientsBranch)) {
       if (!p || typeof p !== 'object') continue;
       stats.patients.processed++;
+      reconciliation.patients.source++;
+
+      if (reconcileMode && existingPgPatients.has(patientId)) {
+        // Preserve existing PostgreSQL patient record without overwriting live modifications.
+        const paid = parseDecimal(p.totalPaidAmount);
+        const due = parseDecimal(p.currentDueAmount);
+        sourcePaidCents += cents(paid);
+        sourceDueCents += cents(due);
+        validPatientIds.add(patientId);
+        reconciliation.patients.matched++;
+        continue;
+      }
+
+      if (reconcileMode && p.registrationNumber) {
+        const regLower = String(p.registrationNumber).trim().toLowerCase();
+        const ownerId = existingPgRegNumbers.get(regLower);
+        if (ownerId && ownerId !== patientId) {
+          stats.patients.failed++;
+          reconciliation.patients.conflicting++;
+          stats.warnings.push(`Patient rejected: registration number conflict with existing patient.`);
+          continue;
+        }
+      }
+
       await beginRecord();
       const attendantStatsBefore = { ...stats.attendants };
       try {
@@ -598,8 +660,16 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         }
         await finishRecord();
         validPatientIds.add(patientId);
-        if (patientRes.rows[0]?.is_inserted) stats.patients.imported++;
-        else stats.patients.updated++;
+        if (p.registrationNumber) {
+          existingPgRegNumbers.set(String(p.registrationNumber).trim().toLowerCase(), patientId);
+        }
+        if (patientRes.rows[0]?.is_inserted) {
+          stats.patients.imported++;
+          reconciliation.patients.imported++;
+        } else {
+          stats.patients.updated++;
+          reconciliation.patients.matched++;
+        }
       } catch (err: unknown) {
         await rejectRecord();
         const attemptedAttendants = stats.attendants.processed - attendantStatsBefore.processed;
@@ -609,6 +679,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
           failed: attendantStatsBefore.failed + attemptedAttendants,
         };
         stats.patients.failed++;
+        reconciliation.patients.conflicting++;
         stats.warnings.push(`Patient rejected: ${safeError(err)}.`);
       }
     }
@@ -634,14 +705,29 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
     // ─────────────────────────────────────────────────────────────────────────
     log('[Importer] Step 5/11: Migrating admissions and stays...');
     const staysBranch = data.stays || {};
+    const existingPgStays = new Set<string>();
+    if (reconcileMode) {
+      const existingStaysRes = await client.query('SELECT id FROM stays');
+      for (const row of existingStaysRes.rows || []) {
+        if (row.id) existingPgStays.add(row.id);
+      }
+    }
+
     for (const [stayId, s] of Object.entries<any>(staysBranch)) {
       if (!s || typeof s !== 'object') continue;
       stats.stays.processed++;
+      reconciliation.stays.source++;
 
       if (!validPatientIds.has(s.patientId)) {
         stats.stays.missingPatientRefs++;
         stats.stays.failed++;
+        reconciliation.stays.unresolved++;
         stats.warnings.push('Stay rejected: missing or rejected patient reference.');
+        continue;
+      }
+
+      if (reconcileMode && existingPgStays.has(stayId)) {
+        reconciliation.stays.matched++;
         continue;
       }
 
@@ -714,7 +800,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
             s.roomId,
             s.roomNumber || 'Room',
             s.roomType || 'general',
-            s.cycleId || null,
+            s.cycleId ? String(s.cycleId) : String(admission.getTime()),
             admission,
             duration,
             expected,
@@ -747,13 +833,16 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
 
         if (stayRes.rows[0]?.is_inserted) {
           stats.stays.imported++;
+          reconciliation.stays.imported++;
         } else {
           stats.stays.updated++;
+          reconciliation.stays.matched++;
         }
         await finishRecord();
       } catch (err: unknown) {
         await rejectRecord();
         stats.stays.failed++;
+        reconciliation.stays.unresolved++;
         stats.warnings.push(`Stay rejected: ${safeError(err)}.`);
       }
     }
@@ -793,6 +882,14 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
     // Step 6: Attendance Records
     // ─────────────────────────────────────────────────────────────────────────
     log('[Importer] Step 6/11: Migrating daily attendance records...');
+    const existingPgAttendance = new Set<string>();
+    if (reconcileMode) {
+      const existingAttRes = await client.query('SELECT id FROM attendance_records');
+      for (const row of existingAttRes.rows || []) {
+        if (row.id) existingPgAttendance.add(row.id);
+      }
+    }
+
     const importAttendanceBranch = async (branchName: string, kind: string) => {
       const root = data[branchName] || {};
       const branch = root.daily || root;
@@ -800,13 +897,20 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         if (!patientsMap || typeof patientsMap !== 'object') continue;
         for (const [patientId, payload] of Object.entries<any>(patientsMap)) {
           stats.attendance.processed++;
+          reconciliation.attendance.source++;
           const recId = `${kind}/${dateStr}/${patientId}`;
 
           // Only insert if patient exists
           if (!validPatientIds.has(patientId)) {
             stats.attendance.missingPatientRefs++;
             stats.attendance.failed++;
+            reconciliation.attendance.unresolved++;
             stats.warnings.push('Attendance rejected: missing or rejected patient reference.');
+            continue;
+          }
+
+          if (reconcileMode && existingPgAttendance.has(recId)) {
+            reconciliation.attendance.matched++;
             continue;
           }
 
@@ -826,13 +930,16 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
 
             if (attRes.rows[0]?.is_inserted) {
               stats.attendance.imported++;
+              reconciliation.attendance.imported++;
             } else {
               stats.attendance.updated++;
+              reconciliation.attendance.matched++;
             }
             await finishRecord();
           } catch (err: unknown) {
             await rejectRecord();
             stats.attendance.failed++;
+            reconciliation.attendance.unresolved++;
             stats.warnings.push(`Attendance rejected: ${safeError(err)}.`);
           }
         }
@@ -874,6 +981,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         if (!p || typeof p !== 'object') {
           stats.payments.processed++;
           stats.payments.failed++;
+          reconciliation.payments.unresolved++;
           stats.warnings.push('Payment rejected: invalid record shape.');
           continue;
         }
@@ -884,6 +992,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
           const existing = paymentsMap.get(id);
           if (existing) {
             stats.payments.deduplicated++;
+            reconciliation.payments.deduplicated++;
             const samePatient = existing.patientId === p.patientId;
             const sameAmount = cents(parseDecimal(existing.amount)) === cents(parseDecimal(p.amount));
             const d1 = parseDate(existing.date ?? existing.paymentDate)?.getTime();
@@ -895,6 +1004,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
                 existing.transactionId = p.transactionId;
               }
               if (!existing.cycleId && p.cycleId) existing.cycleId = p.cycleId;
+              if (!existing.receiptCycle && p.receiptCycle) existing.receiptCycle = p.receiptCycle;
               if (!existing.receiptNumber && p.receiptNumber) existing.receiptNumber = p.receiptNumber;
               if (!existing.checkNumber && p.checkNumber) existing.checkNumber = p.checkNumber;
               if (!existing.bankName && p.bankName) existing.bankName = p.bankName;
@@ -909,18 +1019,23 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         } catch {
           stats.payments.processed++;
           stats.payments.failed++;
+          reconciliation.payments.unresolved++;
           stats.warnings.push('Payment rejected: incomplete or invalid ledger data.');
         }
       }
     }
 
+    const patientsWithImportedPayments = new Set<string>();
+
     for (const [payId, p] of paymentsMap.entries()) {
       stats.payments.processed++;
+      reconciliation.payments.source++;
       const amount = parseDecimal(p.amount);
       sourcePaymentCents += cents(amount);
 
       if (conflictingIds.has(payId)) {
         stats.payments.failed++;
+        reconciliation.payments.conflicting++;
         stats.warnings.push('Payment rejected: conflicting duplicate ledger identity.');
         continue;
       }
@@ -928,12 +1043,106 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
       if (!validPatientIds.has(p.patientId)) {
         stats.payments.missingPatientRefs++;
         stats.payments.failed++;
+        reconciliation.payments.unresolved++;
         stats.warnings.push('Payment rejected: missing or rejected patient reference.');
         continue;
       }
 
       await beginRecord();
       try {
+        if (reconcileMode) {
+          // Check for existing payment in PostgreSQL by exact ID, 64-char truncated ID, UTR, or receipt number
+          const trimmedTx = typeof p.transactionId === 'string' && p.transactionId.trim().length > 0 && p.transactionId.trim() !== 'MANUAL_ONLINE' && p.transactionId.trim() !== 'same_transaction'
+            ? p.transactionId.trim()
+            : null;
+          const trimmedReceipt = typeof p.receiptNumber === 'string' && p.receiptNumber.trim().length > 0
+            ? p.receiptNumber.trim()
+            : null;
+          const prefix64 = payId.length > 64 ? payId.slice(0, 64) : payId;
+
+          const existingMatchRes = await client.query(
+            `SELECT * FROM payments
+             WHERE id = $1
+                OR (id = $2 AND patient_id = $3)
+                OR ($4::varchar IS NOT NULL AND patient_id = $3 AND transaction_id = $4)
+                OR ($5::varchar IS NOT NULL AND patient_id = $3 AND receipt_number = $5)
+             LIMIT 1`,
+            [payId, prefix64, p.patientId, trimmedTx, trimmedReceipt]
+          );
+
+          if (existingMatchRes.rows.length > 0) {
+            const existingRow = existingMatchRes.rows[0];
+            const existingAmount = parseDecimal(existingRow.amount);
+            if (existingRow.patient_id !== p.patientId || cents(existingAmount) !== cents(amount)) {
+              reconciliation.payments.conflicting++;
+              throw new Error('Historical payment conflict');
+            }
+            stats.payments.unchanged++;
+            reconciliation.payments.matched++;
+            await finishRecord();
+            continue;
+          }
+
+          // Infer cycleId from receiptCycle or patient's admission/stays when missing
+          let resolvedCycleId: string | null = p.cycleId
+            ? String(p.cycleId)
+            : (p.receiptCycle ? String(p.receiptCycle) : null);
+          if (!resolvedCycleId) {
+            const patRowRes = await client.query('SELECT id, admission_date, registration_date FROM patients WHERE id = $1', [p.patientId]);
+            const stayRowsRes = await client.query('SELECT * FROM stays WHERE patient_id = $1 ORDER BY admission_date ASC', [p.patientId]);
+            if (patRowRes.rows.length > 0) {
+              resolvedCycleId = receiptCycle(
+                { cycle_id: null, payment_date: parseDate(p.date ?? p.paymentDate) || new Date() },
+                patRowRes.rows[0],
+                stayRowsRes.rows
+              );
+            }
+          }
+
+          const payRes = await client.query(
+            `INSERT INTO payments (
+              id, patient_id, cycle_id, type, amount, total_amount, paid_amount,
+              pending_amount, payment_status, method, payment_date, receipt_number,
+              check_number, bank_name, transaction_id, source, notes, created_at, updated_at
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7,
+              $8, $9, $10, $11, $12,
+              $13, $14, $15, $16, $17, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT (id) DO NOTHING
+            RETURNING id`,
+            [
+              payId,
+              p.patientId,
+              resolvedCycleId,
+              paymentType(p),
+              amount,
+              p.totalAmount != null ? parseDecimal(p.totalAmount) : amount,
+              p.paidAmount != null ? parseDecimal(p.paidAmount) : amount,
+              p.pendingAmount != null ? parseDecimal(p.pendingAmount) : 0,
+              p.paymentStatus || 'Paid',
+              p.method || 'cash',
+              parseDate(p.date ?? p.paymentDate),
+              trimmedReceipt,
+              p.checkNumber || null,
+              p.bankName || null,
+              typeof p.transactionId === 'string' && p.transactionId.trim().length > 0 ? p.transactionId.trim() : null,
+              p.source || 'firebase_export',
+              p.notes || null,
+            ]
+          );
+
+          if (payRes.rowCount) {
+            stats.payments.imported++;
+            reconciliation.payments.imported++;
+            patientsWithImportedPayments.add(p.patientId);
+          } else {
+            stats.payments.unchanged++;
+            reconciliation.payments.matched++;
+          }
+          await finishRecord();
+          continue;
+        }
+
         const payRes = await client.query(
           `INSERT INTO payments (
             id, patient_id, cycle_id, type, amount, total_amount, paid_amount,
@@ -988,6 +1197,32 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
       }
     }
 
+    if (reconcileMode && patientsWithImportedPayments.size > 0) {
+      for (const pid of patientsWithImportedPayments) {
+        const sumRes = await client.query(
+          `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS paid,
+                  COALESCE(SUM(amount), 0) AS net_paid
+           FROM payments WHERE patient_id = $1`,
+          [pid]
+        );
+        const netPaid = parseDecimal(sumRes.rows[0]?.net_paid ?? 0);
+        await client.query(
+          `UPDATE patients
+           SET total_paid_amount = $2,
+               current_due_amount = GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric),
+               payment_pending = (GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric) > 0),
+               payment_status = CASE
+                 WHEN GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric) <= 0 THEN 'Paid'
+                 WHEN $2::numeric > 0 THEN 'Partially Paid'
+                 ELSE 'Unpaid'
+               END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [pid, netPaid]
+        );
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Step 8: Patient & Attendant Photos
     // ─────────────────────────────────────────────────────────────────────────
@@ -998,6 +1233,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
 
       if (obj.patient && typeof obj.patient === 'object' && obj.patient.data) {
         stats.photos.processed++;
+        reconciliation.photos.source++;
         await beginRecord();
         try {
           const photoRef = `patientPhotos/${pid}/patient`;
@@ -1018,8 +1254,13 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
               obj.patient.version != null ? BigInt(obj.patient.version) : 1n,
             ]
           );
-          if (res.rows[0]?.is_inserted) stats.photos.imported++;
-          else stats.photos.updated++;
+          if (res.rows[0]?.is_inserted) {
+            stats.photos.imported++;
+            reconciliation.photos.imported++;
+          } else {
+            stats.photos.updated++;
+            reconciliation.photos.matched++;
+          }
           await finishRecord();
         } catch (err: unknown) {
           await rejectRecord();
@@ -1032,6 +1273,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         for (const [attKey, attVal] of Object.entries<any>(obj.attendants)) {
           if (!attVal || typeof attVal !== 'object' || !attVal.data) continue;
           stats.photos.processed++;
+          reconciliation.photos.source++;
           await beginRecord();
           try {
             const photoRef = `patientPhotos/${pid}/attendants/${attKey}`;
@@ -1052,8 +1294,13 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
                 attVal.version != null ? BigInt(attVal.version) : 1n,
               ]
             );
-            if (res.rows[0]?.is_inserted) stats.photos.imported++;
-            else stats.photos.updated++;
+            if (res.rows[0]?.is_inserted) {
+              stats.photos.imported++;
+              reconciliation.photos.imported++;
+            } else {
+              stats.photos.updated++;
+              reconciliation.photos.matched++;
+            }
             await finishRecord();
           } catch (err: unknown) {
             await rejectRecord();
@@ -1249,7 +1496,8 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
     stats.financials.dbTotalPatientPaid = parseFloat(String(dbPatientSums.rows[0]?.paid || 0));
     stats.financials.dbTotalPatientDue = parseFloat(String(dbPatientSums.rows[0]?.due || 0));
 
-    const shouldRollback = options.dryRun !== false || (options.strict !== false && stats.warnings.length > 0);
+    const strictCheck = options.strict !== undefined ? options.strict : !reconcileMode;
+    const shouldRollback = options.dryRun !== false || (strictCheck && stats.warnings.length > 0);
     if (shouldRollback) {
       log(stats.warnings.length > 0
         ? '[Importer] Rejected records detected: rolling back the entire import. Counts describe attempted writes.'

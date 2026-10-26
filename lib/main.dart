@@ -18,7 +18,6 @@ void main() async {
   services.initialize(
     projectId: AppConfig.firebaseProjectId,
     apiKey: AppConfig.firebaseApiKey,
-    databaseUrl: AppConfig.firebaseDatabaseUrl,
   );
   await services.initializePersistentCache();
 

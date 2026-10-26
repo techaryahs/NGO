@@ -3,14 +3,28 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'firebase_rtdb_rest_service.dart';
 import 'backend_api_service.dart';
+import 'service_locator.dart';
 
 class SettingsService {
   final FirebaseRTDBRestService? _rtdb;
   final BackendApiService? _backendApi;
 
-  SettingsService([this._rtdb, this._backendApi]);
+  SettingsService([
+    FirebaseRTDBRestService? rtdb,
+    BackendApiService? backendApi,
+  ]) : _rtdb = rtdb,
+       _backendApi =
+           backendApi ?? (rtdb == null ? _tryLocatorBackendApi() : null);
 
-  bool get isPostgres => _backendApi != null;
+  static BackendApiService? _tryLocatorBackendApi() {
+    try {
+      return ServiceLocator().backendApiService;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isPostgres => _backendApi != null || _rtdb == null;
 
   FirebaseRTDBRestService get _safeRtdb {
     final rtdb = _rtdb;

@@ -787,6 +787,29 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         }
       }
 
+      final newReg = _registrationNumberController.text.trim();
+      if (newReg.isNotEmpty &&
+          newReg.toLowerCase() != (widget.patient.registrationNumber ?? '').toLowerCase()) {
+        final dup = await ServiceLocator().patientService.getPatientByRegistrationNumber(
+          newReg,
+          excludingPatientId: widget.patient.id,
+        );
+        if (dup != null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Registration number "$newReg" is already assigned to ${dup.fullName}.',
+                ),
+                backgroundColor: const Color(0xFFD32F2F),
+              ),
+            );
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+      }
+
       final updates = <String, dynamic>{
         'fullName': _patientNameController.text.trim(),
         'contactNumber': _mobileController.text.trim(),
@@ -819,7 +842,7 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
         'address': _addressController.text.trim().isEmpty
             ? null
             : _addressController.text.trim(),
-        'registrationNumber': widget.patient.registrationNumber,
+        'registrationNumber': newReg.isEmpty ? widget.patient.registrationNumber : newReg,
         'notes': _updatedNotesWithFileNumber(),
         'registrationDate': _selectedRegistrationDate?.millisecondsSinceEpoch,
         'exitDate': _selectedExitDate?.millisecondsSinceEpoch,
@@ -1317,9 +1340,8 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
                                 ),
                               ),
                               PatientFormField(
-                                label: "Registration number (Immutable)",
+                                label: "Registration number",
                                 hint: "Not assigned",
-                                enabled: false,
                                 controller: _registrationNumberController,
                               ),
                             ),

@@ -520,24 +520,35 @@ void main() {
       expect(storedVal, equals(5219));
     });
 
-    // Immutability test on patient update
-    test('Immutability: existing patient registration number cannot be altered via update', () async {
+    // Editable registration number with uniqueness verification
+    test('Editable registration number: existing patient registration number can be updated when unique', () async {
       mockRtdb.db['patients'] = {
         'p_lata': {'id': 'p_lata', 'registrationNumber': '8959', 'fullName': 'Lata'},
       };
+      mockRtdb.db['patients/p_lata/registrationNumber'] = '8959';
 
+      await patientService.updatePatient(
+        'p_lata',
+        {'registrationNumber': '5218'},
+      );
+
+      expect(mockRtdb.db['patients/p_lata/registrationNumber'], equals('5218'));
+    });
+
+    test('Editable registration number: updating to a duplicate registration number is rejected', () async {
+      mockRtdb.db['patients'] = {
+        'p_lata': {'id': 'p_lata', 'registrationNumber': '8959', 'fullName': 'Lata'},
+        'p_other': {'id': 'p_other', 'registrationNumber': '5218', 'fullName': 'Other Patient'},
+      };
       mockRtdb.db['patients/p_lata/registrationNumber'] = '8959';
 
       expect(
         () => patientService.updatePatient(
           'p_lata',
-          {'registrationNumber': '5218'}, // attempting to change Lata's number
+          {'registrationNumber': '5218'},
         ),
         throwsA(isA<StateError>()),
       );
-
-      // Verify Lata's 8959 was NOT altered
-      expect(mockRtdb.db['patients']['p_lata']['registrationNumber'], equals('8959'));
     });
 
     // 21. Self-healing from outlier baseline
