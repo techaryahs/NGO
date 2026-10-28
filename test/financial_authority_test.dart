@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/models/stay_model.dart';
@@ -14,9 +15,11 @@ void main() {
         'oldResponse': {'refundDue': 400},
       },
     });
-    for (final p in [patient, PatientModel.fromMap('cycles', patient.toMap())]) {
+    for (final p in [patient, PatientModel.fromMap('cycles', jsonDecode(jsonEncode(patient.toMap())) as Map)]) {
       expect(p.confirmedRefundDueAmount, 150);
       expect(p.financialUncertain, isTrue);
+      expect((p.admissionBalances['confirmed'] as Map)['refundEligible'], isTrue);
+      expect((p.admissionBalances['unresolved'] as Map)['refundEligible'], isFalse);
     }
   });
   test('empty balance fallback retains uncertainty protection', () {

@@ -170,9 +170,12 @@ class PaymentService {
     final reconciliation =
         values['patients/$patientId/financialReconciliation'];
     if (reconciliation is Map && reconciliation['required'] == true) {
-      throw StateError(
-        'Reconcile receipt allocations and admission identities before collecting an outstanding balance.',
-      );
+      final patient = PatientModel.fromMap(patientId, {
+        for (final entry in values.entries)
+          if (entry.key.startsWith('patients/$patientId/'))
+            entry.key.substring('patients/$patientId/'.length): entry.value,
+      });
+      throw StateError(patient.financialReviewReasons.join('\n'));
     }
     double amount(String field) =>
         (values['patients/$patientId/$field'] as num?)?.toDouble() ?? 0;

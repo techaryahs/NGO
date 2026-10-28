@@ -1,7 +1,66 @@
 import { describe, expect, it } from 'vitest';
 import { projectBilling, receiptCycle, stayCycle, newStayIdentity } from '../src/services/billing.js';
+import { formatPatient } from '../src/routes/patients.js';
 
 describe('unallocated payment reconciliation', () => {
+  it('counts receipt 5110 once in its explicit historical cycle, rather than trusting saved paid totals', async () => {
+    const historical = '1786249800000';
+    const start = new Date(1791716975040);
+    const current = String(start.getTime());
+    const patient = { id: 'cash-explicit-fixture', status: 'discharged', admission_date: start,
+      admission_balances: {
+        [historical]: { total: 800, paid: 2400, refunded: 0, netPaid: 2400, refundDue: 1600, due: 0 },
+        [current]: { total: 1800 },
+      } };
+    const cash = { id: '-Ozqe-6ZKqeqZ1eobipg', cycle_id: historical,
+      receipt_number: '5110', amount: '1200.00', method: 'Cash', source: 'firebase_export' };
+    const receipts = [cash,
+      { id: 'later-payment', cycle_id: current, amount: '1800.00' },
+      { id: 'unassigned-a', cycle_id: null, amount: '800.00' },
+      { id: 'unassigned-b', cycle_id: null, amount: '400.00' },
+    ];
+    const source = { receipts, records: [], pricing: {}, roster: [], stays: [
+      { id: 'historical-stay', cycle_id: historical, status: 'completed', total_cost: '800.00' },
+      // Multiple placement rows in one cycle must not multiply its receipts.
+      { id: 'same-cycle-placement', cycle_id: historical, status: 'completed', total_cost: '0.00' },
+    ] };
+    const before = JSON.stringify({ patient, source });
+    for (let retry = 0; retry < 2; retry++) {
+      const result = await projectBilling({} as any, patient, { source });
+      expect(receiptCycle(cash, patient, source.stays)).toBe(historical);
+      expect(result.balances[historical]).toMatchObject({ paid: 1200, refunded: 0,
+        total: 800, refundDue: 400, refundEligible: false });
+      expect(result.reconciliation.unallocatedReceipts.map(r => r.id)).not.toContain(cash.id);
+      expect(Object.values(result.balances).reduce((sum, b) => sum + b.paid, 0)).toBe(3000);
+      expect(result.reconciliation.accountPaid).toBe(4200);
+    }
+    expect(JSON.stringify({ patient, source })).toBe(before);
+  });
+  it('leaves receipt 6777 unallocated without admission evidence and never deduces the saved refund', async () => {
+    const historical = '1785742200000';
+    const current = '1791262760158';
+    const patient = { id: 'cash-ambiguous-fixture', status: 'discharged', admission_date: new Date(Number(current)),
+      admission_balances: {
+        [historical]: { total: 2200, paid: 4400, refunded: 0, netPaid: 4400, due: 0, refundDue: 2200 },
+        middle: { total: 2400 }, [current]: { total: 2400 },
+      } };
+    const cash = { id: 'pay_1786606802012', cycle_id: null, receipt_number: '6777',
+      amount: '2000.00', method: 'Cash', source: 'firebase_export' };
+    const source = { stays: [], records: [], roster: [], pricing: {}, receipts: [cash,
+      { id: 'untagged-qr-a', cycle_id: null, amount: '2400.00', method: 'Online (QR Code)' },
+      { id: 'untagged-qr-b', cycle_id: null, amount: '2400.00', method: 'Online (QR Code)' },
+      { id: 'later-a', cycle_id: current, amount: '1200.00' },
+      { id: 'later-b', cycle_id: current, amount: '1200.00' },
+    ] };
+    const before = JSON.stringify(source);
+    const result = await projectBilling({} as any, patient, { source });
+    expect(receiptCycle(cash, patient, [])).toBeNull();
+    expect(result.reconciliation).toMatchObject({ accountPaid: 9200, unallocatedNet: 6800, required: true });
+    expect(result.balances[historical]).toMatchObject({ paid: 0, refundDue: 0, refundEligible: false });
+    expect(result.balances[current].paid).toBe(2400);
+    expect(result.receipts.filter(r => r.id === cash.id)).toHaveLength(1);
+    expect(JSON.stringify(source)).toBe(before);
+  });
   async function independentCycles(options: { unallocated?: boolean; conflictOld?: boolean; provisional?: boolean } = {}) {
     const start = new Date('2026-10-01T04:00:00Z');
     const current = String(start.getTime());
@@ -29,10 +88,67 @@ describe('unallocated payment reconciliation', () => {
       refundDue: 150, reconciliationRequired: false, refundEligible: true });
     const current = String(new Date('2026-10-01T04:00:00Z').getTime());
     expect(result.balances[current]).toMatchObject({ reconciliationRequired: true, refundEligible: false });
+    const response = JSON.parse(JSON.stringify(formatPatient(result.patient as any)));
+    expect(response.financialReconciliation.required).toBe(true);
+    expect(response.admissionBalances.old).toMatchObject({ refundEligible: true, refundDue: 150 });
+    expect(response.admissionBalances[current].refundEligible).toBe(false);
+  });
+  it('does not convert an arithmetically valid three-cycle saved refund into verified receipt ownership', async () => {
+    const start = new Date('2026-10-01T04:00:00Z');
+    const current = String(start.getTime());
+    const patient = { id: 'historical-unassigned', status: 'discharged', admission_date: start,
+      admission_balances: {
+        old: { total: 2200, paid: 4400, refunded: 0, netPaid: 4400, due: 0, refundDue: 2200, finalized: true },
+        middle: { total: 2400, finalized: true },
+        [current]: { total: 2400, finalized: true },
+      } };
+    const receipts = [
+      { id: 'untagged-a', amount: '4400.00', cycle_id: null, source: 'firebase_export' },
+      { id: 'untagged-b', amount: '2400.00', cycle_id: null, source: 'firebase_export' },
+      { id: 'later-a', amount: '1200.00', cycle_id: current },
+      { id: 'later-b', amount: '1200.00', cycle_id: current },
+    ];
+    const before = JSON.stringify({ patient, receipts });
+    const result = await projectBilling({} as any, patient, {
+      source: { stays: [], records: [], roster: [], pricing: {}, receipts },
+    });
+    expect(result.reconciliation).toMatchObject({ required: true, allocationRequired: true,
+      unallocatedNet: 6800, legacyInvoiceSupported: false });
+    expect(result.balances.old).toMatchObject({ paid: 0, refundDue: 0, refundEligible: false });
+    expect(result.balances[current].paid).toBe(2400);
+    expect(JSON.stringify({ patient, receipts })).toBe(before);
+    const response = JSON.parse(JSON.stringify(formatPatient(result.patient as any)));
+    expect(response.admissionBalances.old.refundEligible).toBe(false);
   });
   it('excludes every identity claimed by a conflicting stay', async () => {
     const result = await independentCycles({ conflictOld: true });
     expect(result.balances.old).toMatchObject({ reconciliationRequired: true, refundEligible: false });
+  });
+  it('keeps an old saved refund unconfirmed with untagged receipts and conflicting later stay identities', async () => {
+    const start = new Date('2026-10-01T04:00:00Z');
+    const current = String(start.getTime());
+    const patient = { id: 'historical-conflict', status: 'discharged', admission_date: start,
+      admission_balances: {
+        old: { total: 800, paid: 2400, refunded: 0, netPaid: 2400, due: 0, refundDue: 1600, finalized: true },
+        [current]: { total: 1200, finalized: true },
+      } };
+    const stays = ['A', 'B'].map(suffix => ({ id: `stay-${suffix}`, cycle_id: `explicit-${suffix}`,
+      patient_snapshot: { admissionDate: 'shared-snapshot' }, status: 'completed',
+      admission_date: start, total_cost: '1200.00' }));
+    const receipts = [
+      { id: 'untagged', cycle_id: null, source: 'firebase_export', amount: '1200.00' },
+      { id: 'later', cycle_id: current, amount: '1200.00' },
+    ];
+    const result = await projectBilling({} as any, patient, {
+      source: { stays, receipts, records: [], pricing: {}, roster: [] },
+    });
+    expect(result.reconciliation.unallocatedNet).toBe(1200);
+    expect(result.reconciliation.cycleIdentityIssues).toHaveLength(2);
+    expect(result.balances.old).toMatchObject({ refundDue: 0, refundEligible: false });
+    expect(result.balances['explicit-A'].refundEligible).toBe(false);
+    expect(result.balances['explicit-B'].refundEligible).toBe(false);
+    expect(patient.admission_balances.old.refundDue).toBe(1600);
+    expect(receipts[0].cycle_id).toBeNull();
   });
   it('does not certify any cycle when an unallocated refund could change its balance', async () => {
     const result = await independentCycles({ unallocated: true });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type pg from 'pg';
-import { afterCheckoutCutoff, baseDailyChargeCents, dailyChargeCents, projectBilling } from '../src/services/billing.js';
+import { afterCheckoutCutoff, baseDailyChargeCents, dailyChargeCents, projectBilling, quoteStayExtension } from '../src/services/billing.js';
 
 const at = (day: number, hour = 3, minute = 30) => new Date(Date.UTC(2026, 0, day, hour, minute));
 const cycle = String(at(1, 0).getTime());
@@ -29,6 +29,28 @@ async function calculate(options: Parameters<typeof fixture>[0], checkoutAt?: Da
 }
 
 describe('approved client billing rules', () => {
+  it('quotes October 23 to 28 as five additional patient-and-attendant days, without rebilling the advance', async () => {
+    const f = fixture({ days: 13, people: [{ id: 'helper', name: 'Helper' }] });
+    const start = new Date('2026-10-16T07:30:00Z');
+    const current = String(start.getTime());
+    f.patient.admission_date = start;
+    f.patient.exit_date = new Date('2026-10-23T14:30:00Z');
+    Object.assign(f.source.stays[0], { admission_date: start, cycle_id: current,
+      expected_discharge_date: new Date('2026-10-24T03:30:00Z') });
+    f.source.records.forEach((r, i) => { r.day = `2026-10-${16 + Math.floor(i / 2)}`; });
+    (f.source.receipts as any[]).push({ id: 'advance', cycle_id: current, amount: '3200.00' });
+    const query = async (sql: string) => ({ rows: sql.includes('FROM stays') ? f.source.stays :
+      sql.includes('FROM attendance_records') ? f.source.records : sql.includes('FROM payments') ? f.source.receipts :
+      sql.includes('FROM patient_attendants') ? f.source.roster : [] });
+    const before = await projectBilling({ query } as any, f.patient);
+    expect(before.balances[current]).toMatchObject({ total: 3200, paid: 3200, due: 0 });
+    expect(await quoteStayExtension({ query } as any, f.patient, f.source.stays[0], 5)).toMatchObject({ additionalCost: 2000 });
+    const extended = { ...f.patient, exit_date: new Date('2026-10-28T14:30:00Z') };
+    const full = await projectBilling({ query } as any, extended);
+    expect(full.balances[current]).toMatchObject({ total: 5200, paid: 3200, due: 2000 });
+    const shorter = await projectBilling({ query } as any, { ...extended, exit_date: new Date('2026-10-27T14:30:00Z') });
+    expect(shorter.balances[current].total).toBe(4800);
+  });
   it('late October checkout requires both kinds through the actual date, not just the planned exit', async () => {
     const person = { id: 'helper', name: 'Helper' };
     const f = fixture({ days: 8, people: [person] });

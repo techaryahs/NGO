@@ -107,6 +107,25 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     expect((await query("SELECT COUNT(*)::int AS count FROM payments")).rows[0].count).toBe(2);
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 10, currentDueAmount: 0 });
   });
+  it('collects a 2000 extension balance partially and fully, refreshes totals and retries without duplicate cash receipts', async () => {
+    await seed({ admissionBalances: { [cycle]: balance(5200, 3200) } });
+    const partial = { collectOutstanding: true, method: 'cash', receiptNumber: 'extension-partial' };
+    expect((await record('extension-cash', '800.00', partial)).statusCode).toBe(201);
+    expect(await getPatient()).toMatchObject({ advanceBilledAmount: 5200, totalPaidAmount: 4000, currentDueAmount: 1200 });
+    expect((await record('extension-cash', '800.00', partial)).statusCode).toBe(200);
+    expect((await record('extension-final', '1200.00', { collectOutstanding: true, method: 'cash' })).statusCode).toBe(201);
+    expect(await getPatient()).toMatchObject({ totalPaidAmount: 5200, currentDueAmount: 0, refundDueAmount: 0 });
+    expect((await query("SELECT count(*)::int count FROM payments WHERE id='extension-cash'")).rows[0].count).toBe(1);
+  });
+  it('recording the remaining payment does not clear provisional attendance status', async () => {
+    await seed({ admissionBalances: { [cycle]: { ...balance(5200, 3200), provisional: true,
+      pendingAttendance: [{ day: '2026-01-02', kind: 'attendant_attendance' }] } } });
+    expect((await record('provisional-payment', '2000.00', { collectOutstanding: true, method: 'cash' })).statusCode).toBe(201);
+    const patient = await getPatient();
+    expect(patient).toMatchObject({ totalPaidAmount: 5200, currentDueAmount: 0 });
+    expect(patient.admissionBalances[cycle].provisional).toBe(true);
+    expect(patient.financialReconciliation.provisional).toBe(true);
+  });
   it('accepts payment identifiers up to the migrated 128 character contract and rejects invalid collection flags', async () => {
     await seed();
     const longId = `upi_${'a'.repeat(100)}`;

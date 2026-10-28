@@ -23,6 +23,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
   bool showPayLater = false,
   double? totalBillOverride,
   String? patientId,
+  bool allowOfflineMethods = false,
 }) {
   final attemptKey = UniqueKey();
   return showDialog<PaymentDialogResult>(
@@ -42,6 +43,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
           ),
       alreadyPaid: alreadyPaid,
       showPayLater: showPayLater,
+      allowOfflineMethods: allowOfflineMethods,
     ),
   );
 }
@@ -52,6 +54,7 @@ class _PatientPaymentDialog extends StatefulWidget {
   final double total;
   final double alreadyPaid;
   final bool showPayLater;
+  final bool allowOfflineMethods;
   const _PatientPaymentDialog({
     super.key,
     required this.patientName,
@@ -59,6 +62,7 @@ class _PatientPaymentDialog extends StatefulWidget {
     required this.total,
     required this.alreadyPaid,
     required this.showPayLater,
+    required this.allowOfflineMethods,
   });
   @override
   State<_PatientPaymentDialog> createState() => _PatientPaymentDialogState();
@@ -72,7 +76,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
   final _notes = TextEditingController();
   bool _submitting = false;
   // Keep retry metadata stable when a response is lost after server commit.
-  final DateTime _paymentDate = DateTime.now();
+  DateTime _paymentDate = DateTime.now();
+  final String _receiptId = 'receipt_${DateTime.now().microsecondsSinceEpoch}';
+  String _method = 'ONLINE';
   String? _error;
   late double _total, _paid, _pending;
   String? _cycleId;
@@ -113,11 +119,12 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         _amount.text = _pending.toStringAsFixed(2);
         _balanceReady = true;
       });
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(
-          () => _error =
-              'Could not load the current outstanding balance. Retry before collecting payment.',
+          () => _error = error is StateError
+              ? error.message
+              : 'Could not load the current outstanding balance. Retry before collecting payment.',
         );
       }
     } finally {
@@ -152,13 +159,16 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     });
     try {
       final payment = PaymentModel(
-        id: 'upi_${widget.patientId}_${_reference.text.trim().toUpperCase()}',
+        id: _method == 'ONLINE'
+            ? 'upi_${widget.patientId}_${_reference.text.trim().toUpperCase()}'
+            : _receiptId,
         amount: double.parse(UpiPayment.formatAmount(_paying!)),
-        method: 'ONLINE',
+        method: _method,
         date: _paymentDate,
         cycleId: _cycleId,
         transactionId: _reference.text.trim().toUpperCase(),
         receiptNumber: _receipt.text.trim(),
+        checkNumber: _method == 'check' ? _reference.text.trim() : null,
         notes: _notes.text.trim(),
         totalAmount: _total,
         paidAmount: _paid + _paying!,
@@ -198,7 +208,9 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     return PopScope(
       canPop: !_submitting,
       child: AlertDialog(
-        title: const Text('Online UPI Payment'),
+        title: Text(
+          widget.allowOfflineMethods ? 'Record Payment' : 'Online UPI Payment',
+        ),
         content: SizedBox(
           width: 500,
           child: SingleChildScrollView(
@@ -211,6 +223,50 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                   if (_loadingBalance) const LinearProgressIndicator(),
                   if (_balanceReady)
                     Text('Pending: ₹${_pending.toStringAsFixed(2)}'),
+                  if (_balanceReady && validAmount)
+                    Text(
+                      'Remaining after payment: ₹${(_pending - amount).toStringAsFixed(2)}',
+                    ),
+                  if (widget.allowOfflineMethods) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: _method,
+                      decoration: const InputDecoration(
+                        labelText: 'Payment method',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'ONLINE',
+                          child: Text('UPI / Online'),
+                        ),
+                        DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                        DropdownMenuItem(value: 'check', child: Text('Cheque')),
+                      ],
+                      onChanged: _submitting
+                          ? null
+                          : (value) => setState(() {
+                              _method = value!;
+                              _reference.clear();
+                            }),
+                    ),
+                    TextButton(
+                      onPressed: _submitting
+                          ? null
+                          : () async {
+                              final selected = await showDatePicker(
+                                context: context,
+                                initialDate: _paymentDate,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                              );
+                              if (selected != null && mounted) {
+                                setState(() => _paymentDate = selected);
+                              }
+                            },
+                      child: Text(
+                        'Payment date: ${_paymentDate.toIso8601String().split('T').first}',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _amount,
@@ -234,7 +290,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  if (validAmount) ...[
+                  if (validAmount && _method == 'ONLINE') ...[
                     Text(
                       'Scan QR & Pay ₹${UpiPayment.formatAmount(amount)}',
                       style: const TextStyle(
@@ -252,27 +308,32 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
                       backgroundColor: Colors.white,
                     ),
                   ],
-                  const Text(
-                    UpiPayment.payee,
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SelectableText(UpiPayment.vpa),
+                  if (_method == 'ONLINE')
+                    const Text(
+                      UpiPayment.payee,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  if (_method == 'ONLINE') const SelectableText(UpiPayment.vpa),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Confirm receipt in the NGO account before entering the reference. '
-                    'This app does not verify payment with the bank.',
-                  ),
+                  if (_method == 'ONLINE')
+                    const Text(
+                      'Confirm receipt in the NGO account before entering the reference. '
+                      'This app does not verify payment with the bank.',
+                    ),
                   TextFormField(
                     controller: _reference,
                     autofillHints: null,
                     autocorrect: false,
                     enableSuggestions: false,
                     enabled: !_submitting,
-                    decoration: const InputDecoration(
-                      labelText: 'UTR / UPI reference',
-                      helperText: 'Enter the UTR for this new transfer.',
+                    decoration: InputDecoration(
+                      labelText: _method == 'ONLINE'
+                          ? 'UTR / UPI reference'
+                          : 'Cheque / reference (optional)',
                     ),
-                    validator: UpiPayment.validateReference,
+                    validator: _method == 'ONLINE'
+                        ? UpiPayment.validateReference
+                        : null,
                   ),
                   TextFormField(
                     controller: _receipt,

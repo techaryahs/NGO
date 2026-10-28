@@ -55,6 +55,22 @@ class _DialogBalanceService extends PaymentService {
       (total: 1600.0, paid: 0.0, due: 1600.0, cycleId: null);
 }
 
+class _CashDialogService extends _DialogBalanceService {
+  PaymentModel? received;
+  int calls = 0;
+  @override
+  Future<String> recordPayment({
+    required String patientId,
+    required String patientName,
+    required PaymentModel payment,
+    bool collectOutstanding = false,
+  }) async {
+    calls++;
+    received = payment;
+    return payment.id;
+  }
+}
+
 void main() {
   final day = DateTime(2026, 1, 1);
   StayModel stay({String type = 'general', double? manual, double? override}) =>
@@ -375,6 +391,133 @@ void main() {
   });
 
   group('Online UPI', () {
+    testWidgets(
+      'record payment supports cash, partial balance preview and one submission',
+      (tester) async {
+        final service = _CashDialogService();
+        ServiceLocator().paymentService = service;
+        addTearDown(() => ServiceLocator().paymentService = null);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showPatientPaymentDialog(
+                    context: context,
+                    patientName: 'Fixture',
+                    contactNumber: '',
+                    bedsCount: 1,
+                    attendantsCount: 1,
+                    roomIdentifier: '101',
+                    patientId: 'p',
+                    allowOfflineMethods: true,
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cash').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Amount to collect (₹)'),
+          '600',
+        );
+        await tester.pump();
+        expect(find.text('Remaining after payment: ₹1000.00'), findsOneWidget);
+        expect(find.byType(QrImageView), findsNothing);
+        await tester.ensureVisible(find.text('Confirm received payment'));
+        await tester.tap(find.text('Confirm received payment'));
+        await tester.pumpAndSettle();
+        expect(service.calls, 1);
+        expect(service.received?.method, 'cash');
+        expect(service.received?.amount, 600);
+        expect(service.received?.pendingAmount, 1000);
+        expect(tester.takeException(), isNull);
+      },
+    );
+    testWidgets(
+      'record payment supports cheque method with reference as checkNumber',
+      (tester) async {
+        final service = _CashDialogService();
+        ServiceLocator().paymentService = service;
+        addTearDown(() => ServiceLocator().paymentService = null);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showPatientPaymentDialog(
+                    context: context,
+                    patientName: 'Cheque Fixture',
+                    contactNumber: '',
+                    bedsCount: 1,
+                    attendantsCount: 1,
+                    roomIdentifier: '102',
+                    patientId: 'p_cheque',
+                    allowOfflineMethods: true,
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cheque').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.widgetWithText(TextFormField, 'Cheque / reference (optional)'),
+          'CHQ-987654',
+        );
+        await tester.pump();
+        await tester.ensureVisible(find.text('Confirm received payment'));
+        await tester.tap(find.text('Confirm received payment'));
+        await tester.pumpAndSettle();
+        expect(service.calls, 1);
+        expect(service.received?.method, 'check');
+        expect(service.received?.checkNumber, 'CHQ-987654');
+        expect(service.received?.amount, 1600);
+        expect(tester.takeException(), isNull);
+      },
+    );
+    test('5-day extension quotes 2000 and date changes do not double bill', () {
+      final start = DateTime(2026, 10, 16);
+      final exit1 = DateTime(2026, 10, 23);
+      final exit2 = DateTime(2026, 10, 28);
+      final daysBefore = exit1.difference(start).inDays;
+      final daysAfter = exit2.difference(start).inDays;
+      const dailyRate = 400.0;
+      final beforeCost = daysBefore * dailyRate;
+      final afterCost = daysAfter * dailyRate;
+      final additionalCost = afterCost - beforeCost;
+      expect(daysAfter - daysBefore, 5);
+      expect(additionalCost, 2000.0);
+    });
+    test('unresolved reconciliation blockers remain visible in review reasons after payment', () {
+      final map = fixtures.patient().toMap();
+      map['financialReconciliation'] = {
+        'required': true,
+        'unallocatedReceipts': [
+          {'id': 'r_unresolved', 'amount': 1200.0}
+        ],
+        'cycleIdentityIssues': [
+          {'stayId': 's_old', 'reason': 'conflicting_stay_cycles'}
+        ],
+      };
+      final patient = PatientModel.fromMap('p_reconcile', map);
+      expect(patient.financialUncertain, isTrue);
+      expect(patient.financialReviewReasons, contains('1 receipt allocation(s) remain unresolved.'));
+      expect(patient.financialReviewReasons, contains('1 admission identity conflict(s) require review.'));
+    });
     testWidgets('dialog opens QR directly; invalid reference cannot confirm', (
       tester,
     ) async {

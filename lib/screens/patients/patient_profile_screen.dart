@@ -131,12 +131,15 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
             currentPatient.advanceBilledAmount +
             currentPatient.attendanceCharges,
         patientId: currentPatient.id,
+        allowOfflineMethods: true,
       );
 
       if (result?.recordedPaymentId != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Online payment recorded.'),
+            content: Text(
+              'Payment recorded. Financial review may still be required.',
+            ),
             backgroundColor: Color(0xFF3B6D11),
           ),
         );
@@ -1092,7 +1095,11 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _OverviewTab(patient: currentPatient),
+                    _OverviewTab(
+                      patient: currentPatient,
+                      onRecordPayment: () =>
+                          _handlePayNow(context, currentPatient),
+                    ),
                     _PaymentHistoryTab(patient: currentPatient),
                     _AttendanceTab(patient: currentPatient),
                     StayHistoryTab(
@@ -1184,8 +1191,9 @@ Widget buildPatientOverviewForTesting(PatientModel patient) =>
 
 class _OverviewTab extends StatelessWidget {
   final PatientModel patient;
+  final VoidCallback? onRecordPayment;
 
-  const _OverviewTab({required this.patient});
+  const _OverviewTab({required this.patient, this.onRecordPayment});
 
   String? get _lobby {
     if (patient.lobby?.trim().isNotEmpty == true) return patient.lobby!.trim();
@@ -1464,11 +1472,11 @@ class _OverviewTab extends StatelessWidget {
       child: Column(
         children: [
           if (patient.financialUncertain)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(bottom: 12),
               child: Text(
-                'Provisional financial amounts. Reconcile receipt allocations, admission identities and attendance before final settlement.',
-                style: TextStyle(color: Colors.deepOrange),
+                patient.financialReviewReasons.join('\n'),
+                style: const TextStyle(color: Colors.deepOrange),
               ),
             ),
           if (patient.financialReconciliation.isNotEmpty)
@@ -1519,6 +1527,17 @@ class _OverviewTab extends StatelessWidget {
               icon: Icons.info_outline,
             ),
           ),
+          if (onRecordPayment != null &&
+              ['active', 'paid'].contains(patient.status.toLowerCase()))
+            FilledButton.icon(
+              onPressed:
+                  pending > 0 &&
+                      patient.financialReconciliation['required'] != true
+                  ? onRecordPayment
+                  : null,
+              icon: const Icon(Icons.receipt_long),
+              label: const Text('Record Payment'),
+            ),
         ],
       ),
     );

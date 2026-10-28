@@ -229,6 +229,41 @@ class PatientModel {
             b is Map &&
             (b['reconciliationRequired'] == true || b['provisional'] == true),
       );
+  List<String> get financialReviewReasons {
+    final reasons = <String>[];
+    final unallocated = financialReconciliation['unallocatedReceipts'];
+    if (unallocated is List && unallocated.isNotEmpty) {
+      reasons.add(
+        '${unallocated.length} receipt allocation(s) remain unresolved.',
+      );
+    }
+    final identities = financialReconciliation['cycleIdentityIssues'];
+    if (identities is List && identities.isNotEmpty) {
+      reasons.add(
+        '${identities.length} admission identity conflict(s) require review.',
+      );
+    }
+    final charges = financialReconciliation['chargeIssues'];
+    if (charges is List && charges.isNotEmpty) {
+      reasons.add('Invoice evidence is missing or unresolved.');
+    }
+    final cycle =
+        admissionBalances[admissionDate.millisecondsSinceEpoch.toString()];
+    if (cycle is Map &&
+        cycle['pendingAttendance'] is List &&
+        (cycle['pendingAttendance'] as List).isNotEmpty) {
+      reasons.add(
+        '${(cycle['pendingAttendance'] as List).length} attendance mark(s) remain pending; charges are provisional.',
+      );
+    }
+    if (reasons.isEmpty && financialUncertain) {
+      reasons.add(
+        'Financial amounts remain provisional. Confirm attendance, admission and receipt evidence before final settlement.',
+      );
+    }
+    return reasons;
+  }
+
   double get confirmedRefundDueAmount {
     if (admissionBalances.isEmpty) {
       return financialUncertain ? 0 : totalRefundDueAmount;
@@ -237,14 +272,18 @@ class PatientModel {
       0,
       // Explicit backend eligibility can confirm an independent cycle despite
       // an account warning. Older responses retain their conservative gate.
-      (sum, b) => b is Map && b['provisional'] != true &&
-          b['reconciliationRequired'] != true &&
-          (b.containsKey('refundEligible')
-              ? b['refundEligible'] == true
-              : financialReconciliation['required'] != true &&
-                  !admissionBalances.values.any(
-                    (other) => other is Map && other['reconciliationRequired'] == true,
-                  ))
+      (sum, b) =>
+          b is Map &&
+              b['provisional'] != true &&
+              b['reconciliationRequired'] != true &&
+              (b.containsKey('refundEligible')
+                  ? b['refundEligible'] == true
+                  : financialReconciliation['required'] != true &&
+                        !admissionBalances.values.any(
+                          (other) =>
+                              other is Map &&
+                              other['reconciliationRequired'] == true,
+                        ))
           ? sum + ((b['refundDue'] as num?)?.toDouble() ?? 0)
           : sum,
     );
