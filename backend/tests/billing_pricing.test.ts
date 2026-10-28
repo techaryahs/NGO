@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { dailyChargeCents, extensionCostCents } from '../src/services/billing.js';
-import { projectBilling, quoteStayExtension } from '../src/services/billing.js';
+import { projectBilling as projectBillingEngine, quoteStayExtension } from '../src/services/billing.js';
 import type pg from 'pg';
 
 const pricing = {
@@ -37,6 +37,10 @@ describe('historical long-stay pricing', () => {
     expect(extensionCostCents('private', 2, 1, pricing, 60)).toBe(120000);
   });
 });
+
+// These rate fixtures describe the planned booking, independent of the test run date.
+const projectBilling: typeof projectBillingEngine = (client, patient, options = {}) =>
+  projectBillingEngine(client, patient, { asOf: patient.exit_date ? new Date(patient.exit_date).getTime() : undefined, ...options });
 
 const at = (day: number, hour = 3, minute = 31) => new Date(Date.UTC(2026, 0, day, hour, minute)).toISOString();
 const cycle = String(Date.parse(at(1)));

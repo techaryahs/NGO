@@ -131,10 +131,21 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
 } = {}) {
     const currentCycle = String(new Date(patient.admission_date).getTime());
     const savedCheckout = patient.admission_balances?.[currentCycle]?.checkoutAt;
-    if (!options.checkoutAt && options.useSavedCheckout && !options.ignoreCheckout && patient.status !== 'discharged' && savedCheckout != null) options = { ...options, checkoutAt: new Date(savedCheckout) };
+    if (!options.checkoutAt && options.useSavedCheckout && !options.ignoreCheckout && patient.status !== 'discharged' && savedCheckout != null &&
+        (!patient.exit_date || new Date(patient.exit_date).getTime() >= (options.asOf ?? Date.now())))
+        options = { ...options, checkoutAt: new Date(savedCheckout) };
     const sourceStays = options.source?.stays ?? (await client.query("SELECT * FROM stays WHERE patient_id=$1 ORDER BY admission_date,id", [patient.id])).rows;
     const stays = sourceStays.map(s =>
         options.stayEndDates?.[s.id] ? { ...s, expected_discharge_date: options.stayEndDates[s.id] } : s);
+    // An overdue active placement owes the same elapsed charges used by the
+    // checkout preview. Explicit checkout quotes and extension simulations
+    // retain their own dates; historical admissions remain frozen.
+    const asOf = new Date(options.asOf ?? Date.now());
+    if (!options.checkoutAt && !options.ignoreCheckout && !options.stayEndDates &&
+        ['active', 'paid'].includes(String(patient.status).toLowerCase()) && patient.exit_date &&
+        asOf > new Date(patient.exit_date) && checkoutEnd(asOf) > dayKey(patient.exit_date) && stays.some(s => s.status === 'active' && stayCycle(s, patient) === currentCycle)) {
+        options = { ...options, checkoutAt: asOf };
+    }
     const records = options.source?.records ?? (await client.query("SELECT kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id=$1", [patient.id])).rows;
     const receipts = options.source?.receipts ?? (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [patient.id])).rows;
     const pricing = approvedPricing(options.source?.pricing ?? Object.fromEntries((await client.query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'")).rows.map(r => [r.settings_key, r.settings_value])));

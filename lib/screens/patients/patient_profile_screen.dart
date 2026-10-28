@@ -1186,8 +1186,10 @@ class _StatusBadge extends StatelessWidget {
 
 // ── 1. Overview Tab ──
 @visibleForTesting
-Widget buildPatientOverviewForTesting(PatientModel patient) =>
-    _OverviewTab(patient: patient);
+Widget buildPatientOverviewForTesting(
+  PatientModel patient, {
+  VoidCallback? onRecordPayment,
+}) => _OverviewTab(patient: patient, onRecordPayment: onRecordPayment);
 
 class _OverviewTab extends StatelessWidget {
   final PatientModel patient;
@@ -1467,6 +1469,13 @@ class _OverviewTab extends StatelessWidget {
         : pending > 0
         ? (paidAmount > 0 ? 'Partially Paid' : 'Unpaid')
         : 'Paid';
+    final cycleBalance =
+        patient.admissionBalances[StayBilling.currentCycle(patient)];
+    final collectionBlocked =
+        cycleBalance is Map &&
+            cycleBalance.containsKey('reconciliationRequired')
+        ? cycleBalance['reconciliationRequired'] == true
+        : patient.financialReconciliation['required'] == true;
     return _Section(
       label: "Financial Summary",
       child: Column(
@@ -1530,9 +1539,7 @@ class _OverviewTab extends StatelessWidget {
           if (onRecordPayment != null &&
               ['active', 'paid'].contains(patient.status.toLowerCase()))
             FilledButton.icon(
-              onPressed:
-                  pending > 0 &&
-                      patient.financialReconciliation['required'] != true
+              onPressed: pending > 0 && !collectionBlocked
                   ? onRecordPayment
                   : null,
               icon: const Icon(Icons.receipt_long),

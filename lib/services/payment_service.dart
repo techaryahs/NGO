@@ -169,7 +169,16 @@ class PaymentService {
     final values = await billingUpdates(patientId);
     final reconciliation =
         values['patients/$patientId/financialReconciliation'];
-    if (reconciliation is Map && reconciliation['required'] == true) {
+    final admission = values['patients/$patientId/admissionDate'];
+    final balances = values['patients/$patientId/admissionBalances'];
+    final cycleBalance = balances is Map
+        ? balances[admission?.toString()]
+        : null;
+    if (reconciliation is Map &&
+        (cycleBalance is Map &&
+                cycleBalance.containsKey('reconciliationRequired')
+            ? cycleBalance['reconciliationRequired'] == true
+            : reconciliation['required'] == true)) {
       final patient = PatientModel.fromMap(patientId, {
         for (final entry in values.entries)
           if (entry.key.startsWith('patients/$patientId/'))
@@ -179,7 +188,6 @@ class PaymentService {
     }
     double amount(String field) =>
         (values['patients/$patientId/$field'] as num?)?.toDouble() ?? 0;
-    final admission = values['patients/$patientId/admissionDate'];
     return (
       total: amount('advanceBilledAmount') + amount('attendanceCharges'),
       paid: amount('totalPaidAmount'),

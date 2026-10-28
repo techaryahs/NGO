@@ -1,4 +1,4 @@
-import { projectBilling, persistBilling, receiptCycle, money as cents, decimal } from '../services/billing.js';
+import { projectBilling, persistBilling, receiptCycle, stayCycle, money as cents, decimal } from '../services/billing.js';
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { getClient, query } from '../db/index.js';
 import { authenticate } from '../middleware/auth.js';
@@ -202,8 +202,8 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const patientId = body.patientId;
     const amount = String(body.amount);
     const checkoutAt = body.checkoutAt == null ? undefined : new Date(body.checkoutAt);
-    if (checkoutAt && (body.type !== 'refund' || !Number.isFinite(checkoutAt.getTime()))) {
-      throw httpError(400, 'Checkout settlement context is only valid for a refund');
+    if (checkoutAt && (!Number.isFinite(checkoutAt.getTime()) || (body.type !== 'refund' && body.collectOutstanding !== true))) {
+      throw httpError(400, 'Checkout context requires a refund or outstanding collection');
     }
     const decimal = (value: unknown) => Number(value).toFixed(2);
     const trimmedTx = typeof body.transactionId === 'string' && body.transactionId.trim().length > 0
@@ -264,7 +264,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       // established receipt workflows may intentionally record an advance.
       // Check after idempotency so replaying a committed payment still succeeds
       // when that payment has already reduced the outstanding amount to zero.
-      if (checkoutAt) {
+      if (checkoutAt && body.type === 'refund') {
         const current = patient.rows[0] as any;
         if (current.status === 'discharged' || body.cycleId !== String(new Date(current.admission_date).getTime()))
           throw httpError(409, 'Checkout refund must belong to the active admission');
@@ -275,11 +275,16 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       }
       if (body.collectOutstanding === true) {
         if ((body.type || 'payment') !== 'payment') throw httpError(400, 'Outstanding collection must be a payment');
+        if (checkoutAt && (checkoutAt.getTime() > Date.now() || body.cycleId !== String(new Date(patient.rows[0].admission_date).getTime())))
+          throw httpError(409, 'Collection must belong to the active admission and cannot use a future checkout');
         const projection = await projectBilling(client, patient.rows[0]);
-        if (projection.reconciliation.required) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence before collecting an outstanding balance');
         const cycle = receiptCycle({ cycle_id: body.cycleId }, patient.rows[0], projection.stays, 'new');
         if (cycle == null) throw httpError(409, 'Select the admission cycle before collecting payment');
+        if (checkoutAt && (!['active', 'paid'].includes(String((patient.rows[0] as any).status).toLowerCase()) ||
+            !projection.stays.some(s => s.status === 'active' && stayCycle(s, patient.rows[0]) === cycle)))
+          throw httpError(409, 'Verify the active admission and placement before collecting an extension balance');
         const balance = projection.balances[cycle];
+        if (balance?.reconciliationRequired) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence for this admission before collecting an outstanding balance');
         if (!balance || cents(amount) > cents(balance.due)) throw httpError(409, 'Payment exceeds the current outstanding balance. Refresh the bill before collecting payment.');
       }
 
@@ -323,7 +328,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         ]
       );
 
-      const balances = await applyPaymentDelta(client, patient.rows[0], null, insertRes.rows[0], checkoutAt);
+      const balances = await applyPaymentDelta(client, patient.rows[0], null, insertRes.rows[0], body.type === 'refund' ? checkoutAt : undefined);
 
       await client.query('COMMIT');
       const rowToFormat = {

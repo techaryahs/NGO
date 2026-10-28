@@ -529,6 +529,43 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       expect(done.json().patient).toMatchObject({ exitDate: Date.parse(fixture.planned), dischargeDate: checkoutAt,
         advanceBilledAmount: Number(finalAmount), refundDueAmount: 0, currentDueAmount: 0 });
     });
+    it('collects the overdue checkout projection once and retains an unrelated identity warning', async () => {
+      const start = '2026-10-16T07:30:00Z', planned = '2026-10-23T14:30:00Z';
+      const current = String(Date.parse(start)), checkoutAt = Date.parse('2026-10-28T11:44:00Z');
+      const registration = await send('POST', '/patients/register', { ...patient(), admissionDate: start, registrationDate: start, exitDate: planned,
+        attendants: [{ id: 'helper', name: 'Helper', startDate: '2026-10-16' }],
+        stays: [{ ...placement('extension-stay'), admissionDate: start, durationDays: 8, expectedDischargeDate: planned, cycleId: current }] });
+      expect(registration.statusCode, registration.body).toBe(201);
+      const attendant = registration.json().patient.attendants[0];
+      for (let day = 16; day <= 28; day++) {
+        const date = `2026-10-${day}`;
+        await send('POST', '/attendance', { patientId: 'p1', date, payload: { status: 'Present' } });
+        await send('POST', '/attendance', { patientId: 'p1', date, kind: 'attendant_attendance', payload: {
+          [attendant.id]: { attendantId: attendant.id, status: 'Present' },
+        } });
+      }
+      await pay(3200, current, 'original');
+      await query(`INSERT INTO stays(id,patient_id,patient_name,patient_snapshot,room_id,room_number,room_type,cycle_id,
+        admission_date,duration_days,expected_discharge_date,expiry_date,completed_at,status,created_by,bed_id,total_cost)
+        VALUES('historic','p1','Synthetic',$1::jsonb,'r1','R1','general','historic-cycle','2025-01-01',1,'2025-01-02','2025-01-02','2025-01-02','completed','test-uid-admin','b1',200)`,
+        [JSON.stringify({ admissionDate: 'conflicting-historic-cycle' })]);
+      const preview = () => send('GET', `/patients/p1/financials?checkoutAt=${checkoutAt}`);
+      const before = (await preview()).json();
+      expect(before.patient.admissionBalances[current]).toMatchObject({ total: 5200, netPaid: 3200, due: 2000, reconciliationRequired: false });
+      expect(before.reconciliation.required).toBe(true);
+      const payload = { id: 'extension-payment', patientId: 'p1', cycleId: current, amount: 2000, method: 'cash', collectOutstanding: true, checkoutAt };
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(checkoutAt + 60000);
+      try {
+        expect((await send('POST', '/payments', payload)).statusCode).toBe(201);
+        expect((await send('POST', '/payments', payload)).statusCode).toBe(200);
+      } finally { clock.mockRestore(); }
+      const after = (await preview()).json();
+      expect(after.patient.admissionBalances[current]).toMatchObject({ total: 5200, netPaid: 5200, due: 0 });
+      expect(after.reconciliation.required).toBe(true);
+      expect(after.reconciliation.cycleIdentityIssues).toHaveLength(1);
+      expect((await query("SELECT id FROM payments WHERE id='extension-payment'")).rows).toHaveLength(1);
+    });
+
     async function octoberBooking(category = 'general', absentDays: number[] = []) {
       const start = '2026-10-22T11:57:00Z', planned = '2026-10-31T03:30:00Z';
       const bookingCycle = String(Date.parse(start));

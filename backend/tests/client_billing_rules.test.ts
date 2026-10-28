@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type pg from 'pg';
-import { afterCheckoutCutoff, baseDailyChargeCents, dailyChargeCents, projectBilling, quoteStayExtension } from '../src/services/billing.js';
+import { afterCheckoutCutoff, baseDailyChargeCents, dailyChargeCents, projectBilling as projectBillingEngine, quoteStayExtension } from '../src/services/billing.js';
+
+// These rate fixtures describe the planned booking, independent of the test run date.
+const projectBilling: typeof projectBillingEngine = (client, patient, options = {}) =>
+  projectBillingEngine(client, patient, { asOf: patient.exit_date ? new Date(patient.exit_date).getTime() : undefined, ...options });
 
 const at = (day: number, hour = 3, minute = 30) => new Date(Date.UTC(2026, 0, day, hour, minute));
 const cycle = String(at(1, 0).getTime());
@@ -45,6 +49,22 @@ describe('approved client billing rules', () => {
     const before = await projectBilling({ query } as any, f.patient);
     expect(before.balances[current]).toMatchObject({ total: 3200, paid: 3200, due: 0 });
     expect(await quoteStayExtension({ query } as any, f.patient, f.source.stays[0], 5)).toMatchObject({ additionalCost: 2000 });
+    const overdueAt = Date.parse('2026-10-28T11:44:00Z');
+    const overdue = await projectBillingEngine(f.client, f.patient, { source: f.source, asOf: overdueAt });
+    expect(overdue.balances[current]).toMatchObject({ total: 5200, netPaid: 3200, due: 2000, refundDue: 0 });
+    (f.source.receipts as any[]).push({ id: 'collection', cycle_id: current, amount: '2000.00' });
+    const withStalePreview = { ...f.patient, admission_balances: { [current]: { checkoutAt: start.getTime() } } };
+    const collected = await projectBillingEngine(f.client, withStalePreview, { source: f.source, asOf: overdueAt, useSavedCheckout: true });
+    expect(collected.balances[current]).toMatchObject({ total: 5200, netPaid: 5200, due: 0, refundDue: 0 });
+    (f.source.receipts as any[]).pop();
+    const checkoutAt = new Date('2026-10-28T11:44:00Z');
+    const preview = await projectBilling(f.client, f.patient, { source: f.source, checkoutAt });
+    expect(preview.balances[current]).toMatchObject({ total: 5200, netPaid: 3200, due: 2000,
+      checkoutAdjustment: { includedInTotal: true, amount: 400 } });
+    (f.source.receipts as any[]).push({ id: 'extension', cycle_id: current, amount: '2000.00' });
+    const paidPreview = await projectBilling(f.client, f.patient, { source: f.source, checkoutAt });
+    expect(paidPreview.balances[current]).toMatchObject({ total: 5200, netPaid: 5200, due: 0 });
+    (f.source.receipts as any[]).pop();
     const extended = { ...f.patient, exit_date: new Date('2026-10-28T14:30:00Z') };
     const full = await projectBilling({ query } as any, extended);
     expect(full.balances[current]).toMatchObject({ total: 5200, paid: 3200, due: 2000 });

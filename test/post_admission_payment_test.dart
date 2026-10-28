@@ -127,6 +127,63 @@ void main() {
   });
 
   test(
+    'collection uses the extended authoritative balance while an unrelated review remains',
+    () async {
+      patient.addAll({
+        'advanceBilledAmount': 5200,
+        'totalPaidAmount': 3200,
+        'currentDueAmount': 2000,
+        'admissionBalances': {
+          cycle: {
+            'total': 5200,
+            'netPaid': 3200,
+            'due': 2000,
+            'reconciliationRequired': false,
+          },
+        },
+        'financialReconciliation': {
+          'required': true,
+          'cycleIdentityIssues': [
+            {'stayId': 'historical'},
+          ],
+        },
+      });
+      expect(await service.collectionBalance('p'), (
+        total: 5200.0,
+        paid: 3200.0,
+        due: 2000.0,
+        cycleId: cycle,
+      ));
+      final receipt = PaymentModel(
+        id: 'extension',
+        amount: 2000,
+        method: 'cash',
+        date: admission,
+        cycleId: cycle,
+        totalAmount: 5200,
+        paidAmount: 5200,
+        pendingAmount: 0,
+      );
+      await service.recordPayment(
+        patientId: 'p',
+        patientName: 'Synthetic patient',
+        payment: receipt,
+        collectOutstanding: true,
+      );
+      await service.recordPayment(
+        patientId: 'p',
+        patientName: 'Synthetic patient',
+        payment: receipt,
+        collectOutstanding: true,
+      );
+      expect(writes, hasLength(1));
+      expect(writes.single['cycleId'], cycle);
+      expect(patient['currentDueAmount'], 0);
+      expect((patient['financialReconciliation'] as Map)['required'], isTrue);
+    },
+  );
+
+  test(
     'safe diagnostics distinguish local reference rejection from HTTP failure and carry request IDs',
     () async {
       final lines = <String>[];
