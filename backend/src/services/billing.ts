@@ -181,8 +181,28 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         !Object.values<any>(patient.admission_balances ?? {}).some(b => b.total != null) && patient.billing_amount_override == null
         ? [{ cycleId: currentCycle, reason: 'missing_invoice_evidence' }] : [];
     const unallocated = receipts.filter(r => { const cycle = allocatedCycle(r); return cycle == null || !groups.has(cycle); });
+    // Preserve a closed imported invoice only when its complete payment ledger
+    // corroborates the saved aggregate. This recognizes an invoice, not an
+    // individual receipt allocation: receiptCycle and the original rows stay intact.
+    const accountPaid = receipts.reduce((sum, r) => sum + Math.max(0, money(r.amount)), 0);
+    const accountRefunded = receipts.reduce((sum, r) => sum + Math.max(0, -money(r.amount)), 0);
+    const legacyInvoice = patient.admission_balances?.[currentCycle];
+    const supportedLegacyInvoice = groups.size === 1 && patient.status === 'discharged' &&
+        !options.checkoutAt && !options.finalize && identityIssues.length === 0 && chargeIssues.length === 0 &&
+        unallocated.length > 0 && unallocated.every(r => !r.cycle_id &&
+            ['firebase_export', 'firebase_reconcile'].includes(r.source)) &&
+        legacyInvoice?.total != null && legacyInvoice.paid != null && legacyInvoice.refunded != null &&
+        legacyInvoice.netPaid != null && legacyInvoice.due != null && legacyInvoice.refundDue != null &&
+        legacyInvoice.provisional !== true && legacyInvoice.reconciliationRequired !== true &&
+        money(legacyInvoice.total) >= 0 && money(legacyInvoice.paid) === accountPaid &&
+        money(legacyInvoice.refunded) === accountRefunded &&
+        money(legacyInvoice.netPaid) === accountPaid - accountRefunded &&
+        money(legacyInvoice.due) === Math.max(0, money(legacyInvoice.total) - accountPaid + accountRefunded) &&
+        money(legacyInvoice.refundDue) === Math.max(0, accountPaid - accountRefunded - money(legacyInvoice.total));
     const reconciliation = {
-        required: unallocated.length > 0 || identityIssues.length > 0 || chargeIssues.length > 0,
+        required: unallocated.length > 0 && !supportedLegacyInvoice || identityIssues.length > 0 || chargeIssues.length > 0,
+        legacyInvoiceSupported: supportedLegacyInvoice,
+        allocationRequired: unallocated.length > 0,
         cycleIdentityIssues: identityIssues,
         chargeIssues,
         unallocatedReceipts: unallocated.map(r => ({ id: r.id, cycleId: r.cycle_id ?? null, amount: money(r.amount) / 100,
@@ -357,6 +377,10 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                 refunded -= amount;
             else
                 paid += amount;
+        }
+        if (supportedLegacyInvoice && cycleId === currentCycle) {
+            paid = accountPaid;
+            refunded = accountRefunded;
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
         balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };

@@ -4,6 +4,36 @@ import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/utils/stay_billing.dart';
 
 void main() {
+  test('ledger-supported legacy historical invoice remains in dashboard refunds', () {
+    final patient = PatientModel.fromMap('imported', {
+      'status': 'discharged',
+      'totalRefundDueAmount': 250,
+      'financialReconciliation': {
+        'required': false,
+        'allocationRequired': true,
+        'legacyInvoiceSupported': true,
+        'accountNetPaid': 550,
+      },
+      'admissionBalances': {
+        'historical': {
+          'total': 300,
+          'paid': 600,
+          'refunded': 50,
+          'netPaid': 550,
+          'refundDue': 250,
+          'finalized': true,
+          'reconciliationRequired': false,
+        },
+      },
+    });
+    expect(patient.confirmedRefundDueAmount, patient.totalRefundDueAmount);
+    expect([patient].fold<double>(0, (sum, p) => sum + p.confirmedRefundDueAmount), 250);
+    final blocked = PatientModel.fromMap('imported', {
+      ...patient.toMap(),
+      'financialReconciliation': {'required': true},
+    });
+    expect(blocked.confirmedRefundDueAmount, 0);
+  });
   test(
     'authoritative current cycle and account totals survive cache round trips',
     () {

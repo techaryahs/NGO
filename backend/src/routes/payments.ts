@@ -76,7 +76,7 @@ async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, 
     checkoutAt,
     useSavedCheckout: Number(before?.amount) < 0 || Number(after?.amount) < 0,
   });
-  if (projection.reconciliation.required && (Number(before?.amount) < 0 || Number(after?.amount) < 0))
+  if ((projection.reconciliation.required || projection.reconciliation.allocationRequired) && (Number(before?.amount) < 0 || Number(after?.amount) < 0))
     throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence before issuing or changing a refund');
   const changes = new Map<string, { paid: number; refunded: number }>();
   for (const [row, direction] of [[before, -1], [after, 1]] as const) {

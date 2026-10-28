@@ -2,6 +2,47 @@ import { describe, expect, it } from 'vitest';
 import { projectBilling, receiptCycle, stayCycle, newStayIdentity } from '../src/services/billing.js';
 
 describe('unallocated payment reconciliation', () => {
+  const legacyStart = new Date('2026-08-01T04:00:00Z');
+  const legacyCycle = String(legacyStart.getTime());
+  async function legacyProjection(overrides: any = {}, receiptOverrides: any = {}) {
+    const patient = { id: 'imported', status: 'discharged', admission_date: legacyStart,
+      admission_balances: { [legacyCycle]: { total: 300, paid: 600, refunded: 50, netPaid: 550,
+        due: 0, refundDue: 250, finalized: true } }, ...overrides };
+    const receipts = [
+      { id: 'cash', cycle_id: null, source: 'firebase_export', method: 'Cash', amount: '200.00', ...receiptOverrides },
+      { id: 'qr', cycle_id: null, source: 'firebase_export', method: 'Online (QR Code)', amount: '400.00' },
+      { id: 'returned', cycle_id: legacyCycle, source: 'manual', amount: '-50.00' },
+    ];
+    const source = { stays: [], records: [], roster: [], pricing: {}, receipts };
+    const original = JSON.stringify({ patient, source });
+    const result = await projectBilling({} as any, patient, { source });
+    expect(JSON.stringify({ patient, source })).toBe(original);
+    return result;
+  }
+  it('retains a ledger-supported closed Firebase invoice without allocating or duplicating legacy receipts', async () => {
+    const result = await legacyProjection();
+    expect(result.reconciliation).toMatchObject({ required: false, allocationRequired: true,
+      legacyInvoiceSupported: true, unallocatedNet: 600, accountPaid: 600, accountRefunded: 50 });
+    expect(result.balances[legacyCycle]).toMatchObject({ total: 300, paid: 600, refunded: 50,
+      netPaid: 550, refundDue: 250, reconciliationRequired: false });
+    expect(result.patient.total_refund_due_amount).toBe('250.00');
+    expect(result.receipts.map(r => r.method)).toEqual(['Cash', 'Online (QR Code)', undefined]);
+    expect(result.receipts[0].cycle_id).toBeNull();
+    expect(receiptCycle(result.receipts[0], result.patient, [])).toBeNull();
+  });
+  it.each([
+    ['manual receipt', {}, { source: 'manual' }],
+    ['unknown explicit cycle', {}, { cycle_id: 'unknown' }],
+    ['active admission', { status: 'active' }, {}],
+    ['multiple cycles', { admission_balances: { [legacyCycle]: { total: 300, paid: 600, refunded: 50, netPaid: 550, due: 0, refundDue: 250 }, old: { total: 100 } } }, {}],
+    ['inconsistent invoice', { admission_balances: { [legacyCycle]: { total: 300, paid: 700, refunded: 50, netPaid: 650, due: 0, refundDue: 350 } } }, {}],
+    ['provisional invoice', { admission_balances: { [legacyCycle]: { total: 300, paid: 600, refunded: 50, netPaid: 550, due: 0, refundDue: 250, provisional: true } } }, {}],
+    ['missing invoice', { admission_balances: {} }, {}],
+  ])('keeps reconciliation for %s', async (_name, patient, receipt) => {
+    const result = await legacyProjection(patient, receipt);
+    expect(result.reconciliation.required).toBe(true);
+    expect(result.reconciliation.legacyInvoiceSupported).toBeFalsy();
+  });
   it('uses the same conservative allocation for projections, mutations and imports', () => {
     const patient = { admission_date: new Date('2026-10-01T00:00:00Z') };
     const old = { cycle_id: 'old', status: 'completed' };
