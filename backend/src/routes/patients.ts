@@ -276,7 +276,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const stayRows = await query('SELECT * FROM stays WHERE patient_id = ANY($1) ORDER BY admission_date,id', [patientIds]);
     const recordRows = await query('SELECT patient_id,kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id = ANY($1)', [patientIds]);
     const pricingRows = await query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'");
-    const correctionRows = await query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id = ANY($1)', [patientIds]);
+    const correctionRows = await query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id = ANY($1) AND reverted_at IS NULL', [patientIds]);
     // Partition each batch once. Authoritative projection must not rescan all
     // patients' attendance/receipts for every patient on a large list page.
     const byPatient = (rows: any[]) => {

@@ -116,6 +116,53 @@ class _BillingCorrectionDialogState extends State<BillingCorrectionDialog> {
     }
   }
 
+  Future<void> restore(Map<String, dynamic> day) async {
+    if (saving) return;
+    if (reason.text.trim().isEmpty) {
+      setState(() => error = 'Enter a reason.');
+      return;
+    }
+    final date = DateFormat(
+      'dd MMM yyyy',
+    ).format(DateTime.parse(day['day'] as String));
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore charge'),
+        content: Text(
+          'Restore the charge for $date? The bill and amount due will be recalculated. Existing payments remain unchanged.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      await ServiceLocator().backendApiService.revertBillingCorrection(
+        widget.patient.id,
+        day: day['day'] as String,
+        reason: reason.text.trim(),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => error = 'Could not restore charge: $e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final total = (days ?? [])
@@ -160,7 +207,15 @@ class _BillingCorrectionDialogState extends State<BillingCorrectionDialog> {
                             ).format(DateTime.parse(day['day'] as String)),
                           ),
                           subtitle: day['excluded'] == true
-                              ? const Text('Already corrected')
+                              ? Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton(
+                                    onPressed: saving
+                                        ? null
+                                        : () => restore(day),
+                                    child: const Text('Restore charge'),
+                                  ),
+                                )
                               : day['eligible'] != true
                               ? const Text('Not available for correction')
                               : null,

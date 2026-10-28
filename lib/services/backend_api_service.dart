@@ -1592,6 +1592,15 @@ class BackendApiService {
     {'reason': reason, 'dates': dates},
   );
 
+  Future<Map<String, dynamic>> revertBillingCorrection(
+    String patientId, {
+    required String day,
+    required String reason,
+  }) => _postAdmission(
+    'patients/${Uri.encodeComponent(patientId)}/billing-corrections/revert',
+    {'day': day, 'reason': reason},
+  );
+
   Future<Map<String, dynamic>> dischargePatient(
     String patientId, {
     DateTime? checkoutAt,

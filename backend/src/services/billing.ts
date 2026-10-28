@@ -149,7 +149,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     }
     const records = options.source?.records ?? (await client.query("SELECT kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id=$1", [patient.id])).rows;
     const receipts = options.source?.receipts ?? (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [patient.id])).rows;
-    const corrections = options.source ? options.source.corrections ?? [] : (await client.query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id=$1 ORDER BY billable_date', [patient.id])).rows;
+    const corrections = options.source ? options.source.corrections ?? [] : (await client.query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id=$1 AND reverted_at IS NULL ORDER BY billable_date', [patient.id])).rows;
     const pricing = approvedPricing(options.source?.pricing ?? Object.fromEntries((await client.query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'")).rows.map(r => [r.settings_key, r.settings_value])));
     const roster = options.source?.roster ?? patient.attendants ?? (await client.query('SELECT id,name FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [patient.id])).rows;
     // Same legacy default-price migration as PaymentService (a configured 150 was
@@ -377,6 +377,15 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             for (const s of segments)
                 if (s.cost_override != null)
                     charges[s.id] = money(s.cost_override);
+        }
+        // Keep a reversal available even if attendance or a transfer has since
+        // made an excluded day no longer billable in the current projection.
+        if (!frozen && options.includeDayCharges) {
+            for (const correction of corrections.filter(c => c.cycle_id === cycleId)) {
+                if (!dayCharges.some(d => d.day === correction.billable_day))
+                    dayCharges.push({ day: correction.billable_day, stayId: correction.stay_id, amount: 0, excluded: true, eligible: false });
+            }
+            dayCharges.sort((a, b) => a.day.localeCompare(b.day));
         }
         if (frozen)
             for (const s of segments) {

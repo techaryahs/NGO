@@ -9,6 +9,87 @@ import 'package:ngo/services/backend_api_service.dart';
 import 'package:ngo/services/service_locator.dart';
 
 void main() {
+  testWidgets('a corrected date can be restored after confirmation', (
+    tester,
+  ) async {
+    final admission = DateTime.utc(2026, 10, 1).millisecondsSinceEpoch;
+    final patient = PatientModel.fromMap('synthetic123', {
+      'admissionDate': admission,
+      'status': 'active',
+    });
+    Map<String, dynamic>? submitted;
+    String? path;
+    final api = BackendApiService(
+      baseUrl: 'https://example.test/api',
+      getAuthToken: () async => 'test',
+      client: MockClient((request) async {
+        if (request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'patient': {
+                ...patient.toMap(),
+                'admissionBalances': {
+                  '$admission': {
+                    'reconciliationRequired': false,
+                    'dayCharges': [
+                      {
+                        'day': '2026-10-01',
+                        'stayId': 's1',
+                        'amount': 400,
+                        'eligible': true,
+                        'excluded': true,
+                      },
+                    ],
+                  },
+                },
+              },
+              'stays': [],
+            }),
+            200,
+          );
+        }
+        path = request.url.path;
+        submitted = Map<String, dynamic>.from(jsonDecode(request.body) as Map);
+        return http.Response(
+          jsonEncode({'patient': patient.toMap(), 'stays': []}),
+          200,
+        );
+      }),
+    );
+    ServiceLocator().backendApiService = api;
+    addTearDown(() {
+      ServiceLocator().backendApiService = null;
+      api.dispose();
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog(
+                context: context,
+                builder: (_) => BillingCorrectionDialog(patient: patient),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Restore charge'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Restore the charge for 01 Oct 2026'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Restore'));
+    await tester.pumpAndSettle();
+    expect(path, '/api/patients/synthetic123/billing-corrections/revert');
+    expect(submitted, {'day': '2026-10-01', 'reason': 'Billing correction'});
+  });
+
   testWidgets('admin selects dates, reviews total and submits a reason', (
     tester,
   ) async {

@@ -81,6 +81,33 @@ export async function settlementRoutes(app: FastifyInstance) {
         } catch (error) { await client.query('ROLLBACK'); throw error; }
         finally { client.release(); }
     });
+    app.post('/patients/:id/billing-corrections/revert', { preHandler: requireRoles(['admin']) }, async (request: any, reply) => {
+        const input = z.object({ reason: z.string().trim().min(1).max(500), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(request.body);
+        if (!input.success) throw httpError(400, 'Select a date and provide a reason');
+        const client = await getClient();
+        try {
+            await client.query('BEGIN');
+            const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [request.params.id])).rows[0];
+            if (!patient) throw httpError(404, 'Patient not found');
+            if (!['active', 'paid'].includes(String(patient.status).toLowerCase()))
+                throw httpError(409, 'Billing corrections can only be restored for active admissions');
+            const cycle = String(new Date(patient.admission_date).getTime());
+            const before = await projectBilling(client, patient);
+            if (!before.stays.some(s => s.status === 'active' && stayCycle(s, patient) === cycle))
+                throw httpError(409, 'Verify the active admission and placement before restoring charges');
+            if (!before.balances[cycle] || before.balances[cycle].reconciliationRequired)
+                throw httpError(409, 'Resolve this admission’s financial and identity review before restoring charges');
+            const reverted = await client.query(`UPDATE billing_corrections SET reverted_at=CURRENT_TIMESTAMP, reverted_by=$4, revert_reason=$5
+              WHERE patient_id=$1 AND cycle_id=$2 AND billable_date=$3 AND reverted_at IS NULL RETURNING id`,
+              [patient.id, cycle, input.data.day, request.user.id, input.data.reason]);
+            if (!reverted.rowCount) throw httpError(409, 'This date is not currently corrected. Refresh the bill.');
+            const updated = await persistBilling(client, await projectBilling(client, patient));
+            const result = await snapshot(client, updated);
+            await client.query('COMMIT');
+            return reply.send(result);
+        } catch (error) { await client.query('ROLLBACK'); throw error; }
+        finally { client.release(); }
+    });
     app.get('/patients/:id/financials', (r, p) => perform(r, p, 'read'));
     app.post('/patients/:id/recalculate-billing', (r, p) => perform(r, p, 'recalculate'));
     app.post('/patients/:id/discharge', (r, p) => perform(r, p, 'discharge'));

@@ -26,6 +26,38 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         expect((await send('POST', '/rooms', { id: 'r1', roomNumber: 'R1', roomType: 'general', beds: [{ id: 'b1', bedLabel: '1' }, { id: 'b2', bedLabel: '2' }] })).statusCode).toBe(201);
     });
     afterAll(async () => { await app.close(); await pool.end(); });
+    it('admin restores a correction, retains audit history and can correct the same date again', async () => {
+        await register();
+        await query("INSERT INTO users(id,email,name,role) VALUES('reversal-staff','staff@ngo.test','Staff','staff')");
+        const initial = (await send('GET', '/patients/p1/financials')).json();
+        const originalTotal = initial.patient.admissionBalances[cycle].total;
+        const choice = initial.patient.admissionBalances[cycle].dayCharges.find((d: any) => d.eligible);
+        const correction = { reason: 'Billing correction', dates: [{ day: choice.day, stayId: choice.stayId, amount: choice.amount }] };
+        expect((await send('POST', '/patients/p1/billing-corrections', correction)).statusCode).toBe(201);
+        const reduced = (await send('GET', '/patients/p1/financials')).json().patient.admissionBalances[cycle];
+        expect(reduced.total).toBe(originalTotal - choice.amount);
+        const pay = { id: 'restore-test-payment', patientId: 'p1', cycleId: cycle, amount: reduced.total, method: 'cash', collectOutstanding: true };
+        expect((await send('POST', '/payments', pay)).statusCode).toBe(201);
+        const restore = { day: choice.day, reason: 'Restore charge' };
+        const denied = await app.inject({ method: 'POST', url: '/api/patients/p1/billing-corrections/revert', payload: restore,
+            headers: { authorization: `Bearer ${signedTestToken('reversal-staff')}` } });
+        expect(denied.statusCode).toBe(403);
+        const ledger = (await query("SELECT id,amount,cycle_id FROM payments WHERE patient_id='p1'")).rows;
+        const responses = await Promise.all([send('POST', '/patients/p1/billing-corrections/revert', restore), send('POST', '/patients/p1/billing-corrections/revert', restore)]);
+        expect(responses.map(r => r.statusCode).sort()).toEqual([200, 409]);
+        const restored = (await send('GET', '/patients/p1/financials')).json().patient.admissionBalances[cycle];
+        expect(restored).toMatchObject({ total: originalTotal, netPaid: reduced.total, due: choice.amount, refundDue: 0 });
+        expect((await query("SELECT id,amount,cycle_id FROM payments WHERE patient_id='p1'")).rows).toEqual(ledger);
+        const history = (await query("SELECT reason,operator_uid,revert_reason,reverted_by,reverted_at FROM billing_corrections WHERE patient_id='p1'")).rows;
+        expect(history).toHaveLength(1);
+        expect(history[0]).toMatchObject({ reason: 'Billing correction', operator_uid: 'test-uid-admin', revert_reason: 'Restore charge', reverted_by: 'test-uid-admin' });
+        expect(history[0].reverted_at).toBeInstanceOf(Date);
+        expect((await send('POST', '/patients/p1/billing-corrections', correction)).statusCode).toBe(201);
+        expect((await send('GET', '/patients/p1/financials')).json().patient.admissionBalances[cycle]).toMatchObject({ total: reduced.total, due: 0 });
+        expect((await query("SELECT id FROM billing_corrections WHERE patient_id='p1'")).rows).toHaveLength(2);
+        await query("UPDATE patients SET status='discharged' WHERE id='p1'");
+        expect((await send('POST', '/patients/p1/billing-corrections/revert', restore)).statusCode).toBe(409);
+    });
     it('a corrected admission accepts only the adjusted payment and discharges at that same total', async () => {
         await register();
         for (let day = 19; day <= 31; day++)
