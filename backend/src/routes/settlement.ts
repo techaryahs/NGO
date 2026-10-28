@@ -13,6 +13,7 @@ export async function settlementRoutes(app: FastifyInstance) {
     const snapshot = async (client: any, projection: any) => ({
         patient: formatPatient(projection.patient, (await client.query('SELECT * FROM patient_attendants WHERE patient_id=$1', [projection.patient.id])).rows, projection.receipts.map(formatPayment)),
         stays: projection.stays.map(formatStay),
+        reconciliation: projection.reconciliation,
     });
     const perform = async (request: any, reply: any, mode: 'read' | 'recalculate' | 'discharge') => {
         const client = await getClient();

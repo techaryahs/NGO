@@ -167,6 +167,13 @@ class PaymentService {
   Future<({double total, double paid, double due, String? cycleId})>
   collectionBalance(String patientId) async {
     final values = await billingUpdates(patientId);
+    final reconciliation =
+        values['patients/$patientId/financialReconciliation'];
+    if (reconciliation is Map && reconciliation['required'] == true) {
+      throw StateError(
+        'Reconcile receipt allocations and admission identities before collecting an outstanding balance.',
+      );
+    }
     double amount(String field) =>
         (values['patients/$patientId/$field'] as num?)?.toDouble() ?? 0;
     final admission = values['patients/$patientId/admissionDate'];
@@ -195,6 +202,10 @@ class PaymentService {
         checkoutAt: checkoutAt,
       );
       final patient = Map<String, dynamic>.from(snapshot['patient'] as Map);
+      if (snapshot['reconciliation'] is Map &&
+          patient['financialReconciliation'] == null) {
+        patient['financialReconciliation'] = snapshot['reconciliation'];
+      }
       return {
         'financialSnapshot/stays': snapshot['stays'],
         for (final entry in patient.entries)

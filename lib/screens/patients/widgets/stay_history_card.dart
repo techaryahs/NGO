@@ -365,8 +365,11 @@ class _StayHistoryCardView extends StatelessWidget {
         (summary['due'] as num?)?.toDouble() ??
         (total - paid).clamp(0.0, double.infinity);
     final refund =
-        (summary['refundDue'] as num?)?.toDouble() ??
-        (paid - total).clamp(0.0, double.infinity);
+        summary['reconciliationRequired'] == true ||
+            summary['provisional'] == true
+        ? 0.0
+        : (summary['refundDue'] as num?)?.toDouble() ??
+              (paid - total).clamp(0.0, double.infinity);
     final refunded = (summary['refunded'] as num?)?.toDouble() ?? 0;
     final registration =
         stay.patientSnapshot['registrationNumber']?.toString() ??

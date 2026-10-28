@@ -76,10 +76,15 @@ async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, 
     checkoutAt,
     useSavedCheckout: Number(before?.amount) < 0 || Number(after?.amount) < 0,
   });
+  if (projection.reconciliation.required && (Number(before?.amount) < 0 || Number(after?.amount) < 0))
+    throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence before issuing or changing a refund');
   const changes = new Map<string, { paid: number; refunded: number }>();
   for (const [row, direction] of [[before, -1], [after, 1]] as const) {
     if (!row) continue;
     const cycle = receiptCycle(row, patient, projection.stays);
+    if (direction === -1 && (cycle == null || !projection.balances[cycle])) continue;
+    if (cycle == null && Number(row.amount) > 0) continue;
+    if (cycle == null) throw httpError(409, 'Payment allocation requires an explicit admission cycle');
     const change = changes.get(cycle) ?? { paid: 0, refunded: 0 };
     const amount = cents(row.amount);
     if (amount < 0) change.refunded -= amount * direction;
@@ -94,6 +99,8 @@ async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, 
     if (change.refunded > 0 && change.refunded > Math.max(0, previousNet - billed) + change.paid) {
       throw httpError(409, 'Refund exceeds the remaining excess payment');
     }
+    if (change.refunded > 0 && (balance.pendingAttendance?.length || balance.provisional))
+      throw httpError(409, 'Resolve provisional charges and attendance before determining a refund');
     if (net < 0) throw httpError(409, 'Payment change would make financial balances negative');
   }
   await persistBilling(client, projection);
@@ -115,6 +122,11 @@ async function lockPayment(client: PaymentClient, id: string): Promise<{ patient
 
 export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   fastify.addHook('preHandler', authenticate);
+
+  fastify.get('/payments/:id/history', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return reply.send((await query('SELECT * FROM payment_change_history WHERE payment_id=$1 ORDER BY id', [id])).rows);
+  });
 
   // ── GET /api/payments ───────────────────────────────────────────────────────
   fastify.get('/payments', async (request, reply) => {
@@ -221,6 +233,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const client = await getClient();
     try {
       await client.query('BEGIN');
+      await client.query("SELECT set_config('app.operator_uid',$1,true),set_config('app.payment_reason',$2,true)", [request.user!.id, String((request.body as any)?.reason ?? request.method + ' payment')]);
       // Serialize a patient's balance changes and duplicate transaction checks.
       const patient = await client.query<LockedPatient>('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [patientId]);
       if (!patient.rowCount) throw httpError(409, 'Patient not found');
@@ -263,12 +276,20 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (body.collectOutstanding === true) {
         if ((body.type || 'payment') !== 'payment') throw httpError(400, 'Outstanding collection must be a payment');
         const projection = await projectBilling(client, patient.rows[0]);
-        const cycle = receiptCycle({ cycle_id: body.cycleId, payment_date: body.date ?? Date.now() }, patient.rows[0], projection.stays);
+        if (projection.reconciliation.required) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence before collecting an outstanding balance');
+        const cycle = receiptCycle({ cycle_id: body.cycleId }, patient.rows[0], projection.stays, 'new');
+        if (cycle == null) throw httpError(409, 'Select the admission cycle before collecting payment');
         const balance = projection.balances[cycle];
         if (!balance || cents(amount) > cents(balance.due)) throw httpError(409, 'Payment exceeds the current outstanding balance. Refresh the bill before collecting payment.');
       }
 
       const paymentDate = body.date != null ? new Date(body.date) : new Date();
+      // Establish a whole-receipt association once at creation. A later rejoin
+      // must not turn an already established single-cycle receipt ambiguous.
+      const allocationProjection = await projectBilling(client, patient.rows[0]);
+      const allocatedCycle = receiptCycle({ cycle_id: body.cycleId }, patient.rows[0], allocationProjection.stays, 'new');
+      if (allocatedCycle != null && !allocationProjection.balances[allocatedCycle])
+        throw httpError(409, 'Payment does not belong to a known admission');
 
       const insertRes = await client.query<RawPaymentRow>(
         `INSERT INTO payments (
@@ -283,7 +304,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         [
           paymentId,
           patientId,
-          body.cycleId || null,
+          allocatedCycle,
           body.type || 'payment',
           amount,
           body.totalAmount ?? amount,
@@ -325,12 +346,18 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const client = await getClient();
     try {
       await client.query('BEGIN');
+      await client.query("SELECT set_config('app.operator_uid',$1,true),set_config('app.payment_reason',$2,true)", [request.user!.id, String((request.body as any)?.reason ?? request.method + ' payment')]);
       const locked = await lockPayment(client, id);
       if (!locked) {
         await client.query('ROLLBACK');
         return reply.status(404).send({ error: 'NotFound', message: `Payment '${id}' not found` });
       }
       const existing = locked.payment;
+      if (Object.hasOwn(body, 'cycleId') && body.cycleId !== existing.cycle_id && request.user!.role !== 'admin')
+        throw httpError(403, 'Admission allocation corrections require an administrator');
+      if (Object.hasOwn(body, 'cycleId') && body.cycleId !== existing.cycle_id &&
+          (typeof body.reason !== 'string' || body.reason.trim().length < 10))
+        throw httpError(409, 'Allocation correction requires a reason describing the supporting evidence');
       if (('patientId' in body && body.patientId !== existing.patient_id) || ('id' in body && body.id !== id)) throw httpError(400, 'Payment id and patientId are immutable');
       if ('type' in body && body.type !== existing.type) throw httpError(400, 'Payment type is immutable');
       const amount = body.amount != null ? cents(body.amount) : cents(existing.amount);
@@ -399,6 +426,7 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const client = await getClient();
     try {
       await client.query('BEGIN');
+      await client.query("SELECT set_config('app.operator_uid',$1,true),set_config('app.payment_reason',$2,true)", [request.user!.id, String((request.body as any)?.reason ?? request.method + ' payment')]);
       const locked = await lockPayment(client, id);
       if (!locked) {
         await client.query('ROLLBACK');

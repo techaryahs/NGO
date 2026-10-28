@@ -8,6 +8,11 @@ describe('Domain Routes and Authentication', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(dbModule, 'getClient').mockResolvedValue({
+      query: async (sql: string, params?: unknown[]) => /^(BEGIN|COMMIT|ROLLBACK)/.test(sql)
+        ? { rows: [], rowCount: 0 } : dbModule.query(sql, params),
+      release: vi.fn(),
+    } as any);
     installTestFirebaseKeys();
     app = buildApp();
   });

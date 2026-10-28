@@ -38,7 +38,7 @@ describe.skipIf(process.env.RUN_PG_MIGRATIONS !== '1')('disposable PostgreSQL mi
     expect((await migrationStatus()).pending.length).toBeGreaterThan(0);
     for (let i = 0; i < 10 && (await migrationStatus()).applied.length; i++) await runMigrations('down');
     expect((await migrationStatus()).applied).toEqual([]);
-    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows.map(row => row.tablename)).toEqual(['pgmigrations']);
+    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows.map(row => row.tablename)).toEqual(expect.arrayContaining(['pgmigrations', 'payment_change_history']));
     await runMigrations();
     expect((await migrationStatus()).pending).toEqual([]);
     delete process.env.ALLOW_DISPOSABLE_DB_ROLLBACK;

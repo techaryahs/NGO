@@ -85,6 +85,7 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
           {
             id: 'p_existing_5132',
             full_name: 'Taraknath Pal',
+            status: 'active',
             registration_number: '5132',
             admission_date: new Date(1787196600000),
             registration_date: new Date(1787196600000),
@@ -108,6 +109,11 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
             bed_id: 'audit_bed',
             admission_date: new Date(1787196600000),
             status: 'active',
+            cycle_id: '1787196600000',
+            room_type: 'general',
+            expected_discharge_date: new Date(1787196600000 + 7 * 86400000),
+            created_at: new Date(1787196600000),
+            updated_at: new Date(1787196600000),
           },
         ],
       ]);
@@ -124,6 +130,8 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
             method: 'UPI',
             transaction_id: 'UTR_EXISTING_64',
             receipt_number: '6900',
+            payment_date: new Date(1787196800000),
+            type: 'payment',
           },
         ],
         // 2. PG-only live payment that is absent from RTDB export
@@ -137,6 +145,8 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
             method: 'UPI',
             transaction_id: 'UTR_PG_ONLY_999',
             receipt_number: '7100',
+            payment_date: new Date(1787197000000),
+            type: 'payment',
           },
         ],
       ]);
@@ -145,6 +155,19 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
       pgPhotos = new Set();
 
       client.query.mockImplementation(async (sql: string, params: any[] = []) => {
+        if (sql.includes('SELECT * FROM patients WHERE id=$1 FOR UPDATE')) {
+          return { rows: [pgPatients.get(params[0])], rowCount: 1 };
+        }
+        if (sql.includes('SELECT * FROM stays WHERE patient_id=$1')) {
+          return { rows: [...pgStays.values()].filter(s => s.patient_id === params[0]) };
+        }
+        if (sql.includes('SELECT * FROM payments WHERE patient_id=$1')) {
+          return { rows: [...pgPayments.values()].filter(p => p.patient_id === params[0]) };
+        }
+        if (sql.includes('SELECT kind,attendance_date') || sql.includes('SELECT settings_key,settings_value') || sql.includes('SELECT id,name FROM patient_attendants')) return { rows: [] };
+        if (sql.startsWith('UPDATE patients SET advance_billed_amount=')) {
+          return { rows: [pgPatients.get(params[0])], rowCount: 1 };
+        }
         if (sql.includes('SELECT id, registration_number, admission_date, updated_at FROM patients')) {
           return { rows: Array.from(pgPatients.values()), rowCount: pgPatients.size };
         }
@@ -176,10 +199,16 @@ describe('Firebase importer orchestration (mocked PostgreSQL)', () => {
           pgStays.set(id, {
             id,
             patient_id: params[1],
-            room_id: params[3],
-            bed_id: params[7],
-            admission_date: params[9],
-            status: params[16],
+            patient_snapshot: JSON.parse(params[3]),
+            room_id: params[4],
+            room_type: params[6],
+            cycle_id: params[7],
+            bed_id: params[29],
+            admission_date: params[8],
+            expected_discharge_date: params[10],
+            created_at: params[33],
+            updated_at: params[34],
+            status: params[27],
           });
           return { rows: [{ is_inserted: isInserted }], rowCount: 1 };
         }

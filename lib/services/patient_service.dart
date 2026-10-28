@@ -791,20 +791,23 @@ class PatientService {
       final refundDue =
           (summary['refundDue'] as num?)?.toDouble() ?? patient.refundDueAmount;
       final reasons = <String>[
+        if (summary['reconciliationRequired'] == true)
+          'Reconcile receipt allocations, admission identities and invoice evidence before discharge or refund.',
         if (missingPatient > 0)
           'Resolve $missingPatient Pending patient attendance day(s) before discharge.',
         if (missingAttendants > 0)
           'Resolve $missingAttendants Pending attendant attendance mark(s) before discharge.',
         if (pending > 0.005)
           '₹${pending.toStringAsFixed(0)} remains to be paid.',
-        if (refundDue > 0.005)
+        if (refundDue > 0.005 && summary['reconciliationRequired'] != true)
           '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
       ];
       return {
         'total': summary['total'] ?? patient.advanceBilledAmount,
         'paid': summary['netPaid'] ?? patient.totalPaidAmount ?? 0,
         'pending': pending,
-        'refundDue': refundDue,
+        'refundDue': summary['reconciliationRequired'] == true ? 0.0 : refundDue,
+        'unverifiedRefundDue': summary['reconciliationRequired'] == true ? refundDue : null,
         'plannedExitDate': patient.exitDate?.millisecondsSinceEpoch,
         'checkoutAt': actualCheckout.millisecondsSinceEpoch,
         'checkoutAdjustment': summary['checkoutAdjustment'],

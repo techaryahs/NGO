@@ -96,6 +96,20 @@ class RangeDatabase extends TestDatabase {
 }
 
 void main() {
+  test('active overdue stay exposes attendance through Kolkata today', () {
+    final p = patient();
+    final now = DateTime.utc(2026, 10, 28, 4, 29);
+    expect(
+      StayBilling.attendanceDateRange(p, now: now, includeElapsed: true).end,
+      '2026-10-28',
+    );
+    final row = MonthlyAttendanceData(
+      DateTime(2026, 10),
+      {},
+    ).rows([p], [stay()], now: now).single;
+    expect(row.enabled(DateTime(2026, 10, 28)), isTrue);
+    expect(row.enabled(DateTime(2026, 10, 29)), isFalse);
+  });
   test(
     'Private reserves the base on absent dates and explicit exit-date presence',
     () {

@@ -175,7 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return {
             'refundDue': patients.fold<double>(
               0,
-              (sum, patient) => sum + patient.totalRefundDueAmount,
+              (sum, patient) => sum + patient.confirmedRefundDueAmount,
             ),
             'patients': countedPatients.length,
             'totalPeople': countedPatients.length + attendeeCount,

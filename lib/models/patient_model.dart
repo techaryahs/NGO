@@ -219,6 +219,39 @@ class PatientModel {
   final double totalRefundDueAmount;
   final double totalRefundedAmount;
   final Map<String, dynamic> admissionBalances;
+  final Map<String, dynamic> financialReconciliation;
+
+  bool get financialUncertain =>
+      financialReconciliation['required'] == true ||
+      financialReconciliation['provisional'] == true ||
+      admissionBalances.values.any(
+        (b) =>
+            b is Map &&
+            (b['reconciliationRequired'] == true || b['provisional'] == true),
+      );
+  double get confirmedRefundDueAmount {
+    if (financialReconciliation['required'] == true ||
+        admissionBalances.values.any(
+          (b) => b is Map && b['reconciliationRequired'] == true,
+        )) {
+      return 0;
+    }
+    if (admissionBalances.isEmpty) {
+      return financialUncertain ? 0 : totalRefundDueAmount;
+    }
+    return admissionBalances.values.fold<double>(
+      0,
+      (sum, b) => b is Map && b['provisional'] != true
+          ? sum + ((b['refundDue'] as num?)?.toDouble() ?? 0)
+          : sum,
+    );
+  }
+
+  double get accountNetPaid =>
+      (financialReconciliation['accountNetPaid'] as num?)?.toDouble() ??
+      (payments?.fold<double>(0, (sum, p) => sum + p.amount) ??
+          totalPaidAmount ??
+          0);
   final DateTime? paymentDueDate;
 
   // ── Billing / Attendance Metrics ──────────────────────────────────────────
@@ -244,6 +277,7 @@ class PatientModel {
   /// Legacy receipts without a cycle ID are accepted from the admission
   /// calendar date onward, including advances recorded earlier that day.
   double get effectivePaidAmount {
+    if (financialReconciliation.isNotEmpty) return totalPaidAmount ?? 0;
     if (payments == null) return totalPaidAmount ?? 0;
     final cycle = admissionDate.millisecondsSinceEpoch.toString();
     final admissionDay = DateTime(
@@ -264,10 +298,11 @@ class PatientModel {
     });
   }
 
-  double get effectiveDueAmount =>
-      (advanceBilledAmount + attendanceCharges - effectivePaidAmount)
-          .clamp(0.0, double.infinity)
-          .toDouble();
+  double get effectiveDueAmount => financialReconciliation.isNotEmpty
+      ? currentDueAmount ?? 0
+      : (advanceBilledAmount + attendanceCharges - effectivePaidAmount)
+            .clamp(0.0, double.infinity)
+            .toDouble();
 
   bool get hasEffectivePendingPayment => effectiveDueAmount > 0.005;
 
@@ -319,6 +354,7 @@ class PatientModel {
     this.totalRefundDueAmount = 0,
     this.totalRefundedAmount = 0,
     this.admissionBalances = const {},
+    this.financialReconciliation = const {},
     this.paymentDueDate,
     this.isAdvancePeriod = true,
     this.advanceBilledAmount = 0.0,
@@ -387,6 +423,7 @@ class PatientModel {
       'totalRefundDueAmount': totalRefundDueAmount,
       'totalRefundedAmount': totalRefundedAmount,
       'admissionBalances': admissionBalances,
+      'financialReconciliation': financialReconciliation,
       'paymentDueDate': paymentDueDate?.millisecondsSinceEpoch,
       'isAdvancePeriod': isAdvancePeriod,
       'advanceBilledAmount': advanceBilledAmount,
@@ -469,6 +506,9 @@ class PatientModel {
           (data['totalRefundDueAmount'] as num?)?.toDouble() ?? 0,
       totalRefundedAmount:
           (data['totalRefundedAmount'] as num?)?.toDouble() ?? 0,
+      financialReconciliation: data['financialReconciliation'] is Map
+          ? Map<String, dynamic>.from(data['financialReconciliation'])
+          : const {},
       admissionBalances: data['admissionBalances'] is Map
           ? Map<String, dynamic>.from(data['admissionBalances'])
           : const {},
@@ -675,6 +715,7 @@ class PatientModel {
       totalRefundDueAmount: totalRefundDueAmount,
       totalRefundedAmount: totalRefundedAmount,
       admissionBalances: admissionBalances,
+      financialReconciliation: financialReconciliation,
       currentDueAmount: currentDueAmount ?? this.currentDueAmount,
       paymentDueDate: paymentDueDate ?? this.paymentDueDate,
       isAdvancePeriod: isAdvancePeriod ?? this.isAdvancePeriod,

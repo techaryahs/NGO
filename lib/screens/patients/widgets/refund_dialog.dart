@@ -57,15 +57,26 @@ class _RefundDialogState extends State<RefundDialog> {
         widget.patient.id,
         checkoutAt: widget.checkoutAt,
       );
-      balances =
-          Map<String, dynamic>.from(
-            updates['patients/${widget.patient.id}/admissionBalances'] as Map,
-          )..removeWhere(
-            (id, value) =>
-                value is! Map ||
-                (value['refundDue'] as num) <= 0.005 ||
-                (widget.checkoutAt != null && id != widget.cycleId),
-          );
+      balances = Map<String, dynamic>.from(
+        updates['patients/${widget.patient.id}/admissionBalances'] as Map,
+      );
+      if (balances.values.any(
+        (value) => value is Map && value['reconciliationRequired'] == true,
+      )) {
+        balances.clear();
+        throw StateError(
+          'Reconcile payment allocation and attendance before determining a refund.',
+        );
+      }
+      balances.removeWhere(
+        (id, value) =>
+            value is! Map ||
+            value['provisional'] == true ||
+            (value['pendingAttendance'] is List &&
+                (value['pendingAttendance'] as List).isNotEmpty) ||
+            (value['refundDue'] as num) <= 0.005 ||
+            (widget.checkoutAt != null && id != widget.cycleId),
+      );
       cycle = balances.containsKey(widget.cycleId)
           ? widget.cycleId
           : balances.keys.firstOrNull;

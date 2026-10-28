@@ -34,7 +34,7 @@ void main() {
     'post-edit roster creates one separate row; earlier dates are disabled',
     () {
       final data = MonthlyAttendanceData(admission, {});
-      final rows = data.rows([patient], [stay()]);
+      final rows = data.rows([patient], [stay()], now: arrival);
       expect(rows.map((r) => r.name), ['Patient', 'Family helper']);
       expect(rows.last.attendantId, 'helper');
       expect(rows.last.patientId, patient.id);
@@ -90,7 +90,10 @@ void main() {
         DateTime(2026, 2),
         DateTime(2026, 1),
       ]) {
-        final rows = MonthlyAttendanceData(month, {}).rows([patient], [stay()]);
+        final rows = MonthlyAttendanceData(
+          month,
+          {},
+        ).rows([patient], [stay()], now: arrival);
         if (month.month == 2) {
           expect(rows, isEmpty);
         } else {

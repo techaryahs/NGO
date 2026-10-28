@@ -32,12 +32,14 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   afterAll(async () => { await app.close(); await pool.end(); });
   it.each([0, 5])('post-admission attendee joining on offset %i persists attendance, charges and two-step collection', async offset => {
     const id = randomUUID(), rid = randomUUID().slice(0, 16), sid = randomUUID(), aid = randomUUID();
+    // Ten inclusive dates require an exit after 09:00 IST. A date-only
+    // timestamp is 05:30 IST and correctly excludes its checkout date.
     const start = '2026-10-01', exit = '2026-10-10';
     const days = Array.from({ length: 10 }, (_, i) => `2026-10-${String(i + 1).padStart(2, '0')}`);
     const cid = String(Date.parse(start));
     expect((await send('POST', '/rooms', room(rid))).statusCode).toBe(201);
     const registered = await send('POST', '/patients/register', { ...patient(id), attendants: [], admissionDate: start,
-      registrationDate: start, exitDate: exit, currentDueAmount: 0, advanceBilledAmount: 0,
+      registrationDate: start, exitDate: exit + 'T14:30:00Z', currentDueAmount: 0, advanceBilledAmount: 0,
       stays: [{ ...stay(sid, id, rid), admissionDate: start, durationDays: 10 }] });
     expect(registered.statusCode).toBe(201);
     const financials = async () => (await send('GET', `/patients/${id}/financials`)).json().patient;
@@ -288,7 +290,8 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   });
 
   it('quotes and stores only the projected attendance-based extension charge, with protected reads', async () => {
-    const at = (day: number) => new Date(Date.UTC(2026, 0, day)).toISOString();
+    // Include the planned final date under the established 09:00 IST rule.
+    const at = (day: number) => new Date(Date.UTC(2026, 0, day, 4)).toISOString();
     await send('POST', '/rooms', room());
     await send('POST', '/patients', { ...patient(), exitDate: at(60) });
     await send('POST', '/stays', { ...stay(), durationDays: 60, expectedDischargeDate: at(61) });
@@ -350,7 +353,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
 
   it('fresh migration creates all 17 domain tables, is rerunnable and records status', async () => {
     await runMigrations();
-    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toHaveLength(18);
+    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toHaveLength(19);
     expect((await query('SELECT name FROM pgmigrations ORDER BY id')).rows.map(x => x.name)).toContain('001_initial_schema');
     // Compare the expected initial catalog with the executed database, including
     // every original column/index/FK, rather than accepting table counts alone.
@@ -511,8 +514,16 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     const victim = await pool.connect(); victim.on('error', () => {}); const pid = (await victim.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
     await query('SELECT pg_terminate_backend($1)', [pid]); victim.release(true);
     expect((await query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
-    const pg = await import('pg'); const small = new pg.default.Pool({ connectionString: undefined, host: '127.0.0.1', port: 55439, database: 'ngo_audit_workflows', user: 'ngo_audit', password: process.env.POSTGRES_PASSWORD, max: 1, connectionTimeoutMillis: 100 });
-    const held = await small.connect(); await expect(small.connect()).rejects.toThrow(/timeout/); held.release(); expect((await small.query('SELECT 1 AS ok')).rows[0].ok).toBe(1); await small.end();
+    const pg = await import('pg'); const small = new pg.default.Pool({ connectionString: undefined, host: '127.0.0.1', port: 55439, database: 'ngo_audit_workflows', user: 'ngo_audit', password: process.env.POSTGRES_PASSWORD, max: 1, connectionTimeoutMillis: 5000 });
+    // The 100ms assertion tests pool saturation, not Windows startup/SCRAM
+    // handshake latency. Establish the held connection before that short limit.
+    const held = await small.connect();
+    try {
+      small.options.connectionTimeoutMillis = 100;
+      await expect(small.connect()).rejects.toThrow(/timeout/);
+    } finally { held.release(); }
+    try { expect((await small.query('SELECT 1 AS ok')).rows[0].ok).toBe(1); }
+    finally { await small.end(); }
   });
   it('supports atomic multi-bed batch admission with rollback on conflict, room deletion guards, and attendant attendance JSONB merge', async () => {
     await send('POST', '/rooms', room('r_batch'));

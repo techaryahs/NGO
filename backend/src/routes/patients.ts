@@ -11,6 +11,17 @@ import { createHash } from 'node:crypto';
 import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
 import { admissionRoster } from '../services/attendant_roster.js';
 
+async function financialRead<T>(work: (read: typeof query) => Promise<T>): Promise<T> {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const result = await work(client.query.bind(client) as typeof query);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
+
 function registrationFingerprint(body: Record<string, any>): string {
   return createHash('sha256').update(JSON.stringify({
     fullName: String(body.fullName).trim(), dateOfBirth: toEpochMs(body.dateOfBirth),
@@ -108,6 +119,7 @@ export function formatPatient(row: RawPatientRow, attendants: RawAttendantRow[] 
     id: row.id,
     version: row.version ?? 0,
     payments,
+    financialReconciliation: (row as any).financial_reconciliation ?? null,
     fullName: row.full_name,
     searchKey: row.search_key || '',
     dateOfBirth: toEpochMs(row.date_of_birth) ?? 0,
@@ -183,7 +195,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
   fastify.addHook('preHandler', authenticate);
 
   // ── GET /api/patients ───────────────────────────────────────────────────────
-  fastify.get('/patients', async (request, reply) => {
+  fastify.get('/patients', async (request, reply) => financialRead(async query => {
     const q = request.query as {
       status?: string;
       roomId?: string;
@@ -261,9 +273,30 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       paymentsByPatient.set(payment.patient_id, list);
     }
 
-    const formattedList = patients.map((row) =>
-      formatPatient(row, attendantsByPatient.get(row.id) || [], paymentsByPatient.get(row.id) || [])
-    );
+    const stayRows = await query('SELECT * FROM stays WHERE patient_id = ANY($1) ORDER BY admission_date,id', [patientIds]);
+    const recordRows = await query('SELECT patient_id,kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id = ANY($1)', [patientIds]);
+    const pricingRows = await query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'");
+    // Partition each batch once. Authoritative projection must not rescan all
+    // patients' attendance/receipts for every patient on a large list page.
+    const byPatient = (rows: any[]) => {
+      const groups = new Map<string, any[]>();
+      for (const row of rows) {
+        const group = groups.get(row.patient_id) ?? [];
+        group.push(row); groups.set(row.patient_id, group);
+      }
+      return groups;
+    };
+    const staysByPatient = byPatient(stayRows.rows), recordsByPatient = byPatient(recordRows.rows), receiptsByPatient = byPatient(paymentsRes.rows);
+    const pricing = Object.fromEntries(pricingRows.rows.map(r => [r.settings_key, r.settings_value]));
+    const formattedList = await Promise.all(patients.map(async row => {
+      const projection = await projectBilling({} as any, row, { source: {
+        stays: staysByPatient.get(row.id) ?? [],
+        records: recordsByPatient.get(row.id) ?? [],
+        receipts: receiptsByPatient.get(row.id) ?? [], pricing,
+        roster: attendantsByPatient.get(row.id) || [],
+      }});
+      return formatPatient(projection.patient, attendantsByPatient.get(row.id) || [], paymentsByPatient.get(row.id) || []);
+    }));
 
     if (q.format === 'map') {
       const mapResult: Record<string, ReturnType<typeof formatPatient>> = {};
@@ -274,10 +307,10 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     }
 
     return reply.send(formattedList);
-  });
+  }));
 
   // ── GET /api/patients/:id ───────────────────────────────────────────────────
-  fastify.get('/patients/:id', async (request, reply) => {
+  fastify.get('/patients/:id', async (request, reply) => financialRead(async query => {
     const { id } = request.params as { id: string };
 
     const patientRes = await query<RawPatientRow>('SELECT * FROM patients WHERE id = $1', [id]);
@@ -291,8 +324,9 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     );
 
     const paymentsRes = await query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id]);
-    return reply.send(formatPatient(patientRes.rows[0], attendantsRes.rows, paymentsRes.rows.map(payment => formatPayment(payment as any))));
-  });
+    const projection = await projectBilling({ query } as any, patientRes.rows[0]);
+    return reply.send(formatPatient(projection.patient, attendantsRes.rows, paymentsRes.rows.map(payment => formatPayment(payment as any))));
+  }));
 
   // ── POST /api/patients ──────────────────────────────────────────────────────
   fastify.post('/patients', async (request, reply) => {
@@ -503,9 +537,10 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           'SELECT * FROM payments WHERE patient_id = $1 ORDER BY payment_date DESC',
           [patientId]
         );
+        const existingProjection = await projectBilling(client, existingPatientRes.rows[0]);
         await client.query('COMMIT');
         const formattedPatient = formatPatient(
-          existingPatientRes.rows[0],
+          existingProjection.patient,
           attRes.rows,
           paymentsRes.rows.map(p => formatPayment(p as any))
         );
@@ -693,7 +728,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         [patientId]
       );
 
-      const projection = createdStayRows.length ? await persistBilling(client, await projectBilling(client, finalPatientRes.rows[0])) : null;
+      const projection = await projectBilling(client, finalPatientRes.rows[0]);
+      if (createdStayRows.length) await persistBilling(client, projection);
       await client.query('COMMIT');
       const formattedPatient = formatPatient(projection?.patient ?? finalPatientRes.rows[0], attendants);
       const formattedStays = (projection?.stays ?? createdStayRows).map(formatStay);
@@ -821,8 +857,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
 
       const expectedVersion = body.expectedVersion ?? body.version;
       if (expectedVersion != null && expectedVersion !== existing.rows[0].version) throw httpError(409, 'Patient version mismatch');
-      const financialFields = ['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount', 'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates'];
-      if (financialFields.some(key => Object.hasOwn(body, key)) && expectedVersion == null) throw httpError(409, 'Financial updates require expectedVersion from the current patient record');
+      const financialFields = ['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount', 'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates', 'advanceBilledAmount', 'attendanceCharges', 'billingAmountOverride', 'totalPresentDays', 'totalAbsentDays'];
+      if (financialFields.some(key => Object.hasOwn(body, key))) throw httpError(409, 'Financial balances are derived from receipts and stays; use the financial endpoints');
       const activeStays = await client.query("SELECT id,room_id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
       const before = formatPatient(existing.rows[0]);
       if (body.admissionDate != null && toEpochMs(body.admissionDate) !== toEpochMs(existing.rows[0].admission_date)) throw httpError(409, 'Change admission cycles through the rejoin workflow');

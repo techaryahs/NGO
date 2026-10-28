@@ -105,7 +105,18 @@ class PatientCard extends StatelessWidget {
                             ),
                           ),
                           _StatusBadge(status: patient.status),
-                          if (patient.totalRefundDueAmount > 0)
+                          if (patient.financialUncertain)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 8),
+                              child: Text(
+                                'Financial review',
+                                style: TextStyle(
+                                  color: Colors.deepOrange,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          if (patient.confirmedRefundDueAmount > 0)
                             Padding(
                               padding: const EdgeInsets.only(left: 8),
                               child: Text(

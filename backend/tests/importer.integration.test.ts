@@ -13,10 +13,10 @@ describe.skipIf(!enabled)('Firebase importer with disposable PostgreSQL 16', () 
   let directory: string;
   let fixture: Record<string, any>;
   let verifiedDisposable = false;
-  async function run(dryRun = false) {
+  async function run(dryRun = false, reconcile = false) {
     const filePath = path.join(directory, 'synthetic.json');
     fs.writeFileSync(filePath, JSON.stringify(fixture));
-    return runFirebaseImport({ filePath, dryRun, onProgress: () => {} });
+    return runFirebaseImport({ filePath, dryRun, reconcile, onProgress: () => {} });
   }
   beforeAll(async () => {
     // Refuse even a connection unless the explicitly opted-in target is isolated.
@@ -265,5 +265,63 @@ describe.skipIf(!enabled)('Firebase importer with disposable PostgreSQL 16', () 
     expect(attendants[0].id).toHaveLength(64);
     expect((await run()).committed).toBe(true);
     expect((await query('SELECT id,patient_id FROM patient_attendants')).rows).toEqual(attendants);
+  });
+  it('does not manufacture imported stay or receipt cycles from placement timestamps', async () => {
+    expect((await run()).committed).toBe(true);
+    expect((await query('SELECT cycle_id FROM stays')).rows).toEqual([{ cycle_id: null }]);
+    expect((await query('SELECT cycle_id FROM payments ORDER BY id')).rows).toEqual([{ cycle_id: null }, { cycle_id: null }]);
+    const before = (await query('SELECT id,cycle_id,payment_date,amount FROM payments ORDER BY id')).rows;
+    expect((await run()).committed).toBe(true);
+    expect((await query('SELECT id,cycle_id,payment_date,amount FROM payments ORDER BY id')).rows).toEqual(before);
+  });
+  it('uses an imported snapshot cycle when explicit identity is absent and preserves source conflicts for review', async () => {
+    fixture.stays.audit_stay.patientSnapshot = { admissionDate: 'original-admission' };
+    expect((await run()).committed).toBe(true);
+    expect((await query('SELECT cycle_id FROM stays')).rows[0].cycle_id).toBe('original-admission');
+    fixture.stays.audit_stay.cycleId = 'conflicting-explicit';
+    expect((await run()).committed).toBe(true);
+    expect((await query('SELECT cycle_id,patient_snapshot,total_cost FROM stays')).rows[0]).toMatchObject({
+      cycle_id: 'conflicting-explicit', patient_snapshot: { admissionDate: 'original-admission' }, total_cost: '10.00',
+    });
+  });
+  it('reconciliation import does not put account-wide legacy receipts into the current frozen invoice', async () => {
+    await run();
+    const current = String(Date.parse('2026-01-01T10:00:00.000Z'));
+    await query('UPDATE patients SET admission_balances=$1::jsonb WHERE id=$2', [JSON.stringify({
+      [current]: { total: 10, finalized: true }, historical: { total: 20, finalized: true },
+    }), 'audit_patient']);
+    fixture.payments.new_historical = { id: 'new_historical', patientId: 'audit_patient', cycleId: 'historical', amount: '0.40', date: 1767261600000 };
+    expect((await run(false, true)).committed).toBe(true);
+    const patient = (await query('SELECT total_paid_amount,current_due_amount,admission_balances FROM patients')).rows[0];
+    expect(patient).toMatchObject({ total_paid_amount: '0.00', current_due_amount: '10.00', admission_balances: {
+      [current]: { total: 10, paid: 0, reconciliationRequired: true }, historical: { total: 20, paid: 0.4, due: 19.6 },
+    } });
+    expect((await query('SELECT sum(amount)::text AS net,count(*)::int AS count FROM payments')).rows[0]).toEqual({ net: '0.70', count: 3 });
+    const before = (await query('SELECT id,cycle_id,amount,payment_date FROM payments ORDER BY id')).rows;
+    expect((await run(false, true)).committed).toBe(true);
+    expect((await query('SELECT id,cycle_id,amount,payment_date FROM payments ORDER BY id')).rows).toEqual(before);
+    expect((await query('SELECT total_cost FROM stays')).rows[0].total_cost).toBe('10.00');
+  });
+  it('does not silently absorb distinct receipt IDs sharing a reference and amount in reconciliation mode', async () => {
+    fixture.payments.copied_key.transactionId = 'SHARED-REFERENCE';
+    fixture.paymentHistory.original_key.transactionId = 'SHARED-REFERENCE';
+    await run();
+    fixture.payments.other_source_id = { ...fixture.payments.copied_key, id: 'other_source_id' };
+    const stats = await run(false, true);
+    expect(stats.reconciliation?.payments.conflicting).toBe(1);
+    expect(stats.payments.failed).toBe(1);
+    expect((await query('SELECT sum(amount)::text AS net,count(*)::int AS count FROM payments')).rows[0]).toEqual({ net: '0.30', count: 2 });
+  });
+  it('preserves a source receiptCycle identity in normal imports and rejects contradictory legacy copies', async () => {
+    fixture.payments.copied_key.receiptCycle = 'source-admission';
+    fixture.paymentHistory.original_key.receiptCycle = 'source-admission';
+    expect((await run()).committed).toBe(true);
+    expect((await query("SELECT cycle_id FROM payments WHERE id='audit_pay_1'")).rows[0].cycle_id).toBe('source-admission');
+    expect((await run()).committed).toBe(true);
+    fixture.paymentHistory.original_key.cycleId = 'contradictory';
+    const rejected = await run();
+    expect(rejected.committed).toBe(false);
+    expect(rejected.payments.failed).toBe(1);
+    expect((await query("SELECT cycle_id,amount FROM payments WHERE id='audit_pay_1'")).rows[0]).toEqual({ cycle_id: 'source-admission', amount: '0.10' });
   });
 });

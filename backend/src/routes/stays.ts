@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { httpError } from '../validation.js';
 import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { z } from 'zod';
-import { approvedPricing, persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
+import { approvedPricing, newStayIdentity, persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
 import { finalizeDischarge } from '../services/discharge.js';
 
 export interface RawStayRow {
@@ -158,9 +158,10 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
     [body.patientId, String(new Date(patient.admission_date).getTime())])).rows : [];
   const priorRoster = priorStays.flatMap(s => s.patient_snapshot?.attendants ?? []);
   const roster = attendants.map(person => ({ ...priorRoster.find(p => p.id === person.id), ...person }));
-  body.patientSnapshot = { ...body.patientSnapshot, admissionDate: new Date(patient.admission_date).getTime(),
+  const identity = newStayIdentity(patient, body);
+  body.patientSnapshot = { ...body.patientSnapshot, admissionDate: identity.snapshotAdmission,
     attendants: active ? roster : body.patientSnapshot?.attendants ?? attendants };
-  body.cycleId ??= String(new Date(patient.admission_date).getTime());
+  body.cycleId = identity.cycleId;
   if (active) body.billingSummary = { ...body.billingSummary, pricing: approvedPricing({}) };
   const res = await client.query<RawStayRow>(
     `INSERT INTO stays (

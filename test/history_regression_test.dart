@@ -75,14 +75,15 @@ void main() {
       'advanceBilledAmount': 1000,
       'attendanceCharges': 200,
       'payments': [
-        {'id': 'old', 'amount': 900, 'date': day1},
-        {'id': 'local', 'amount': 300, 'date': day3},
+        {'id': 'old', 'amount': 900, 'date': day1, 'cycleId': day1.toString()},
+        {'id': 'local', 'amount': 300, 'date': day3, 'cycleId': day2.toString()},
       ],
     };
     db.records['payments/global'] = {
       'id': 'local',
       'patientId': 'p',
       'amount': 300,
+      'cycleId': day2.toString(),
       'date': day3,
     };
   });

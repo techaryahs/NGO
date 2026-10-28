@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:ngo/cache/cache_database.dart';
 import 'package:ngo/cache/persistent_cache.dart';
@@ -12,6 +13,8 @@ import 'package:ngo/config/app_config.dart';
 import 'package:ngo/models/patient_model.dart';
 import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/screens/attendance/attendance_service.dart';
+import 'package:ngo/screens/patients/widgets/edit_patient_dialog.dart';
+import 'package:ngo/screens/patients/widgets/patient_form_components.dart';
 import 'package:ngo/services/backend_api_service.dart';
 import 'package:ngo/services/patient_service.dart';
 import 'package:ngo/services/payment_service.dart';
@@ -544,6 +547,245 @@ void main() {
     dotenv.loadFromString(isOptional: true, envString: '');
   });
 
+  testWidgets(
+    'Edit Patient form sends a valid PostgreSQL edit without derived financial fields',
+    (tester) async {
+      late PatientModel original;
+      late List<Map<String, dynamic>> originalFinancials;
+      late List<Map<String, dynamic>> originalReceipts;
+      final putResponse = Completer<http.Response>();
+      final saved = Completer<void>();
+      Map<String, dynamic>? sentPayload;
+      await tester.runAsync(() async {
+        // This regression exercises the form/HTTP/server contract. Keep its
+        // requests independent of SQLite isolate scheduling in widget fake time.
+        paymentService.disposeScheduler();
+        backendApi.dispose();
+        diagnosticClient = _DiagnosticE2eClient();
+        backendApi = BackendApiService(
+          baseUrl: apiBaseUrl,
+          client: diagnosticClient,
+          getAuthToken: () async => currentToken,
+        );
+        roomService = RoomService(backendApiService: backendApi);
+        paymentService = PaymentService(null, backendApi);
+        patientService = PatientService(
+          backendApiService: backendApi,
+          roomService: roomService,
+          paymentService: paymentService,
+        );
+        final admission = DateTime(2026, 10, 19, 13);
+        await roomService.addRoom(
+          id: 'edit_room',
+          roomNumber: 'Edit QA',
+          roomIdentifier: '1A',
+          floor: 1,
+          roomType: 'general',
+          totalBeds: 1,
+          bedLabels: ['Edit1'],
+        );
+        final room = (await roomService.getRoomDirect('edit_room'))!;
+        await patientService.addPatient(
+          id: 'edit_patient',
+          fullName: 'Synthetic edit',
+          dateOfBirth: DateTime(1990),
+          gender: 'Other',
+          contactNumber: '0000000000',
+          emergencyContact: '',
+          emergencyContactName: '',
+          medicalCondition: 'Synthetic diagnosis',
+          admissionDate: admission,
+          registrationDate: admission,
+          exitDate: DateTime(2026, 10, 25, 20),
+          registrationNumber: 'EDIT-QA',
+          createdBy: 'test-uid-admin',
+          attendants: [],
+          initialStays: [
+            {
+              'id': 'edit_stay',
+              'roomId': room.id,
+              'bedId': room.beds.single.id,
+              'admissionDate': admission.millisecondsSinceEpoch,
+              'durationDays': 7,
+            },
+          ],
+        );
+        await paymentService.recordPayment(
+          patientId: 'edit_patient',
+          patientName: 'Synthetic edit',
+          payment: PaymentModel(
+            id: 'edit_receipt',
+            amount: 400,
+            date: admission,
+            method: 'CASH',
+          ),
+        );
+        original = (await patientService.getPatient('edit_patient'))!;
+        originalFinancials = await queryRows(
+          "SELECT advance_billed_amount,total_paid_amount,current_due_amount,refund_due_amount,billing_amount_override FROM patients WHERE id='edit_patient'",
+        );
+        originalReceipts = await queryRows(
+          "SELECT * FROM payments WHERE patient_id='edit_patient' ORDER BY id",
+        );
+        // The locator's photo service is needed by the real form. No photo is
+        // uploaded, and its lazy cache is never opened. All domain calls below
+        // use the authenticated disposable backend services from this harness.
+        dotenv.loadFromString(
+          isOptional: true,
+          envString: 'BACKEND_API_URL=$apiBaseUrl\nENVIRONMENT=testing\n',
+        );
+        ServiceLocator().initialize(
+          projectId: 'ngo-audit-test',
+          apiKey: 'synthetic-only',
+        );
+        ServiceLocator().patientService = patientService;
+        ServiceLocator().roomService = roomService;
+        ServiceLocator().paymentService = paymentService;
+        ServiceLocator().backendApiService = backendApi;
+        diagnosticClient.beforeSend = (request) async {
+          // Avoid real HTTP keep-alive idle timers in the widget fake clock.
+          request.persistentConnection = false;
+          if (request.method == 'PUT' &&
+              request.url.path == '/api/patients/edit_patient') {
+            expect(request.headers['Authorization'], 'Bearer $currentToken');
+            sentPayload = Map<String, dynamic>.from(
+              jsonDecode((request as http.Request).body) as Map,
+            );
+          }
+        };
+        diagnosticClient.afterSend = (request, response) async {
+          if (request.method == 'PUT' &&
+              request.url.path == '/api/patients/edit_patient' &&
+              !putResponse.isCompleted) {
+            putResponse.complete(response);
+          }
+        };
+      });
+      tester.view.physicalSize = const Size(1200, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => EditPatientDialog(
+                    patient: original,
+                    onPatientUpdated: () => saved.complete(),
+                  ),
+                ),
+                child: const Text('Open edit'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open edit'));
+      await tester.pump();
+      // Network callbacks originate in widget fake time. Drain those callbacks
+      // between real IO turns without racing the form's loading timeouts.
+      Future<void> drainIoUntil(bool Function() complete) async {
+        for (var attempt = 0; attempt < 150 && !complete(); attempt++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 100)),
+          );
+          await tester.pump();
+        }
+        expect(complete(), isTrue, reason: 'Form IO did not complete');
+      }
+
+      await drainIoUntil(
+        () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
+      );
+      await tester.pumpAndSettle();
+      final diagnosis = find.descendant(
+        of: find.byWidgetPredicate(
+          (widget) => widget is PatientFormField && widget.label == 'Diagnosis',
+        ),
+        matching: find.byType(TextField),
+      );
+      await tester.ensureVisible(diagnosis);
+      await tester.enterText(diagnosis, 'Updated synthetic diagnosis');
+      final address = find.descendant(
+        of: find.byWidgetPredicate(
+          (widget) =>
+              widget is PatientFormField && widget.label == 'Permanent address',
+        ),
+        matching: find.byType(TextField),
+      );
+      await tester.ensureVisible(address);
+      await tester.enterText(address, 'Updated synthetic address');
+      await tester.ensureVisible(find.text('Update patient'));
+      await tester.tap(find.text('Update patient'));
+      await drainIoUntil(() => saved.isCompleted);
+      await tester.runAsync(() async {
+        final response = await putResponse.future.timeout(
+          const Duration(seconds: 15),
+        );
+        expect(response.statusCode, 200, reason: response.body);
+        await saved.future.timeout(const Duration(seconds: 15));
+        expect(sentPayload, isNotNull);
+        for (final field in [
+          'billingAmountOverride',
+          'advanceBilledAmount',
+          'attendanceCharges',
+          'totalPaidAmount',
+          'currentDueAmount',
+          'refundDueAmount',
+          'totalRefundDueAmount',
+          'totalRefundedAmount',
+          'admissionBalances',
+          'stayBillingUpdates',
+          'totalPresentDays',
+          'totalAbsentDays',
+        ]) {
+          expect(
+            sentPayload!.containsKey(field),
+            isFalse,
+            reason: '$field must not be supplied by the form',
+          );
+        }
+        expect(sentPayload, containsPair('fullName', original.fullName));
+        expect(
+          sentPayload,
+          containsPair('medicalCondition', 'Updated synthetic diagnosis'),
+        );
+        expect(
+          sentPayload,
+          containsPair('address', 'Updated synthetic address'),
+        );
+        expect(sentPayload, containsPair('contactNumber', '0000000000'));
+        expect(sentPayload!['attendants'], isEmpty);
+        final refreshed = (await queryRows(
+          "SELECT medical_condition,address FROM patients WHERE id='edit_patient'",
+        )).single;
+        expect(refreshed['medical_condition'], 'Updated synthetic diagnosis');
+        expect(refreshed['address'], 'Updated synthetic address');
+        expect(
+          await queryRows(
+            "SELECT advance_billed_amount,total_paid_amount,current_due_amount,refund_due_amount,billing_amount_override FROM patients WHERE id='edit_patient'",
+          ),
+          originalFinancials,
+        );
+        expect(
+          await queryRows(
+            "SELECT * FROM payments WHERE patient_id='edit_patient' ORDER BY id",
+          ),
+          originalReceipts,
+        );
+      });
+      paymentService.disposeScheduler();
+      backendApi.dispose();
+      await tester.pumpAndSettle();
+      expect(find.byType(EditPatientDialog), findsNothing);
+    },
+  );
+
   test(
     'discharge readiness/cancel preserves booking and ignores a stale active preview through real services',
     () async {
@@ -748,7 +990,7 @@ void main() {
         medicalCondition: '',
         admissionDate: admission,
         registrationDate: admission,
-        exitDate: DateTime(2026, 10, 19, 9),
+        exitDate: DateTime(2026, 10, 19, 9, 1),
         createdBy: 'test-uid-admin',
         attendants: [],
         initialStays: [
@@ -920,7 +1162,7 @@ void main() {
           medicalCondition: '',
           admissionDate: admission,
           registrationDate: admission,
-          exitDate: DateTime(2026, 10, 10, 9),
+          exitDate: DateTime(2026, 10, 10, 9, 1),
           createdBy: 'test-uid-admin',
           attendants: [],
           initialStays: [
@@ -1113,7 +1355,9 @@ void main() {
       'Flutter ${scenario.category} estimate, stored costs and final invoice agree at day ${scenario.days} with ${scenario.beds} beds and late=${scenario.late}',
       () async {
         final admission = DateTime(2026, 1, 1);
-        final planned = DateTime(2026, 1, scenario.days, 9);
+        // The estimate includes the final day; actual checkout below separately
+        // exercises both sides of the unchanged 09:00 cutoff.
+        final planned = DateTime(2026, 1, scenario.days, 9, 1);
         final checkout = DateTime(
           2026,
           1,
@@ -1329,7 +1573,7 @@ void main() {
         emergencyContactName: 'Synthetic',
         medicalCondition: 'Synthetic',
         admissionDate: DateTime(2026, 1, 1),
-        exitDate: DateTime(2026, 1, 60, 9),
+        exitDate: DateTime(2026, 1, 60, 9, 1),
         registrationNumber: 'quote_patient',
         createdBy: 'test-uid-admin',
         initialStays: [
@@ -1853,7 +2097,11 @@ void main() {
       final tables = await queryRows(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
       );
-      expect(tables.length, 18); // 17 domain tables + pgmigrations
+      expect(tables.length, 19); // Includes the append-only payment history.
+      expect(
+        tables.any((table) => table['tablename'] == 'payment_change_history'),
+        isTrue,
+      );
     },
   );
 

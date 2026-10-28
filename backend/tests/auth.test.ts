@@ -13,6 +13,11 @@ describe('Firebase authentication and authoritative authorization', () => {
   let role = 'staff';
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(db, 'getClient').mockResolvedValue({
+      query: async (sql: string, params?: unknown[]) => /^(BEGIN|COMMIT|ROLLBACK)/.test(sql)
+        ? { rows: [], rowCount: 0 } : db.query(sql, params),
+      release: vi.fn(),
+    } as any);
     role = 'staff';
     installTestFirebaseKeys();
     vi.spyOn(db, 'query').mockImplementation(async (sql: string) => {

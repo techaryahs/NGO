@@ -29,6 +29,27 @@ async function calculate(options: Parameters<typeof fixture>[0], checkoutAt?: Da
 }
 
 describe('approved client billing rules', () => {
+  it('late October checkout requires both kinds through the actual date, not just the planned exit', async () => {
+    const person = { id: 'helper', name: 'Helper' };
+    const f = fixture({ days: 8, people: [person] });
+    const start = new Date('2026-10-16T06:00:00Z');
+    const current = String(start.getTime());
+    f.patient.admission_date = start;
+    f.patient.registration_date = start;
+    f.patient.exit_date = new Date('2026-10-23T14:30:00Z');
+    Object.assign(f.source.stays[0], { admission_date: start, cycle_id: current });
+    f.source.records.forEach((r, index) => { r.day = `2026-10-${16 + Math.floor(index / 2)}`; });
+    const checkoutAt = new Date('2026-10-28T04:29:00Z');
+    const result = await projectBilling(f.client, f.patient, { source: f.source, checkoutAt });
+    const missing = result.balances[current].pendingAttendance;
+    expect(missing.filter((r: any) => r.kind === 'attendance').map((r: any) => r.day)).toEqual(['2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28']);
+    expect(missing.filter((r: any) => r.kind === 'attendant_attendance')).toHaveLength(5);
+    for (let day = 24; day <= 28; day++) {
+      f.source.records.push({ kind: 'attendance', day: `2026-10-${day}`, payload: { status: 'Absent' } });
+      f.source.records.push({ kind: 'attendant_attendance', day: `2026-10-${day}`, payload: { helper: { attendantId: 'helper', attendantName: 'Helper', status: 'Present' } } });
+    }
+    expect((await projectBilling(f.client, f.patient, { source: f.source, checkoutAt })).balances[current].pendingAttendance).toEqual([]);
+  });
   it('post-admission attendee charges and Pending requirements start at association, including imported early marks', async () => {
     const people = [{ id: 'late-person', name: 'Late arrival', startDate: '2026-01-06' }];
     const f = fixture({ days: 10, people });

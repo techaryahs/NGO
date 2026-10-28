@@ -13,6 +13,18 @@ class AttendanceInterval {
   bool contains(DateTime date) => !date.isBefore(start) && !date.isAfter(end);
 }
 
+class AttendantAttendanceSummary {
+  final String name;
+  int present = 0;
+  int absent = 0;
+  AttendantAttendanceSummary(this.name);
+
+  void add(dynamic status) {
+    if (status == 'Present') present++;
+    if (status == 'Absent') absent++;
+  }
+}
+
 class AttendanceRow {
   final String patientId;
   final String patientName;
@@ -75,7 +87,7 @@ class MonthlyAttendanceData {
   }) {
     final first = dates.first;
     final last = dates.last;
-    final today = StayBilling.day(now ?? DateTime.now());
+    final today = StayBilling.kolkataDay(now ?? DateTime.now());
     final result = <AttendanceRow>[];
     final byPatient = <String, List<StayModel>>{};
     for (final stay in stays.where((stay) => stay.status != 'cancelled')) {
@@ -173,8 +185,13 @@ class MonthlyAttendanceData {
             stay.isActive &&
             current &&
             patient.status.toLowerCase() != 'discharged';
+        final planned = patient.exitDate == null
+            ? null
+            : StayBilling.kolkataDay(patient.exitDate!);
         final end = ongoing
-            ? patient.exitDate ?? today
+            ? planned != null && planned.isAfter(today)
+                  ? planned
+                  : today
             : stay.completedAt ??
                   (current ? patient.dischargeDate : null) ??
                   stay.updatedAt;
@@ -197,7 +214,10 @@ class MonthlyAttendanceData {
           patient.registrationDate ?? patient.admissionDate,
           patient.status.toLowerCase() == 'discharged'
               ? patient.dischargeDate ?? patient.exitDate ?? today
-              : patient.exitDate ?? today,
+              : patient.exitDate != null &&
+                    StayBilling.kolkataDay(patient.exitDate!).isAfter(today)
+              ? StayBilling.kolkataDay(patient.exitDate!)
+              : today,
           rosterMap(
             (patient.attendants ?? <AttendantModel>[]).map((a) => a.toMap()),
           ),
@@ -371,6 +391,66 @@ class MonthlyAttendanceEditor {
 }
 
 class AttendanceService {
+  /// Summarize each day by identity, matching billing's ID-first, unique-name
+  /// fallback. The caller supplies only the admission's requested date range.
+  static List<AttendantAttendanceSummary> attendantSummary(
+    Map<String, dynamic> dates,
+    List<AttendantModel> roster, {
+    String? startDate,
+    String? endDate,
+  }) {
+    final summaries = <String, AttendantAttendanceSummary>{};
+    final rosterKeys = <String>[];
+    for (var i = 0; i < roster.length; i++) {
+      final person = roster[i];
+      final identity = person.id ?? 'roster:$i';
+      rosterKeys.add(identity);
+      summaries[identity] = AttendantAttendanceSummary(person.name);
+    }
+    for (final entry in dates.entries) {
+      if ((startDate != null && entry.key.compareTo(startDate) < 0) ||
+          (endDate != null && entry.key.compareTo(endDate) > 0)) {
+        continue;
+      }
+      final raw = entry.value;
+      if (raw is! Map) continue;
+      final marks = <String, Map>{};
+      final directKeys = <String>{};
+      raw.forEach((key, value) {
+        if (value is Map) {
+          final identity = (value['attendantId'] ?? key).toString();
+          final direct = key.toString() == identity;
+          if (direct || !directKeys.contains(identity)) marks[identity] = value;
+          if (direct) directKeys.add(identity);
+        }
+      });
+      final consumed = <String>{};
+      for (var i = 0; i < roster.length; i++) {
+        final person = roster[i];
+        final unique = roster.where((p) => p.name == person.name).length == 1;
+        final safeName = AttendanceRow.safeKey(person.name);
+        final id = person.id;
+        final mark =
+            (id == null ? null : marks[id]) ??
+            (unique ? marks[person.name] ?? marks[safeName] : null);
+        if (id != null) consumed.add(id);
+        if (unique) consumed.addAll([person.name, safeName]);
+        if (mark != null) summaries[rosterKeys[i]]!.add(mark['status']);
+      }
+      for (final entry in marks.entries) {
+        if (consumed.contains(entry.key)) continue;
+        final name = entry.value['attendantName']?.toString() ?? entry.key;
+        summaries
+            .putIfAbsent(
+              'historical:${entry.key}',
+              () => AttendantAttendanceSummary(name),
+            )
+            .add(entry.value['status']);
+      }
+    }
+    return summaries.values.toList();
+  }
+
   final FirebaseRTDBRestService? _db;
   final BackendApiService? _backendApi;
   AttendanceService([this._db, this._backendApi]);

@@ -804,7 +804,7 @@ void main() {
     expect(bills.firstWhere((b) => b.id == newCycle).due, 100);
   });
 
-  test('legacy payment earlier on the admission day belongs to that cycle', () {
+  test('legacy same-day receipt remains unallocated without admission evidence', () {
     final admitted = DateTime(2026, 1, 1, 15, 34);
     final legacyPayment = PaymentModel(
       id: 'legacy',
@@ -816,7 +816,7 @@ void main() {
 
     expect(
       StayBilling.paymentCycle(legacyPayment, currentPatient, const []),
-      admitted.millisecondsSinceEpoch.toString(),
+      'unallocated-payment:legacy',
     );
   });
   test('active admission estimate uses both room segments', () {

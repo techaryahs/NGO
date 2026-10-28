@@ -209,6 +209,13 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
               const SizedBox(height: 20),
 
               // Overview Cards
+              if (_patient.financialUncertain)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'Financial amounts are provisional. Resolve payment allocation and attendance before final settlement.',
+                  ),
+                ),
               Row(
                 children: [
                   _MetricCard(
@@ -233,8 +240,8 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
                   const SizedBox(width: 12),
                   _MetricCard(
                     title: 'Refund Due (Excess)',
-                    value: currency.format(_patient.totalRefundDueAmount),
-                    color: _patient.totalRefundDueAmount > 0
+                    value: currency.format(_patient.confirmedRefundDueAmount),
+                    color: _patient.confirmedRefundDueAmount > 0
                         ? Colors.deepOrange
                         : Colors.grey,
                     subtitle: _patient.totalRefundedAmount > 0
@@ -245,7 +252,7 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
               ),
               const SizedBox(height: 16),
 
-              if (_patient.totalRefundDueAmount > 0)
+              if (_patient.confirmedRefundDueAmount > 0)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -266,7 +273,7 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Payment exceeded by ${currency.format(_patient.totalRefundDueAmount)}. Record the refund once cash/UPI is returned to patient.',
+                          'Payment exceeded by ${currency.format(_patient.confirmedRefundDueAmount)}. Record the refund once cash/UPI is returned to patient.',
                           style: const TextStyle(
                             color: Colors.deepOrange,
                             fontWeight: FontWeight.w600,
@@ -336,7 +343,7 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Close'),
                   ),
-                  if (_patient.totalRefundDueAmount > 0) ...[
+                  if (_patient.confirmedRefundDueAmount > 0) ...[
                     const SizedBox(width: 12),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
@@ -394,7 +401,12 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
         final paid = (data['paid'] as num?)?.toDouble() ?? 0.0;
         final refunded = (data['refunded'] as num?)?.toDouble() ?? 0.0;
         final due = (data['due'] as num?)?.toDouble() ?? 0.0;
-        final refundDue = (data['refundDue'] as num?)?.toDouble() ?? 0.0;
+        final uncertain =
+            data['reconciliationRequired'] == true ||
+            data['provisional'] == true;
+        final refundDue = uncertain
+            ? 0.0
+            : (data['refundDue'] as num?)?.toDouble() ?? 0.0;
         final status = data['status']?.toString() ?? '';
 
         final matchingStay = _stays

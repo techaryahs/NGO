@@ -20,6 +20,11 @@ describe('Security Audit — CORS, Authentication, Authorization and Error Expos
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(db, 'getClient').mockResolvedValue({
+      query: async (sql: string, params?: unknown[]) => /^(BEGIN|COMMIT|ROLLBACK)/.test(sql)
+        ? { rows: [], rowCount: 0 } : db.query(sql, params),
+      release: vi.fn(),
+    } as any);
     currentUserRole = 'staff';
     currentUserId = 'user-staff-123';
     installTestFirebaseKeys();

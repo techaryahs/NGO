@@ -66,14 +66,50 @@ export function stayCycle(stay: any, patient: any): string {
         return String(stay.cycle_id);
     if (stay.patient_snapshot?.admissionDate != null)
         return String(stay.patient_snapshot.admissionDate);
-    const admission = new Date(patient.admission_date).getTime();
-    return String(new Date(stay.created_at).getTime() >= admission - 60000 || new Date(stay.admission_date).getTime() === new Date(patient.registration_date ?? patient.admission_date).getTime() ? admission : new Date(stay.admission_date).getTime());
+    // A saved segment owner is evidence; placement/creation dates are not an
+    // admission identity (transfers and imported stays can share those dates).
+    const owners = Object.entries<any>(patient.admission_balances ?? {})
+        .filter(([, balance]) => Object.hasOwn(balance.segmentCharges ?? {}, stay.id))
+        .map(([id]) => id);
+    return owners.length === 1 ? owners[0] : `unresolved-stay:${stay.id}`;
 }
-export function receiptCycle(row: any, patient: any, stays: any[]): string {
+export function cycleIdentityIssues(patient: any, stays: any[]) {
+    return stays.filter(s => s.status !== 'cancelled').flatMap(s => {
+        const cycle = stayCycle(s, patient);
+        const snapshot = s.patient_snapshot?.admissionDate;
+        const summary = s.billing_summary?.admissionId;
+        const savedOwners = Object.entries<any>(patient.admission_balances ?? {})
+            .filter(([, balance]) => Object.hasOwn(balance.segmentCharges ?? {}, s.id)).map(([id]) => id);
+        return cycle.startsWith('unresolved-stay:') ||
+            snapshot != null && String(snapshot) !== cycle ||
+            summary != null && String(summary) !== cycle ||
+            savedOwners.length > 0 && (savedOwners.length !== 1 || savedOwners[0] !== cycle)
+            ? [{ stayId: s.id, cycleId: s.cycle_id ?? null, snapshotCycleId: snapshot == null ? null : String(snapshot),
+                summaryCycleId: summary == null ? null : String(summary), savedCycleIds: savedOwners,
+                reason: cycle.startsWith('unresolved-stay:') ? 'missing_stay_cycle' : 'conflicting_stay_cycles' }]
+            : [];
+    });
+}
+/** New online placements belong to the locked admission, never the bed/date. */
+export function newStayIdentity(patient: any, body: any) {
+    const current = String(new Date(patient.admission_date).getTime());
+    const active = !body.status || body.status === 'active';
+    const cycle = active ? current : body.cycleId ?? body.patientSnapshot?.admissionDate;
+    if (cycle == null || (body.cycleId != null && String(body.cycleId) !== String(cycle)) ||
+        (body.patientSnapshot?.admissionDate != null && String(body.patientSnapshot.admissionDate) !== String(cycle)) ||
+        (body.billingSummary?.admissionId != null && String(body.billingSummary.admissionId) !== String(cycle)))
+        throw httpError(409, 'Stay cycle conflicts with the admission identity; reconcile the original admission evidence');
+    return { cycleId: String(cycle), snapshotAdmission: /^\d+$/.test(String(cycle)) && Number.isSafeInteger(Number(cycle)) ? Number(cycle) : String(cycle) };
+}
+export function receiptCycle(row: any, patient: any, stays: any[], context: 'recorded' | 'new' = 'recorded'): string | null {
     if (row.cycle_id)
-        return row.cycle_id;
-    const boundaries = [...new Set([String(new Date(patient.admission_date).getTime()), ...stays.map(s => stayCycle(s, patient))])].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
-    return String(boundaries.filter(n => dayKey(n) <= dayKey(row.payment_date)).at(-1) ?? `before-${boundaries[0]}`);
+        return String(row.cycle_id);
+    // One *remaining* cycle cannot prove a historical receipt's ownership:
+    // previous admissions may have been deleted or incompletely imported.
+    // Only a new online request can establish and persist a single-cycle choice.
+    if (context !== 'new' || cycleIdentityIssues(patient, stays).length) return null;
+    const cycles = new Set([String(new Date(patient.admission_date).getTime()), ...stays.filter(s => s.status !== 'cancelled').map(s => stayCycle(s, patient)), ...Object.keys(patient.admission_balances ?? {})]);
+    return cycles.size === 1 ? [...cycles][0] : null;
 }
 /** Caller holds this patient's row lock. Read-only until persistBilling is called.
  * Charges retain stay overrides, per-admission transfer/multi-bed day ownership,
@@ -139,6 +175,22 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     for (const id of Object.keys(patient.admission_balances ?? {}))
         if (!groups.has(id))
             groups.set(id, []);
+    const allocatedCycle = (r: any) => receiptCycle(r, patient, stays);
+    const identityIssues = cycleIdentityIssues(patient, stays);
+    const chargeIssues = !stays.some(s => s.status !== 'cancelled') &&
+        !Object.values<any>(patient.admission_balances ?? {}).some(b => b.total != null) && patient.billing_amount_override == null
+        ? [{ cycleId: currentCycle, reason: 'missing_invoice_evidence' }] : [];
+    const unallocated = receipts.filter(r => { const cycle = allocatedCycle(r); return cycle == null || !groups.has(cycle); });
+    const reconciliation = {
+        required: unallocated.length > 0 || identityIssues.length > 0 || chargeIssues.length > 0,
+        cycleIdentityIssues: identityIssues,
+        chargeIssues,
+        unallocatedReceipts: unallocated.map(r => ({ id: r.id, cycleId: r.cycle_id ?? null, amount: money(r.amount) / 100,
+            reason: r.cycle_id == null ? 'unestablished_cycle' : 'unknown_cycle' })),
+        unallocatedNet: unallocated.reduce((sum, r) => sum + money(r.amount), 0) / 100,
+        accountPaid: receipts.reduce((sum, r) => sum + Math.max(0, money(r.amount)), 0) / 100,
+        accountRefunded: receipts.reduce((sum, r) => sum + Math.max(0, -money(r.amount)), 0) / 100,
+    };
     const balances: Record<string, any> = {};
     for (const [cycleId, segments] of groups) {
         const active = cycleId === currentCycle && patient.status.toLowerCase() !== 'discharged';
@@ -299,7 +351,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             billed = patient.billing_amount_override != null ? money(patient.billing_amount_override) : money(patient.advance_billed_amount) + money(patient.attendance_charges);
         // Parse exact NUMERIC values returned by pg; do not sum IEEE decimal money.
         let paid = 0, refunded = 0;
-        for (const r of receipts.filter(r => receiptCycle(r, patient, stays) === cycleId)) {
+        for (const r of receipts.filter(r => allocatedCycle(r) === cycleId)) {
             const amount = money(r.amount);
             if (amount < 0)
                 refunded -= amount;
@@ -308,6 +360,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
         balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
+        balances[cycleId].reconciliationRequired = reconciliation.required;
         if (!frozen) {
             balances[cycleId].segmentPatientCharges = Object.fromEntries(Object.entries(patientCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
             balances[cycleId].segmentAttendantCharges = Object.fromEntries(Object.entries(attendantCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
@@ -317,15 +370,16 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     const rangeStart = dayKey(patient.admission_date), rangeEnd = dayKey(options.checkoutAt ?? (patient.status === 'discharged' ? patient.discharge_date ?? patient.exit_date ?? Date.now() : patient.exit_date ?? Date.now()));
     const marks = [...attendance].filter(([d]) => d >= rangeStart && d <= rangeEnd).map(([, s]) => s);
     const fields = { advance_billed_amount: decimal(money(current.total)), attendance_charges: '0.00', billing_amount_override: stays.length ? null : patient.billing_amount_override, total_paid_amount: decimal(money(current.netPaid)), current_due_amount: decimal(money(current.due)), refund_due_amount: decimal(money(current.refundDue)), total_refund_due_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refundDue), 0)), total_refunded_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refunded), 0)), payment_pending: current.due > 0, payment_status: current.status, admission_balances: balances, total_present_days: marks.filter(s => s === 'Present').length, total_absent_days: marks.filter(s => s === 'Absent').length };
-    const computedStays = stays.map(s => { const b = balances[stayCycle(s, patient)]; return b && s.status !== 'cancelled' && !(b.finalized && !options.finalize) && stayCycle(s, patient) === currentCycle ? { ...s, total_cost: decimal(money(b.segmentCharges[s.id] ?? 0)), billing_summary: { ...s.billing_summary, pricing: s.billing_summary?.pricing ?? pricing, days: b.segmentDays[s.id] ?? 0, amount: b.segmentCharges[s.id] ?? 0, admissionId: b.cycleId, provisional: b.provisional, checkoutAdjustment: b.checkoutAdjustment?.stayId == null || b.checkoutAdjustment.stayId === s.id ? b.checkoutAdjustment : null, pendingAttendance: b.pendingAttendance }, cycle_id: b.cycleId, daily_rate: s.daily_rate_is_manual ? s.daily_rate : null } : s; });
+    const conflictedStays = new Set(identityIssues.map(issue => issue.stayId));
+    const computedStays = stays.map(s => { const b = balances[stayCycle(s, patient)]; return b && !conflictedStays.has(s.id) && s.status !== 'cancelled' && !(b.finalized && !options.finalize) && stayCycle(s, patient) === currentCycle ? { ...s, total_cost: decimal(money(b.segmentCharges[s.id] ?? 0)), billing_summary: { ...s.billing_summary, pricing: s.billing_summary?.pricing ?? pricing, days: b.segmentDays[s.id] ?? 0, amount: b.segmentCharges[s.id] ?? 0, admissionId: b.cycleId, provisional: b.provisional, checkoutAdjustment: b.checkoutAdjustment?.stayId == null || b.checkoutAdjustment.stayId === s.id ? b.checkoutAdjustment : null, pendingAttendance: b.pendingAttendance }, cycle_id: b.cycleId, daily_rate: s.daily_rate_is_manual ? s.daily_rate : null } : s; });
     for (const s of computedStays) {
         const b = balances[stayCycle(s, patient)];
-        if (s.status !== 'cancelled' && stayCycle(s, patient) === currentCycle && !(b.finalized && !options.finalize) && b.segmentPatientCharges?.[s.id] != null) {
+        if (!conflictedStays.has(s.id) && s.status !== 'cancelled' && stayCycle(s, patient) === currentCycle && !(b.finalized && !options.finalize) && b.segmentPatientCharges?.[s.id] != null) {
             s.base_cost = decimal(money(b.segmentPatientCharges[s.id]));
             s.extra_attendant_cost = decimal(money(b.segmentAttendantCharges[s.id]));
         }
     }
-    return { patient: { ...patient, ...fields }, fields, stays: computedStays, receipts, balances, attendance, repriceClosed: options.finalize === true,
+    return { patient: { ...patient, ...fields, financial_reconciliation: { ...reconciliation, accountNetPaid: reconciliation.accountPaid - reconciliation.accountRefunded, provisional: current.provisional === true } }, fields, stays: computedStays, receipts, balances, reconciliation, attendance, repriceClosed: options.finalize === true,
         source: { stays: sourceStays, records, receipts, pricing, roster } };
 }
 
@@ -340,6 +394,8 @@ export async function quoteStayExtension(client: pg.PoolClient, patient: any, st
     const through = nextDay(from, additionalDays);
     const asOf = Date.now();
     const beforeProjection = await projectBilling(client, patient, { asOf, ignoreCheckout: true });
+    if (beforeProjection.reconciliation.cycleIdentityIssues.length)
+        throw httpError(409, 'Reconcile admission identities before pricing a stay extension');
     const before = beforeProjection.balances[cycle];
     const afterPatient = { ...patient, exit_date: patient.exit_date ? new Date(new Date(patient.exit_date).getTime() + additionalDays * 86400000) : null };
     const after = (await projectBilling(client, afterPatient, { asOf, ignoreCheckout: true, source: beforeProjection.source, stayEndDates: {
@@ -357,8 +413,9 @@ export async function persistBilling(client: pg.PoolClient, projection: Awaited<
     const keys = Object.keys(projection.fields);
     const values = Object.values(projection.fields).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
     const updated = (await client.query(`UPDATE patients SET ${keys.map((k, i) => `${k}=$${i + 2}`).join(',')},version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`, [projection.patient.id, ...values])).rows[0];
-    for (const s of projection.stays.filter(s => s.status !== 'cancelled' && (projection.patient.status !== 'discharged' || projection.repriceClosed) && stayCycle(s, projection.patient) === String(new Date(projection.patient.admission_date).getTime())))
+    const unresolvedStays = new Set(projection.reconciliation.cycleIdentityIssues.map(issue => issue.stayId));
+    for (const s of projection.stays.filter(s => !unresolvedStays.has(s.id) && s.status !== 'cancelled' && (projection.patient.status !== 'discharged' || projection.repriceClosed) && stayCycle(s, projection.patient) === String(new Date(projection.patient.admission_date).getTime())))
         await client.query('UPDATE stays SET total_cost=$2,billing_summary=$3::jsonb,cycle_id=$4,daily_rate=$5,base_cost=COALESCE($6,base_cost),extra_attendant_cost=COALESCE($7,extra_attendant_cost),updated_at=CURRENT_TIMESTAMP WHERE id=$1', [s.id, s.total_cost, JSON.stringify(s.billing_summary), s.cycle_id, s.daily_rate, s.base_cost, s.extra_attendant_cost]);
-    projection.patient = updated;
+    projection.patient = { ...updated, financial_reconciliation: projection.patient.financial_reconciliation };
     return projection;
 }

@@ -176,7 +176,10 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                       children: [
                         FilledButton.tonalIcon(
                           onPressed: () => _showRecordRefundWorkflow(context),
-                          icon: const Icon(Icons.currency_exchange_rounded, size: 18),
+                          icon: const Icon(
+                            Icons.currency_exchange_rounded,
+                            size: 18,
+                          ),
                           label: const Text("Record Refund"),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFFFFF3E0),
@@ -269,27 +272,31 @@ class _PaymentsScreenState extends State<PaymentsScreen>
               status == 'paid' ||
               status == 'discharged' ||
               p.effectiveDueAmount > 0 ||
-              p.totalRefundDueAmount > 0;
+              p.confirmedRefundDueAmount > 0;
         }).toList();
 
-        final dueCount = activePatients.where((p) => p.effectiveDueAmount > 0).length;
-        final refundDueCount = activePatients.where((p) => p.totalRefundDueAmount > 0).length;
+        final dueCount = activePatients
+            .where((p) => p.effectiveDueAmount > 0)
+            .length;
+        final refundDueCount = activePatients
+            .where((p) => p.confirmedRefundDueAmount > 0)
+            .length;
         final totalDue = activePatients.fold<double>(
           0.0,
           (sum, p) => sum + p.effectiveDueAmount,
         );
-        final totalCollected = activePatients.fold(
+        final totalCollected = allPatients.fold(
           0.0,
-          (sum, p) => sum + p.effectivePaidAmount,
+          (sum, p) => sum + p.accountNetPaid,
         );
         final totalRefundDue = allPatients.fold<double>(
           0.0,
-          (sum, p) => sum + p.totalRefundDueAmount,
+          (sum, p) => sum + p.confirmedRefundDueAmount,
         );
 
         final filteredByChip = activePatients.where((p) {
           if (_billingFilterIndex == 1) return p.effectiveDueAmount > 0;
-          if (_billingFilterIndex == 2) return p.totalRefundDueAmount > 0;
+          if (_billingFilterIndex == 2) return p.confirmedRefundDueAmount > 0;
           return true;
         }).toList();
 
@@ -318,7 +325,9 @@ class _PaymentsScreenState extends State<PaymentsScreen>
               Row(
                 children: [
                   _SummaryCard(
-                    title: "Total Outstanding Due",
+                    title: activePatients.any((p) => p.financialUncertain)
+                        ? "Provisional Outstanding Due"
+                        : "Total Outstanding Due",
                     value: totalDue,
                     color: const Color(0xFFD32F2F),
                     icon: Icons.warning_rounded,
@@ -362,8 +371,12 @@ class _PaymentsScreenState extends State<PaymentsScreen>
                     selected: _billingFilterIndex == 2,
                     selectedColor: const Color(0xFFFFF3E0),
                     labelStyle: TextStyle(
-                      color: _billingFilterIndex == 2 ? Colors.deepOrange : Colors.black87,
-                      fontWeight: _billingFilterIndex == 2 ? FontWeight.bold : FontWeight.normal,
+                      color: _billingFilterIndex == 2
+                          ? Colors.deepOrange
+                          : Colors.black87,
+                      fontWeight: _billingFilterIndex == 2
+                          ? FontWeight.bold
+                          : FontWeight.normal,
                     ),
                     onSelected: (_) => setState(() => _billingFilterIndex = 2),
                   ),
@@ -467,7 +480,8 @@ class _PaymentsScreenState extends State<PaymentsScreen>
             .fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
         final refunded = payments.fold(0.0, (sum, p) {
           final amt = (p['amount'] as num?)?.toDouble() ?? 0.0;
-          final isRefund = p['type']?.toString().toLowerCase() == 'refund' || amt < 0;
+          final isRefund =
+              p['type']?.toString().toLowerCase() == 'refund' || amt < 0;
           return sum + (isRefund ? amt.abs() : 0.0);
         });
 
@@ -803,7 +817,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: patient.totalRefundDueAmount > 0
+            color: patient.confirmedRefundDueAmount > 0
                 ? Colors.deepOrange.withValues(alpha: 0.3)
                 : const Color(0xFFC0DD97).withValues(alpha: 0.3),
           ),
@@ -814,7 +828,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: patient.totalRefundDueAmount > 0
+                color: patient.confirmedRefundDueAmount > 0
                     ? const Color(0xFFFFF3E0)
                     : patient.isAdvancePeriod
                     ? const Color(0xFFE3F2FD)
@@ -822,12 +836,12 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                patient.totalRefundDueAmount > 0
+                patient.confirmedRefundDueAmount > 0
                     ? Icons.currency_exchange_rounded
                     : patient.isAdvancePeriod
                     ? Icons.hourglass_top_rounded
                     : Icons.calendar_month_rounded,
-                color: patient.totalRefundDueAmount > 0
+                color: patient.confirmedRefundDueAmount > 0
                     ? Colors.deepOrange
                     : patient.isAdvancePeriod
                     ? Colors.blue
@@ -902,14 +916,20 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                     children: [
                       Text(
                         "Bill: ${fmt.format(totalBill)}",
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       const Text("•", style: TextStyle(color: Colors.grey)),
                       const SizedBox(width: 8),
                       Text(
                         "Paid: ${fmt.format(patient.effectivePaidAmount)}",
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -920,9 +940,9 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (patient.totalRefundDueAmount > 0) ...[
+                if (patient.confirmedRefundDueAmount > 0) ...[
                   Text(
-                    'Excess: ${fmt.format(patient.totalRefundDueAmount)}',
+                    'Excess: ${fmt.format(patient.confirmedRefundDueAmount)}',
                     style: const TextStyle(
                       color: Colors.deepOrange,
                       fontWeight: FontWeight.bold,
@@ -934,13 +954,19 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFFFFF3E0),
                       foregroundColor: Colors.deepOrange,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 0,
+                      ),
                       minimumSize: const Size(80, 28),
                     ),
                     icon: const Icon(Icons.currency_exchange_rounded, size: 14),
                     label: const Text(
                       'Record Refund',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     onPressed: () => showRefundDialog(context, patient),
                   ),
@@ -948,7 +974,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                 ],
 
                 Text(
-                  "Due: ${fmt.format(patient.effectiveDueAmount)}",
+                  "${patient.financialUncertain ? 'Provisional due' : 'Due'}: ${fmt.format(patient.effectiveDueAmount)}",
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 18,
@@ -963,7 +989,10 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                   children: [
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 0,
+                        ),
                         minimumSize: const Size(60, 32),
                         side: const BorderSide(color: Color(0xFF97C459)),
                       ),
@@ -974,14 +1003,21 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                       ),
                       label: const Text(
                         "History",
-                        style: TextStyle(fontSize: 11, color: Color(0xFF3B6D11)),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF3B6D11),
+                        ),
                       ),
-                      onPressed: () => showPatientFinancialDialog(context, patient),
+                      onPressed: () =>
+                          showPatientFinancialDialog(context, patient),
                     ),
                     if (patient.effectiveDueAmount > 0) ...[
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: _isProcessing
+                        onPressed:
+                            _isProcessing ||
+                                patient.financialReconciliation['required'] ==
+                                    true
                             ? null
                             : () async {
                                 setState(() => _isProcessing = true);
@@ -991,7 +1027,8 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                                     patientName: patient.fullName,
                                     contactNumber: patient.contactNumber,
                                     bedsCount: patient.bedIds?.length ?? 1,
-                                    attendantsCount: patient.attendants?.length ?? 0,
+                                    attendantsCount:
+                                        patient.attendants?.length ?? 0,
                                     roomIdentifier: patient.roomNumber,
                                     alreadyPaid: patient.effectivePaidAmount,
                                     showPayLater: false,
@@ -1005,13 +1042,17 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                                       context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text('Online payment recorded.'),
+                                        content: Text(
+                                          'Online payment recorded.',
+                                        ),
                                         backgroundColor: Color(0xFF3B6D11),
                                       ),
                                     );
                                   }
                                 } finally {
-                                  if (mounted) setState(() => _isProcessing = false);
+                                  if (mounted) {
+                                    setState(() => _isProcessing = false);
+                                  }
                                 }
                               },
                         style: ElevatedButton.styleFrom(
@@ -1036,7 +1077,10 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text("Pay Now", style: TextStyle(fontSize: 12)),
+                            : const Text(
+                                "Pay Now",
+                                style: TextStyle(fontSize: 12),
+                              ),
                       ),
                     ] else
                       const Padding(
@@ -1249,16 +1293,19 @@ class _RefundPatientSelectionDialogState
 
   Widget _buildDialog(BuildContext context, List<PatientModel> allPatients) {
     final currency = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-    final filtered = allPatients.where((p) {
-      if (_onlyRefundDue && p.totalRefundDueAmount <= 0) return false;
-      if (_search.isEmpty) return true;
-      final q = _search.toLowerCase();
-      return p.fullName.toLowerCase().contains(q) ||
-          (p.registrationNumber?.toLowerCase().contains(q) ?? false) ||
-          (p.roomNumber?.toLowerCase().contains(q) ?? false) ||
-          p.contactNumber.toLowerCase().contains(q);
-    }).toList()
-      ..sort((a, b) => b.totalRefundDueAmount.compareTo(a.totalRefundDueAmount));
+    final filtered =
+        allPatients.where((p) {
+          if (_onlyRefundDue && p.confirmedRefundDueAmount <= 0) return false;
+          if (_search.isEmpty) return true;
+          final q = _search.toLowerCase();
+          return p.fullName.toLowerCase().contains(q) ||
+              (p.registrationNumber?.toLowerCase().contains(q) ?? false) ||
+              (p.roomNumber?.toLowerCase().contains(q) ?? false) ||
+              p.contactNumber.toLowerCase().contains(q);
+        }).toList()..sort(
+          (a, b) =>
+              b.confirmedRefundDueAmount.compareTo(a.confirmedRefundDueAmount),
+        );
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -1334,14 +1381,17 @@ class _RefundPatientSelectionDialogState
                 children: [
                   FilterChip(
                     label: Text(
-                      'Patients with Refund Due (${allPatients.where((p) => p.totalRefundDueAmount > 0).length})',
+                      'Patients with Refund Due (${allPatients.where((p) => p.confirmedRefundDueAmount > 0).length})',
                     ),
                     selected: _onlyRefundDue,
                     selectedColor: const Color(0xFFFFF3E0),
                     labelStyle: TextStyle(
-                      color: _onlyRefundDue ? Colors.deepOrange : Colors.black87,
-                      fontWeight:
-                          _onlyRefundDue ? FontWeight.bold : FontWeight.normal,
+                      color: _onlyRefundDue
+                          ? Colors.deepOrange
+                          : Colors.black87,
+                      fontWeight: _onlyRefundDue
+                          ? FontWeight.bold
+                          : FontWeight.normal,
                     ),
                     onSelected: (val) => setState(() => _onlyRefundDue = val),
                   ),
@@ -1369,7 +1419,8 @@ class _RefundPatientSelectionDialogState
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (ctx, i) {
                           final patient = filtered[i];
-                          final hasRefund = patient.totalRefundDueAmount > 0;
+                          final hasRefund =
+                              patient.confirmedRefundDueAmount > 0;
                           return InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () {
@@ -1432,7 +1483,7 @@ class _RefundPatientSelectionDialogState
                                     children: [
                                       if (hasRefund)
                                         Text(
-                                          'Refund Due: ${currency.format(patient.totalRefundDueAmount)}',
+                                          'Refund Due: ${currency.format(patient.confirmedRefundDueAmount)}',
                                           style: const TextStyle(
                                             color: Colors.deepOrange,
                                             fontWeight: FontWeight.bold,
@@ -1443,7 +1494,8 @@ class _RefundPatientSelectionDialogState
                                         Text(
                                           'Due: ${currency.format(patient.effectiveDueAmount)}',
                                           style: TextStyle(
-                                            color: patient.effectiveDueAmount > 0
+                                            color:
+                                                patient.effectiveDueAmount > 0
                                                 ? Colors.red
                                                 : const Color(0xFF3B6D11),
                                             fontWeight: FontWeight.w600,

@@ -19,7 +19,12 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     const response = await send('POST', '/patients', { id: 'p1', fullName: 'Synthetic payment accuracy', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01T00:00:00Z', currentDueAmount: '10.00', advanceBilledAmount: String((extra.admissionBalances as any)?.[cycle]?.total ?? (extra.currentDueAmount != null ? Number(extra.currentDueAmount) + Number(extra.totalPaidAmount ?? 0) - Number(extra.refundDueAmount ?? 0) : 10)), ...extra });
     expect(response.statusCode).toBe(201);
     // Financial fixtures must contain real receipts, not only saved summaries.
-    const balances = extra.admissionBalances ?? { [cycle]: balance(Number(extra.advanceBilledAmount ?? 10), Number(extra.totalPaidAmount ?? 0)) };
+    const balances = extra.admissionBalances ?? { [cycle]: balance(Number(response.json().advanceBilledAmount), Number(extra.totalPaidAmount ?? 0)) };
+    // These tests exercise a known invoice without accommodation fixtures.
+    // A cached patient amount alone is not evidence authorizing a refund.
+    await query('UPDATE patients SET admission_balances=$2::jsonb WHERE id=$1', ['p1', JSON.stringify(
+      Object.fromEntries(Object.entries<any>(balances).map(([id, saved]) => [id, { ...saved, finalized: true }]))
+    )]);
     for (const [id, saved] of Object.entries(balances) as [string, any][]) {
       if (saved.paid) await query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES($1,'p1',$2,$3,'2026-01-02')", [`fixture_paid_${id}`, id, saved.paid]);
       if (saved.refunded) await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES($1,'p1',$2,'refund',$3,'2026-01-02')", [`fixture_refund_${id}`, id, -saved.refunded]);
@@ -186,7 +191,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
   it('moving a receipt between known cycles applies both deltas without global restatement', async () => {
     await seed({ admissionBalances: { [cycle]: balance(10, 0), [oldCycle]: balance(20, 0) } });
     await record('move', '3.00');
-    expect((await send('PATCH', '/payments/move', { cycleId: oldCycle })).statusCode).toBe(200);
+    expect((await send('PATCH', '/payments/move', { cycleId: oldCycle, reason: 'Fixture original receipt proves the historical admission' })).statusCode).toBe(200);
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 0, currentDueAmount: 10, admissionBalances: { [oldCycle]: { paid: 3, due: 17 }, [cycle]: { paid: 0, due: 10 } } });
     expect((await send('DELETE', '/payments/move')).statusCode).toBe(200);
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 0, currentDueAmount: 10, admissionBalances: { [oldCycle]: { paid: 0, due: 20 } } });
@@ -204,7 +209,9 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
     await query("INSERT INTO rooms(id,room_number,room_type) VALUES('legacy-room','Legacy','general')");
     await query(`INSERT INTO stays(id,patient_id,patient_name,room_id,room_number,room_type,cycle_id,admission_date,duration_days,expected_discharge_date,expiry_date,completed_at,cost_override,status,created_by)
       VALUES('legacy-stay','p1','Synthetic','legacy-room','Legacy','general',$1,'2025-01-01',2,'2025-01-03','2025-01-03','2025-01-03',100,'completed','test-uid-admin')`, [oldCycle]);
-    expect((await record('legacy-old-refund', '-10.00', { type: 'refund', cycleId: null, date: '2025-01-02' })).statusCode).toBe(201);
+    expect((await record('ambiguous-old-refund', '-10.00', { type: 'refund', cycleId: null, date: '2025-01-02' })).statusCode).toBe(409);
+    expect((await query("SELECT id FROM payments WHERE id='ambiguous-old-refund'")).rows).toEqual([]);
+    expect((await record('legacy-old-refund', '-10.00', { type: 'refund', cycleId: oldCycle, date: '2025-01-02' })).statusCode).toBe(201);
     expect(await getPatient()).toMatchObject({ totalPaidAmount: 7, currentDueAmount: 3, totalRefundedAmount: 10, totalRefundDueAmount: 10, admissionBalances: { [oldCycle]: { paid: 120, refunded: 10, refundDue: 10 } } });
   });
   it('prevents removing already refunded receipt money below zero net paid', async () => {
@@ -274,7 +281,8 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
   });
   it.each(['PATCH', 'DELETE'])('%s rejects a receipt recreated under another patient while its original owner is locked', async method => {
     await seed(); await record('recreated', '1.00');
-    const other = await send('POST', '/patients', { id: 'p2', fullName: 'Synthetic second patient', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', totalPaidAmount: 2, currentDueAmount: 8 });
+    const other = await send('POST', '/patients', { id: 'p2', fullName: 'Synthetic second patient', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', advanceBilledAmount: 10, totalPaidAmount: 2, currentDueAmount: 8,
+      admissionBalances: { [cycle]: { ...balance(10, 2), finalized: true } } });
     expect(other.statusCode).toBe(201);
     const blocker = await pool.connect();
     let open = false;

@@ -126,7 +126,11 @@ describe.skipIf(!enabled)('bounded synthetic PostgreSQL scalability evidence', (
           expect(patient.payments).toHaveLength(5);
           expect(patient.payments.every((payment: any) => payment.patientId === patient.id)).toBe(true);
           expect(patient.payments.reduce((sum: number,payment: any) => sum + Math.round(payment.amount*100),0)).toBe(50);
-          expect(patient.totalPaidAmount).toBe(0.5);
+          // This fixture intentionally has no cycle IDs: the account owns all
+          // five receipts, but their admission ownership is unproven.
+          expect(patient.totalPaidAmount).toBe(0);
+          expect(patient.financialReconciliation).toMatchObject({ required: true, accountNetPaid: 0.5, unallocatedNet: 0.5 });
+          expect(patient.financialReconciliation.unallocatedReceipts).toHaveLength(5);
         }
       };
       measurements.push(await measure('patients-default', '/patients?format=map', 3, body => expect(Object.keys(body)).toHaveLength(500)));

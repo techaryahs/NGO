@@ -658,7 +658,32 @@ void main() {
           );
           expect(h.emissions.every((value) => value.length >= 109), isTrue);
         }
-        expect(h.requests.where((request) => request.method == 'GET'), isEmpty);
+        // Each explicit registration number requires a uniqueness lookup. This
+        // harness models a missing RTDB index, including its supported fallback.
+        // SSE/hydration must not introduce any additional network reloads.
+        final reads = h.requests
+            .where((request) => request.method == 'GET')
+            .toList();
+        expect(reads, hasLength(4));
+        expect(
+          reads.every((request) => request.url.path == '/patients.json'),
+          isTrue,
+        );
+        expect(
+          reads
+              .where(
+                (request) => request.url.queryParameters.containsKey('orderBy'),
+              )
+              .map((request) => request.url.queryParameters['equalTo'])
+              .toList(),
+          ['"5200"', '"5201"'],
+        );
+        expect(
+          reads.where(
+            (request) => !request.url.queryParameters.containsKey('orderBy'),
+          ),
+          hasLength(2),
+        );
       },
     );
 

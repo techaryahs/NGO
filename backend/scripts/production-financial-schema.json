@@ -1,0 +1,483 @@
+{
+  "all_reference_tables": [
+    "attendance_records",
+    "expense_entries",
+    "inventory_items",
+    "patient_attendants",
+    "patient_photos",
+    "patients",
+    "payments",
+    "pgmigrations",
+    "purchases",
+    "room_beds",
+    "rooms",
+    "salaries",
+    "sponsorships",
+    "stays",
+    "system_counters",
+    "system_settings",
+    "users",
+    "vendors"
+  ],
+  "schema_sha256": "475841e91cde8c841c22e2484d936dfda1c3ff110d1b9bb5c553d93acab1ccba",
+  "tables": {
+    "attendance_records": {
+      "attendance_date": {
+        "type": "date"
+      },
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "max_length": 128,
+        "type": "character varying"
+      },
+      "kind": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "payload": {
+        "type": "jsonb"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      }
+    },
+    "patient_attendants": {
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "name": {
+        "max_length": 255,
+        "type": "character varying"
+      },
+      "patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      }
+    },
+    "patients": {
+      "admission_balances": {
+        "type": "jsonb"
+      },
+      "admission_date": {
+        "type": "timestamp with time zone"
+      },
+      "advance_billed_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "approved_date": {
+        "type": "timestamp with time zone"
+      },
+      "attendance_charges": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "bed_ids": {
+        "type": "jsonb"
+      },
+      "billing_amount_override": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "current_due_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "discharge_date": {
+        "type": "timestamp with time zone"
+      },
+      "exit_date": {
+        "type": "timestamp with time zone"
+      },
+      "extension_approved": {
+        "type": "boolean"
+      },
+      "extension_days": {
+        "type": "integer"
+      },
+      "id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "is_advance_period": {
+        "type": "boolean"
+      },
+      "max_stay_days": {
+        "type": "integer"
+      },
+      "payment_due_date": {
+        "type": "timestamp with time zone"
+      },
+      "payment_pending": {
+        "type": "boolean"
+      },
+      "payment_status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "refund_due_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "registration_date": {
+        "type": "timestamp with time zone"
+      },
+      "registration_number": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "room_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "total_absent_days": {
+        "type": "integer"
+      },
+      "total_paid_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "total_present_days": {
+        "type": "integer"
+      },
+      "total_refund_due_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "total_refunded_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      },
+      "version": {
+        "type": "integer"
+      }
+    },
+    "payments": {
+      "amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "check_number": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "cycle_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "id": {
+        "max_length": 128,
+        "type": "character varying"
+      },
+      "method": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "paid_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "payment_date": {
+        "type": "timestamp with time zone"
+      },
+      "payment_status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "pending_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "receipt_number": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "request_fingerprint": {
+        "type": "text"
+      },
+      "source": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "total_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "transaction_id": {
+        "max_length": 128,
+        "type": "character varying"
+      },
+      "type": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      }
+    },
+    "pgmigrations": {
+      "id": {
+        "type": "integer"
+      },
+      "name": {
+        "max_length": 255,
+        "type": "character varying"
+      },
+      "run_on": {
+        "type": "timestamp without time zone"
+      }
+    },
+    "room_beds": {
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "current_patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "current_stay_id": {
+        "max_length": 128,
+        "type": "character varying"
+      },
+      "id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "room_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      }
+    },
+    "rooms": {
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "current_attendants": {
+        "type": "integer"
+      },
+      "id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "max_attendants": {
+        "type": "integer"
+      },
+      "occupied_beds": {
+        "type": "integer"
+      },
+      "room_type": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "total_beds": {
+        "type": "integer"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      },
+      "version": {
+        "type": "integer"
+      }
+    },
+    "sponsorships": {
+      "amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "payment_method": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "sponsorship_date": {
+        "type": "timestamp with time zone"
+      }
+    },
+    "stays": {
+      "admission_date": {
+        "type": "timestamp with time zone"
+      },
+      "attendant_count": {
+        "type": "integer"
+      },
+      "base_cost": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "bed_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "billing_summary": {
+        "type": "jsonb"
+      },
+      "completed_at": {
+        "type": "timestamp with time zone"
+      },
+      "cost_override": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "created_at": {
+        "type": "timestamp with time zone"
+      },
+      "cycle_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "daily_rate": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "daily_rate_is_manual": {
+        "type": "boolean"
+      },
+      "duration_days": {
+        "type": "integer"
+      },
+      "expected_discharge_date": {
+        "type": "timestamp with time zone"
+      },
+      "expiry_date": {
+        "type": "timestamp with time zone"
+      },
+      "extensions": {
+        "type": "jsonb"
+      },
+      "extra_attendant_cost": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "id": {
+        "max_length": 128,
+        "type": "character varying"
+      },
+      "long_stay_daily_rate": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "paid_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "patient_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "patient_snapshot": {
+        "type": "jsonb"
+      },
+      "pending_amount": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "room_id": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "room_type": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "status": {
+        "max_length": 32,
+        "type": "character varying"
+      },
+      "total_cost": {
+        "precision": 12,
+        "scale": 2,
+        "type": "numeric"
+      },
+      "total_extended_days": {
+        "type": "integer"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      }
+    },
+    "system_settings": {
+      "category": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "settings_key": {
+        "max_length": 64,
+        "type": "character varying"
+      },
+      "settings_value": {
+        "type": "jsonb"
+      },
+      "updated_at": {
+        "type": "timestamp with time zone"
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "objective": "Correct shared cycle identity and financial allocation using completed production export evidence; prepare historical dry-run only",
+  "mode": "implement",
+  "allowed_write_scope": ["backend/", "lib/", "test/", "docs/", "audit/production-export-20261028/", ".gravitas/sessions/financial-root-causes-20261028/"],
+  "non_goals": ["No production access or writes", "No deployment", "No historical allocation guesses", "No tariff or cutoff changes"],
+  "planning_policy": {"planning": "deep", "context_depth": "dependency", "verification_depth": "impact", "delegation": "none", "reason_codes": ["shared-financial-model", "multiple-mutation-paths", "historical-record-preservation"]},
+  "acceptance_criteria": ["Canonical identity on new placements", "5157 structural regression preserves both invoices and original receipt", "No timestamp allocation of historical receipts", "Shared mutation guards and transactional regression coverage", "Repeatable historical dry-run with evidence and unresolved cases", "PostgreSQL matrix, TypeScript, Flutter tests and analysis executed after changes"]
+}

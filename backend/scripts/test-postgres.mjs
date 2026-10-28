@@ -20,6 +20,9 @@ const suites = [
   ['migrations', 'RUN_PG_MIGRATIONS'],
   ['persistence', 'RUN_PG_RESTART', 'workflows'],
 ];
+const requested = process.argv.slice(2);
+if (requested.some(name => !suites.some(([suite]) => suite === name))) throw new Error('Unknown disposable suite');
+const selectedSuites = requested.length ? suites.filter(([name]) => requested.includes(name)) : suites;
 const baseEnv = { ...process.env, NODE_ENV: 'test' };
 for (const [, flag] of suites) delete baseEnv[flag];
 const executable = name => {
@@ -66,7 +69,7 @@ try {
   try {
     const identity = (await admin.query("SELECT current_setting('data_directory') AS directory,current_setting('server_version_num')::int AS version")).rows[0];
     if (realpathSync(identity.directory) !== realpathSync(dataDir) || identity.version < 160000 || identity.version >= 170000) throw new Error('Disposable cluster identity mismatch');
-    for (const name of new Set(suites.map(([name, , db]) => `ngo_audit_${db || name}`))) {
+    for (const name of new Set(['ngo_audit_workflows', ...selectedSuites.map(([name, , db]) => `ngo_audit_${db || name}`)])) {
       if (!/^ngo_audit_[a-z_]+$/.test(name)) throw new Error('Invalid test database name');
       await admin.query(`CREATE DATABASE ${name}`);
     }
@@ -81,12 +84,12 @@ try {
   if (!tests.includes('vitest run')) throw new Error('Unexpected project test convention');
   // Run every ordinary test, then every opt-in file in its exact dedicated DB.
   run(process.execPath, [vitest, 'run', '--reporter=dot', '--exclude=**/*.integration.test.ts'], environment('ngo_audit_workflows'));
-  for (const [name, flag, db] of suites) {
+  for (const [name, flag, db] of selectedSuites) {
     console.log(`\nDISPOSABLE_SUITE ${name}`);
     run(process.execPath, [vitest, 'run', '--reporter=dot', `tests/${name}.integration.test.ts`],
       { ...environment(`ngo_audit_${db || name}`), [flag]: '1' });
   }
-  console.log('DISPOSABLE_MATRIX_COMPLETE: all suites executed; no opt-in files skipped');
+  console.log(requested.length ? `DISPOSABLE_SELECTED_COMPLETE: ${requested.join(',')}` : 'DISPOSABLE_MATRIX_COMPLETE: all suites executed; no opt-in files skipped');
 } finally {
   if (started) run(pgCtl, ['-D', dataDir, '-w', '-t', '30', '-m', 'fast', 'stop']);
   const resolved = realpathSync(root);

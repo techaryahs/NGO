@@ -857,9 +857,9 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
             : _utiNumberController.text.trim(),
         // A patient can occupy either a lobby or a room, never both.
         'lobby': _selectedRoom == null ? _selectedLobby : null,
-        // Billing is recalculated after the patient and stay changes are
-        // saved. Do not replace it with a full-period attendant estimate.
-        'billingAmountOverride': null,
+        // PostgreSQL derives finances from receipts/stays and rejects these
+        // fields even when null. Retain the legacy RTDB reset only there.
+        if (!patientService.isPostgres) 'billingAmountOverride': null,
       };
 
       // Handle room/bed change
@@ -887,7 +887,6 @@ class _EditPatientDialogState extends State<EditPatientDialog> {
       }
 
       final placementChanged = roomChanged || bedsChanged || lobbyChanged;
-      if (placementChanged) updates['billingAmountOverride'] = null;
       final shiftTime = DateTime.now();
       if (placementChanged) {
         // Complete all old stays

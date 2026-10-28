@@ -25,6 +25,15 @@ double _patientPaymentTotal(
   DateTime? from,
   DateTime? through,
 }) {
+  if (patient.financialReconciliation.isNotEmpty) {
+    if (from == null) return patient.accountNetPaid;
+    final cycle = from.millisecondsSinceEpoch.toString();
+    if (cycle == StayBilling.currentCycle(patient)) {
+      return patient.effectivePaidAmount;
+    }
+    final balance = patient.admissionBalances[cycle];
+    return balance is Map ? (balance['netPaid'] as num?)?.toDouble() ?? 0 : 0;
+  }
   final payments = patient.payments;
   final paymentHistoryTotal = (payments ?? []).fold<double>(0, (
     total,
@@ -34,17 +43,17 @@ double _patientPaymentTotal(
       if (payment.cycleId != from.millisecondsSinceEpoch.toString()) {
         return total;
       }
-    } else if (from != null &&
-        DateUtils.dateOnly(payment.date).isBefore(DateUtils.dateOnly(from))) {
+    } else if (from != null) {
+      // An untagged historical receipt cannot be assigned by its date.
       return total;
     }
     if (through != null && payment.date.isAfter(through)) return total;
     return total + payment.amount;
   });
 
-  return paymentHistoryTotal > 0
-      ? paymentHistoryTotal
-      : (payments == null ? (patient.totalPaidAmount ?? 0) : 0);
+  return payments == null
+      ? (patient.totalPaidAmount ?? 0)
+      : paymentHistoryTotal;
 }
 
 class PatientProfileScreen extends StatefulWidget {
@@ -708,11 +717,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
         final currentCycleTotal =
             currentPatient.advanceBilledAmount +
             currentPatient.attendanceCharges;
-        final currentCycleDue = (currentCycleTotal - currentCyclePaid).clamp(
-          0,
-          double.infinity,
-        );
-        final showPayBtn = isActive && currentCycleDue > 0;
+        final currentCycleDue =
+            currentPatient.financialReconciliation.isNotEmpty
+            ? currentPatient.effectiveDueAmount
+            : (currentCycleTotal - currentCyclePaid).clamp(0, double.infinity);
+        final showPayBtn =
+            isActive &&
+            currentCycleDue > 0 &&
+            currentPatient.financialReconciliation['required'] != true;
         final payBtnLabel = currentCyclePaid > 0 ? 'Pay Remaining' : 'Pay Now';
         final photoBytes = _decodePhoto(currentPatient.photoDataUrl);
 
@@ -1439,7 +1451,9 @@ class _OverviewTab extends StatelessWidget {
       from: patient.admissionDate,
     );
     final total = patient.advanceBilledAmount + patient.attendanceCharges;
-    final pending = (total - paidAmount).clamp(0, double.infinity);
+    final pending = patient.financialReconciliation.isNotEmpty
+        ? patient.effectiveDueAmount
+        : (total - paidAmount).clamp(0, double.infinity);
     final paymentStatus = paidAmount > total
         ? 'Payment Exceeded'
         : pending > 0
@@ -1449,11 +1463,23 @@ class _OverviewTab extends StatelessWidget {
       label: "Financial Summary",
       child: Column(
         children: [
-          if (patient.totalRefundDueAmount > 0)
+          if (patient.financialUncertain)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Provisional financial amounts. Reconcile receipt allocations, admission identities and attendance before final settlement.',
+                style: TextStyle(color: Colors.deepOrange),
+              ),
+            ),
+          if (patient.financialReconciliation.isNotEmpty)
+            Text(
+              'Account net receipts: ${currencyFmt.format(patient.accountNetPaid)}; unallocated: ${currencyFmt.format(patient.financialReconciliation['unallocatedNet'] ?? 0)}',
+            ),
+          if (patient.confirmedRefundDueAmount > 0)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                'Payment exceeded — refund due: ${currencyFmt.format(patient.totalRefundDueAmount)}',
+                'Payment exceeded — refund due: ${currencyFmt.format(patient.confirmedRefundDueAmount)}',
                 style: const TextStyle(
                   color: Colors.deepOrange,
                   fontWeight: FontWeight.bold,
@@ -1479,13 +1505,17 @@ class _OverviewTab extends StatelessWidget {
           const SizedBox(height: 12),
           _Row2(
             _InfoField(
-              label: "Pending Amount",
+              label: patient.financialUncertain
+                  ? "Provisional Pending Amount"
+                  : "Pending Amount",
               value: currencyFmt.format(pending),
               icon: Icons.pending_actions_outlined,
             ),
             _InfoField(
               label: "Payment Status",
-              value: paymentStatus,
+              value: patient.financialReconciliation['required'] == true
+                  ? 'Reconciliation required'
+                  : paymentStatus,
               icon: Icons.info_outline,
             ),
           ),
@@ -2298,7 +2328,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (widget.patient.totalRefundDueAmount > 0)
+              if (widget.patient.confirmedRefundDueAmount > 0)
                 Card(
                   color: const Color(0xFFFFF3E0),
                   child: Padding(
@@ -2308,7 +2338,7 @@ class _PaymentHistoryTabState extends State<_PaymentHistoryTab> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
-                          'Payment exceeded — refund due: ${currencyFmt.format(widget.patient.totalRefundDueAmount)}',
+                          'Payment exceeded — refund due: ${currencyFmt.format(widget.patient.confirmedRefundDueAmount)}',
                           style: const TextStyle(
                             color: Colors.deepOrange,
                             fontWeight: FontWeight.bold,
@@ -2601,7 +2631,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
   }
 
   ({String start, String end}) get _attendanceDateRange =>
-      StayBilling.attendanceDateRange(widget.patient);
+      StayBilling.attendanceDateRange(widget.patient, includeElapsed: true);
 
   Future<Map<String, Map<String, dynamic>>> _loadAttendanceData() async {
     final result = <String, Map<String, dynamic>>{};
@@ -2843,24 +2873,12 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                 .where((r) => r['status'] == 'Absent')
                 .length;
 
-            final counts = <String, List<int>>{
-              for (final attendant
-                  in widget.patient.attendants ?? <AttendantModel>[])
-                attendant.name: [0, 0],
-            };
-            attendantData.forEach((date, attendants) {
-              if (attendants is Map) {
-                attendants.forEach((key, val) {
-                  if (val is Map) {
-                    final name =
-                        val['attendantName']?.toString() ?? key.toString();
-                    final count = counts.putIfAbsent(name, () => [0, 0]);
-                    if (val['status'] == 'Present') count[0]++;
-                    if (val['status'] == 'Absent') count[1]++;
-                  }
-                });
-              }
-            });
+            final counts = AttendanceService.attendantSummary(
+              attendantData,
+              widget.patient.attendants ?? <AttendantModel>[],
+              startDate: _attendanceDateRange.start,
+              endDate: _attendanceDateRange.end,
+            );
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -2992,22 +3010,18 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                 ),
                                 for (
                                   var index = 0;
-                                  index < counts.entries.length;
+                                  index < counts.length;
                                   index++
                                 ) ...[
                                   _AttendanceSummaryCard(
                                     role: 'ATTENDANT ${index + 1}',
-                                    name: counts.entries.elementAt(index).key,
+                                    name: counts[index].name,
                                     icon: Icons.support_agent_rounded,
-                                    present: counts.entries
-                                        .elementAt(index)
-                                        .value[0],
-                                    absent: counts.entries
-                                        .elementAt(index)
-                                        .value[1],
+                                    present: counts[index].present,
+                                    absent: counts[index].absent,
                                     embedded: true,
                                   ),
-                                  if (index < counts.entries.length - 1)
+                                  if (index < counts.length - 1)
                                     const Divider(
                                       height: 1,
                                       color: Color(0xFFE3EDD9),

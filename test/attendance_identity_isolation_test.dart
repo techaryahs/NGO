@@ -136,6 +136,7 @@ void main() {
 
         final staysA = [
           StayModel.fromMap('stay_A', {
+            'cycleId': admissionA.millisecondsSinceEpoch.toString(),
             'patientId': patientIdA,
             'roomId': 'room_101',
             'roomNumber': '101',
@@ -149,6 +150,7 @@ void main() {
         ];
         final staysB = [
           StayModel.fromMap('stay_B', {
+            'cycleId': admissionB.millisecondsSinceEpoch.toString(),
             'patientId': patientIdB,
             'roomId': 'room_102',
             'roomNumber': '102',
@@ -188,6 +190,7 @@ void main() {
         final rows = monthlyData.rows(
           [patientModelA, patientModelB],
           [...staysA, ...staysB],
+          now: DateTime(2026, 10, 15, 12),
         );
 
         expect(rows.length, 2);

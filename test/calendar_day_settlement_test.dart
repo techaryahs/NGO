@@ -9,7 +9,7 @@ void main() {
   final cycle = admission.millisecondsSinceEpoch.toString();
   for (final hour in [0, 8, 9, 12, 23]) {
     test(
-      'PostgreSQL calendar billing includes October 31 at $hour:00 before and after discharge',
+      'PostgreSQL attendance bill and provisional checkout boundary at $hour:00',
       () {
         final exit = DateTime(2026, 10, 31, hour);
         final marks = {
@@ -66,7 +66,7 @@ void main() {
           ).single;
           expect(
             unmarked.total,
-            completed ? 2000 : 2600,
+            completed ? 2000 : hour <= 9 ? 2400 : 2600,
             reason: completed
                 ? 'Finalized history retains its stored invoice without repricing attendance'
                 : 'The provisional estimate does not fabricate attendance',

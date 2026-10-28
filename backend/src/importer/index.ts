@@ -2,7 +2,7 @@ import fs from 'fs';
 import { createHash } from 'node:crypto';
 import { getClient } from '../db/index.js';
 import { attendantId } from '../db/identifiers.js';
-import { receiptCycle } from '../services/billing.js';
+import { receiptCycle, projectBilling, persistBilling } from '../services/billing.js';
 
 export interface ImportOptions {
   filePath: string;
@@ -800,7 +800,8 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
             s.roomId,
             s.roomNumber || 'Room',
             s.roomType || 'general',
-            s.cycleId ? String(s.cycleId) : String(admission.getTime()),
+            // Preserve source identity; a placement timestamp is not a cycle.
+            s.cycleId != null ? String(s.cycleId) : s.patientSnapshot?.admissionDate != null ? String(s.patientSnapshot.admissionDate) : null,
             admission,
             duration,
             expected,
@@ -957,7 +958,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
 
     const paymentType = (p: any) => p.type || (cents(parseDecimal(p.amount)) < 0n ? 'refund' : 'payment');
     const paymentIdentity = (p: any) => JSON.stringify([
-      p.patientId, p.cycleId || null, paymentType(p), parseDecimal(p.amount),
+      p.patientId, p.cycleId ?? p.receiptCycle ?? null, paymentType(p), parseDecimal(p.amount),
       parseDecimal(p.totalAmount ?? p.amount), parseDecimal(p.paidAmount ?? p.amount),
       parseDecimal(p.pendingAmount), p.paymentStatus || 'Paid', p.method || 'cash',
       parseDate(p.date ?? p.paymentDate)?.toISOString(), p.receiptNumber || null,
@@ -989,6 +990,8 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
         try {
           if (p.amount == null || !p.patientId || !(p.date ?? p.paymentDate)) throw new Error('Incomplete ledger record');
           parseDecimal(p.amount);
+          if (p.cycleId != null && p.receiptCycle != null && String(p.cycleId) !== String(p.receiptCycle))
+            throw new Error('Conflicting source allocation identities');
           const existing = paymentsMap.get(id);
           if (existing) {
             stats.payments.deduplicated++;
@@ -998,7 +1001,10 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
             const d1 = parseDate(existing.date ?? existing.paymentDate)?.getTime();
             const d2 = parseDate(p.date ?? p.paymentDate)?.getTime();
             const sameDate = d1 != null && d1 === d2;
-            if (samePatient && sameAmount && sameDate) {
+            const firstCycle = existing.cycleId ?? existing.receiptCycle;
+            const otherCycle = p.cycleId ?? p.receiptCycle;
+            const sameCycle = firstCycle == null || otherCycle == null || String(firstCycle) === String(otherCycle);
+            if (samePatient && sameAmount && sameDate && sameCycle) {
               // Merge richer / updated fields
               if ((!existing.transactionId || existing.transactionId === 'MANUAL_ONLINE') && p.transactionId && p.transactionId !== 'MANUAL_ONLINE') {
                 existing.transactionId = p.transactionId;
@@ -1066,6 +1072,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
                 OR (id = $2 AND patient_id = $3)
                 OR ($4::varchar IS NOT NULL AND patient_id = $3 AND transaction_id = $4)
                 OR ($5::varchar IS NOT NULL AND patient_id = $3 AND receipt_number = $5)
+             ORDER BY CASE WHEN id=$1 THEN 0 WHEN id=$2 THEN 1 ELSE 2 END
              LIMIT 1`,
             [payId, prefix64, p.patientId, trimmedTx, trimmedReceipt]
           );
@@ -1073,7 +1080,12 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
           if (existingMatchRes.rows.length > 0) {
             const existingRow = existingMatchRes.rows[0];
             const existingAmount = parseDecimal(existingRow.amount);
-            if (existingRow.patient_id !== p.patientId || cents(existingAmount) !== cents(amount)) {
+            // References can be shared by legitimate split receipts. Even an
+            // equal amount is not proof that two different IDs are one receipt.
+            if (existingRow.patient_id !== p.patientId || cents(existingAmount) !== cents(amount) ||
+                ![payId, prefix64].includes(existingRow.id) ||
+                new Date(existingRow.payment_date).getTime() !== requiredDate(p.date ?? p.paymentDate).getTime() ||
+                existingRow.type !== paymentType(p)) {
               reconciliation.payments.conflicting++;
               throw new Error('Historical payment conflict');
             }
@@ -1083,12 +1095,13 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
             continue;
           }
 
-          // Infer cycleId from receiptCycle or patient's admission/stays when missing
+          // Preserve ambiguous legacy allocation as NULL; dates are not evidence
+          // of which admission a receipt pays for.
           let resolvedCycleId: string | null = p.cycleId
             ? String(p.cycleId)
             : (p.receiptCycle ? String(p.receiptCycle) : null);
           if (!resolvedCycleId) {
-            const patRowRes = await client.query('SELECT id, admission_date, registration_date FROM patients WHERE id = $1', [p.patientId]);
+            const patRowRes = await client.query('SELECT id, admission_date, registration_date, admission_balances FROM patients WHERE id = $1', [p.patientId]);
             const stayRowsRes = await client.query('SELECT * FROM stays WHERE patient_id = $1 ORDER BY admission_date ASC', [p.patientId]);
             if (patRowRes.rows.length > 0) {
               resolvedCycleId = receiptCycle(
@@ -1157,7 +1170,7 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
           [
             payId,
             p.patientId,
-            p.cycleId || null,
+            p.cycleId ?? p.receiptCycle ?? null,
             paymentType(p),
             amount,
             p.totalAmount != null ? parseDecimal(p.totalAmount) : amount,
@@ -1199,27 +1212,10 @@ export async function runFirebaseImport(options: ImportOptions): Promise<ImportS
 
     if (reconcileMode && patientsWithImportedPayments.size > 0) {
       for (const pid of patientsWithImportedPayments) {
-        const sumRes = await client.query(
-          `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS paid,
-                  COALESCE(SUM(amount), 0) AS net_paid
-           FROM payments WHERE patient_id = $1`,
-          [pid]
-        );
-        const netPaid = parseDecimal(sumRes.rows[0]?.net_paid ?? 0);
-        await client.query(
-          `UPDATE patients
-           SET total_paid_amount = $2,
-               current_due_amount = GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric),
-               payment_pending = (GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric) > 0),
-               payment_status = CASE
-                 WHEN GREATEST(0, advance_billed_amount + attendance_charges - $2::numeric) <= 0 THEN 'Paid'
-                 WHEN $2::numeric > 0 THEN 'Partially Paid'
-                 ELSE 'Unpaid'
-               END,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1`,
-          [pid, netPaid]
-        );
+        // Account receipts are not current-admission paid amounts. Use the same
+        // allocation/frozen-invoice engine as all online financial mutations.
+        const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [pid])).rows[0];
+        await persistBilling(client, await projectBilling(client, patient));
       }
     }
 

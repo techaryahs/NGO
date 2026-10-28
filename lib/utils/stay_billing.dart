@@ -106,16 +106,25 @@ class StayBilling {
   static String dateKey(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
-  /// Attendance ranges include the planned exit's calendar date. Actual
-  /// discharge takes precedence for completed admissions.
+  /// Active admissions remain eligible through today even after a planned exit.
+  /// Actual discharge takes precedence for completed admissions.
   static ({String start, String end}) attendanceDateRange(
     PatientModel patient, {
     DateTime? now,
+    bool includeElapsed = false,
   }) {
     final start = patient.registrationDate ?? patient.admissionDate;
+    final today = kolkataDay(now ?? DateTime.now());
+    final planned = patient.exitDate == null
+        ? null
+        : kolkataDay(patient.exitDate!);
     final end = patient.status.toLowerCase() == 'discharged'
-        ? patient.dischargeDate ?? patient.exitDate ?? now ?? DateTime.now()
-        : patient.exitDate ?? now ?? DateTime.now();
+        ? patient.dischargeDate ?? patient.exitDate ?? today
+        : !includeElapsed
+        ? patient.exitDate ?? today
+        : planned != null && planned.isAfter(today)
+        ? planned
+        : today;
     final period = PricingHelper.attendancePeriod(start, end);
     return (start: dateKey(period.start), end: dateKey(period.end));
   }
@@ -126,14 +135,16 @@ class StayBilling {
     if (stay.cycleId != null) return stay.cycleId!;
     final saved = stay.patientSnapshot['admissionDate'];
     if (saved != null) return saved.toString();
-    if (!stay.createdAt.isBefore(
-          patient.admissionDate.subtract(const Duration(minutes: 1)),
-        ) ||
-        stay.admissionDate ==
-            (patient.registrationDate ?? patient.admissionDate)) {
-      return currentCycle(patient);
-    }
-    return stay.admissionDate.millisecondsSinceEpoch.toString();
+    final owners = patient.admissionBalances.entries
+        .where((entry) {
+          final balance = entry.value;
+          return balance is Map &&
+              balance['segmentCharges'] is Map &&
+              (balance['segmentCharges'] as Map).containsKey(stay.id);
+        })
+        .map((entry) => entry.key)
+        .toList();
+    return owners.length == 1 ? owners.single : 'unresolved-stay:${stay.id}';
   }
 
   static String paymentCycle(
@@ -142,21 +153,9 @@ class StayBilling {
     List<StayModel> stays,
   ) {
     if (payment.cycleId != null) return payment.cycleId!;
-    final boundaries = <int>{patient.admissionDate.millisecondsSinceEpoch};
-    for (final stay in stays) {
-      final timestamp = int.tryParse(cycleFor(stay, patient));
-      if (timestamp != null) boundaries.add(timestamp);
-    }
-    final sorted = boundaries.toList()..sort();
-    // Older receipts do not have a cycleId and may have been entered earlier
-    // on the admission date than the recorded registration time. Match those
-    // receipts by calendar day so a valid same-day payment is not discarded.
-    final paymentDay = day(payment.date);
-    final before = sorted.where((value) {
-      final boundaryDay = day(DateTime.fromMillisecondsSinceEpoch(value));
-      return !boundaryDay.isAfter(paymentDay);
-    });
-    return before.isEmpty ? 'before-${sorted.first}' : before.last.toString();
+    // Historical ownership cannot be established from payment dates or the
+    // number of cycles that happen to remain in the database.
+    return 'unallocated-payment:${payment.id}';
   }
 
   static List<AdmissionBalance> calculate({
@@ -286,7 +285,8 @@ class StayBilling {
           final checkoutDayKey = patient.exitDate != null
               ? dateKey(billingDay(patient.exitDate!))
               : null;
-          final hasCheckoutAttendance = checkoutDayKey != null &&
+          final hasCheckoutAttendance =
+              checkoutDayKey != null &&
               (attendance.containsKey(checkoutDayKey) ||
                   attendantAttendance.containsKey(checkoutDayKey));
           if (isActualCheckout) {

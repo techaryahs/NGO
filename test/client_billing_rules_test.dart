@@ -308,7 +308,8 @@ void main() {
   );
   test('stored segment pricing survives a global setting change', () {
     final invoice = StayBilling.calculate(
-      patient: patient(2),
+      // Include both fixture dates; exactly 09:00 excludes an unmarked exit day.
+      patient: patient(2).copyWith(exitDate: at(2, 9, 1)),
       stays: [
         stay(
           'general',

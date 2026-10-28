@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { config } from '../src/config/index.js';
 import { pool, query } from '../src/db/index.js';
@@ -7,7 +7,7 @@ import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration and settlement regressions', () => {
     const app = buildApp({ logger: false });
     const send = (method: any, url: string, payload?: any) => app.inject({ method, url: `/api${url}`, payload, headers: { authorization: `Bearer ${signedTestToken()}` } });
-    const admission = '2026-10-19T06:12:00Z', exit = '2026-10-31T03:30:00Z';
+    const admission = '2026-10-19T06:12:00Z', exit = '2026-10-31T03:31:00Z';
     const cycle = String(Date.parse(admission));
     const patient = (id = 'p1') => ({ id, fullName: 'Synthetic settlement', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: admission, registrationDate: admission, exitDate: exit, registrationNumber: id, advanceBilledAmount: 2600, currentDueAmount: 2600 });
     const placement = (id = 's1', patientId = 'p1', bedId = 'b1') => ({ id, patientId, roomId: 'r1', bedId, admissionDate: admission, durationDays: 12, cycleId: cycle });
@@ -26,6 +26,151 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         expect((await send('POST', '/rooms', { id: 'r1', roomNumber: 'R1', roomType: 'general', beds: [{ id: 'b1', bedLabel: '1' }, { id: 'b2', bedLabel: '2' }] })).statusCode).toBe(201);
     });
     afterAll(async () => { await app.close(); await pool.end(); });
+    it('unmatched receipts remain visible; unsafe actions roll back and evidence-backed allocation is audited', async () => {
+        await register();
+        await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('unmatched','p1','unknown-cycle','payment',1200,CURRENT_TIMESTAMP)");
+        const before = (await send('GET', '/patients/p1/financials')).json();
+        expect(before.reconciliation).toMatchObject({ required: true, unallocatedNet: 1200, accountPaid: 1200 });
+        expect((await send('POST', '/payments', { id: 'unsafe-collection', patientId: 'p1', cycleId: cycle, amount: 100, collectOutstanding: true })).statusCode).toBe(409);
+        expect((await send('POST', '/payments', { id: 'unsafe-refund', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -100 })).statusCode).toBe(409);
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
+        expect((await query("SELECT id FROM payments WHERE id LIKE 'unsafe-%'")).rows).toEqual([]);
+        expect((await query("SELECT status FROM stays WHERE id='s_p1'")).rows[0].status).toBe('active');
+        expect((await send('PATCH', '/payments/unmatched', { cycleId: cycle })).statusCode).toBe(409);
+        const correction = { cycleId: cycle, reason: 'Fixture receipt evidence identifies current admission' };
+        await query("INSERT INTO users(id,email,name,role) VALUES('allocation-volunteer','volunteer@ngo.test','Synthetic','volunteer')");
+        const denied = await app.inject({ method: 'PATCH', url: '/api/payments/unmatched', payload: correction,
+            headers: { authorization: `Bearer ${signedTestToken('allocation-volunteer')}` } });
+        expect(denied.statusCode).toBe(403);
+        expect((await query("SELECT cycle_id FROM payments WHERE id='unmatched'")).rows[0].cycle_id).toBe('unknown-cycle');
+        expect((await send('PATCH', '/payments/unmatched', correction)).statusCode).toBe(200);
+        expect((await send('PATCH', '/payments/unmatched', correction)).statusCode).toBe(200);
+        const after = (await send('GET', '/patients/p1/financials')).json();
+        expect(after.reconciliation).toMatchObject({ required: false, accountPaid: 1200 });
+        expect(after.patient.admissionBalances[cycle].paid).toBe(1200);
+        const history = (await send('GET', '/payments/unmatched/history')).json();
+        expect(history.filter((r: any) => r.operation === 'UPDATE')).toHaveLength(1);
+        expect(history.at(-1)).toMatchObject({ operator_uid: 'test-uid-admin', reason: correction.reason, previous_record: { cycle_id: 'unknown-cycle' }, resulting_record: { cycle_id: cycle } });
+    });
+    it('generic patient updates cannot inject derived financial balances even with a current version', async () => {
+        await register();
+        const p = (await send('GET', '/patients/p1')).json();
+        expect((await send('PUT', '/patients/p1', { expectedVersion: p.version, admissionBalances: { [cycle]: { total: 0, paid: 99999 } } })).statusCode).toBe(409);
+    });
+    it.each(['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount',
+        'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates', 'advanceBilledAmount',
+        'attendanceCharges', 'billingAmountOverride', 'totalPresentDays', 'totalAbsentDays']
+        .flatMap(field => [null, field === 'stayBillingUpdates' ? {} : 99999].map(value => ({ field, value }))))(
+        'generic patient PUT rejects derived $field=$value without changing profile or ledger', async ({ field, value }) => {
+            await register();
+            const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data;
+            const response = await send('PUT', '/patients/p1', {
+                expectedVersion: before.version, fullName: 'Must roll back', [field]: value,
+            });
+            // The shared request validator rejects malformed stay updates before
+            // this route runs. A well-shaped object must still hit its guard.
+            const malformedStayUpdates = field === 'stayBillingUpdates' && value === null;
+            expect(response.statusCode, response.body).toBe(malformedStayUpdates ? 400 : 409);
+            expect(response.json().message).toContain(malformedStayUpdates
+                ? 'Invalid stay billing updates' : 'Financial balances are derived');
+            expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data).toEqual(before);
+            expect((await query("SELECT id FROM payments WHERE patient_id='p1'")).rows).toEqual([]);
+        });
+    it('rejects inconsistent placement identities atomically and stamps every bed with the admission cycle', async () => {
+        const invalid = { ...patient(), stays: [placement('first'), { ...placement('second', 'p1', 'b2'), cycleId: 'different-bed-cycle' }] };
+        expect((await send('POST', '/patients/register', invalid)).statusCode).toBe(409);
+        expect((await query('SELECT id FROM patients')).rows).toEqual([]);
+        expect((await query('SELECT id FROM stays')).rows).toEqual([]);
+        expect((await query("SELECT id FROM room_beds WHERE status<>'available'")).rows).toEqual([]);
+        await register();
+        expect((await send('POST', '/stays', { ...placement('second', 'p1', 'b2'), patientSnapshot: { admissionDate: 'stale' } })).statusCode).toBe(409);
+        expect((await send('POST', '/stays', { ...placement('second', 'p1', 'b2'), cycleId: undefined })).statusCode).toBe(201);
+        const rows = (await query('SELECT cycle_id,patient_snapshot FROM stays')).rows;
+        expect(rows).toHaveLength(2);
+        for (const row of rows) {
+            expect(row.cycle_id).toBe(cycle);
+            expect(String(row.patient_snapshot.admissionDate)).toBe(cycle);
+        }
+    });
+    it('single-cycle untagged history stays unresolved while safe advances remain idempotent', async () => {
+        await register();
+        await query("INSERT INTO payments(id,patient_id,type,amount,payment_date) VALUES('legacy','p1','payment',2800,$1)", [admission]);
+        const original = (await query("SELECT * FROM payments WHERE id='legacy'")).rows[0];
+        const advance = { id: 'advance', patientId: 'p1', cycleId: cycle, amount: 200 };
+        const responses = await Promise.all([send('POST', '/payments', advance), send('POST', '/payments', advance)]);
+        expect(responses.map(r => r.statusCode).sort()).toEqual([200, 201]);
+        const bill = (await send('GET', '/patients/p1/financials')).json();
+        expect(bill.reconciliation).toMatchObject({ required: true, accountPaid: 3000, unallocatedNet: 2800 });
+        expect(bill.patient.admissionBalances[cycle].paid).toBe(200);
+        expect((await send('POST', '/payments', { id: 'collection', patientId: 'p1', cycleId: cycle, amount: 100, collectOutstanding: true })).statusCode).toBe(409);
+        expect((await send('POST', '/payments', { id: 'refund', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -100 })).statusCode).toBe(409);
+        expect((await query("SELECT * FROM payments WHERE id='legacy'")).rows[0]).toEqual(original);
+        expect((await query('SELECT id FROM payments')).rows).toHaveLength(2);
+    });
+    it('cycle identity conflict alone blocks financial actions without rewriting either identity', async () => {
+        await register();
+        await query("UPDATE stays SET patient_snapshot=jsonb_set(patient_snapshot,'{admissionDate}','\"different-snapshot\"') WHERE id='s_p1'");
+        const before = (await query("SELECT cycle_id,patient_snapshot FROM stays WHERE id='s_p1'")).rows[0];
+        const bill = (await send('GET', '/patients/p1/financials')).json();
+        expect(bill.reconciliation).toMatchObject({ required: true, unallocatedNet: 0 });
+        expect(bill.reconciliation.cycleIdentityIssues).toHaveLength(1);
+        for (const payload of [
+            { id: 'collection', patientId: 'p1', cycleId: cycle, amount: 100, collectOutstanding: true },
+            { id: 'refund', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -100 },
+        ]) expect((await send('POST', '/payments', payload)).statusCode).toBe(409);
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
+        expect((await query("SELECT cycle_id,patient_snapshot FROM stays WHERE id='s_p1'")).rows[0]).toEqual(before);
+        expect((await query("SELECT id FROM payments")).rows).toEqual([]);
+    });
+    it('5157-shaped historical stays retain both frozen invoices and their shared-snapshot receipt', async () => {
+        await register();
+        for (const suffix of ['A', 'B']) {
+            await query(`INSERT INTO stays(id,patient_id,patient_name,patient_snapshot,room_id,room_number,room_type,cycle_id,
+              admission_date,duration_days,expected_discharge_date,expiry_date,completed_at,status,created_by,bed_id,total_cost)
+              VALUES($1,'p1','Synthetic',$2::jsonb,'r1','R1','general',$3,'2026-09-20',3,'2026-09-23','2026-09-23','2026-09-23','completed','test-uid-admin',$4,1200)`,
+              [`historical${suffix}`, JSON.stringify({ admissionDate: 'shared-snapshot' }), `explicit${suffix}`, suffix === 'A' ? 'b1' : 'b2']);
+        }
+        await query("UPDATE patients SET admission_balances=admission_balances || $1::jsonb WHERE id='p1'", [JSON.stringify({
+            explicitA: { total: 1200, finalized: true, segmentCharges: { historicalA: 1200 } },
+            explicitB: { total: 1200, finalized: true, segmentCharges: { historicalB: 1200 } },
+        })]);
+        await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('snapshot-receipt','p1','shared-snapshot','payment',1200,'2026-09-20')");
+        const original = (await query("SELECT row_to_json(s) AS data FROM stays s WHERE id LIKE 'historical%' ORDER BY id")).rows;
+        const bill = (await send('GET', '/patients/p1/financials')).json();
+        expect(bill.reconciliation).toMatchObject({ required: true, accountPaid: 1200, unallocatedNet: 1200 });
+        expect(bill.reconciliation.cycleIdentityIssues).toHaveLength(2);
+        for (const id of ['explicitA', 'explicitB']) expect(bill.patient.admissionBalances[id]).toMatchObject({ total: 1200, paid: 0 });
+        expect((await send('POST', '/patients/p1/recalculate-billing', {})).statusCode).toBe(200);
+        expect((await query("SELECT row_to_json(s) AS data FROM stays s WHERE id LIKE 'historical%' ORDER BY id")).rows).toEqual(original);
+        expect((await query("SELECT cycle_id,amount FROM payments WHERE id='snapshot-receipt'")).rows[0]).toEqual({ cycle_id: 'shared-snapshot', amount: '1200.00' });
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
+    });
+    it('stored overpayment without invoice evidence does not authorize an 800 refund', async () => {
+        expect((await send('POST', '/patients', { ...patient(), advanceBilledAmount: 3200, totalPaidAmount: 4000, refundDueAmount: 0, status: 'discharged' })).statusCode).toBe(201);
+        await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('receipt','p1',$1,'payment',4000,$2)", [cycle, admission]);
+        const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0];
+        const bill = (await send('GET', '/patients/p1/financials')).json();
+        expect(bill.reconciliation).toMatchObject({ required: true, unallocatedNet: 0, chargeIssues: [{ reason: 'missing_invoice_evidence' }] });
+        expect((await send('POST', '/payments', { id: 'unsupported-refund', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -800 })).statusCode).toBe(409);
+        expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0]).toEqual(before);
+        expect((await query('SELECT id FROM payments')).rows).toHaveLength(1);
+    });
+    it('successful reconciled collection, refund and discharge use the same ledger under concurrency', async () => {
+        await register();
+        for (let d = 19; d <= 31; d++)
+            await send('POST', '/attendance', { patientId: 'p1', date: `2026-10-${d}`, payload: { status: 'Present' } });
+        await query("INSERT INTO payments(id,patient_id,type,amount,payment_date) VALUES('legacy','p1','payment',1200,$1)", [admission]);
+        expect((await send('PATCH', '/payments/legacy', { cycleId: cycle, reason: 'Isolated fixture original receipt identifies admission' })).statusCode).toBe(200);
+        const collection = (id: string) => send('POST', '/payments', { id, patientId: 'p1', cycleId: cycle, amount: 1400, collectOutstanding: true });
+        expect((await Promise.all([collection('collectionA'), collection('collectionB')])).map(r => r.statusCode).sort()).toEqual([201, 409]);
+        expect((await send('POST', '/payments', { id: 'advance', patientId: 'p1', cycleId: cycle, amount: 200 })).statusCode).toBe(201);
+        expect((await send('POST', '/payments', { id: 'refund', patientId: 'p1', cycleId: cycle, type: 'refund', amount: -200 })).statusCode).toBe(201);
+        const discharged = await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) });
+        expect(discharged.statusCode).toBe(200);
+        expect(discharged.json().reconciliation).toMatchObject({ required: false, accountPaid: 2800, accountRefunded: 200 });
+        expect(discharged.json().patient).toMatchObject({ totalPaidAmount: 2600, refundDueAmount: 0, currentDueAmount: 0 });
+        expect((await query('SELECT sum(amount)::text AS net,count(*)::int AS count FROM payments')).rows[0]).toEqual({ net: '2600.00', count: 4 });
+    });
     it('different patients competing for a bed never share a stay or partially register', async () => {
         const results = await Promise.all([register('p1'), register('p2')]);
         expect(results.map(r => r.statusCode).sort()).toEqual([201, 409]);
@@ -91,6 +236,8 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
     }
     it('concurrent distinct refunds cannot collectively spend the same excess', async () => {
         await register();
+        for (let d = 19; d <= 31; d++)
+            await send('POST', '/attendance', { patientId: 'p1', date: `2026-10-${d}`, payload: { status: 'Present' } });
         await send('POST', '/payments', { id: 'paid', patientId: 'p1', cycleId: cycle, amount: 2800, method: 'cash' });
         const refunds = await Promise.all(['r1', 'r2'].map(id => send('POST', '/payments', { id, patientId: 'p1', cycleId: cycle, type: 'refund', amount: -200, method: 'cash' })));
         expect(refunds.map(r => r.statusCode).sort()).toEqual([201, 409]);
@@ -141,10 +288,10 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
             await query('DROP TRIGGER settlement_fail ON room_beds; DROP FUNCTION settlement_fail()');
         }
     });
-    it.each(['2026-10-31T02:30:00Z', '2026-10-31T03:30:00Z', '2026-10-31T06:30:00Z'])('checkout at %s counts the same 13 calendar dates and does not fabricate presence', async (exitDate) => {
+    it.each(['2026-10-31T02:30:00Z', '2026-10-31T03:30:00Z', '2026-10-31T06:30:00Z'])('checkout at %s respects the cutoff without fabricating presence', async (exitDate) => {
         await send('POST', '/patients/register', { ...patient(), exitDate, stays: [placement('s_p1')] });
         const before = (await send('GET', '/patients/p1/financials')).json().patient;
-        expect(before).toMatchObject({ advanceBilledAmount: 2600, totalPresentDays: 0, totalAbsentDays: 0, refundDueAmount: 0 });
+        expect(before).toMatchObject({ advanceBilledAmount: Date.parse(exitDate) <= Date.parse('2026-10-31T03:30:00Z') ? 2400 : 2600, totalPresentDays: 0, totalAbsentDays: 0, refundDueAmount: 0 });
         expect((await query('SELECT id FROM attendance_records')).rows).toHaveLength(0);
         for (let d = 19; d <= 31; d++)
             await send('POST', '/attendance', { patientId: 'p1', date: `2026-10-${d}`, payload: { status: d >= 29 ? 'Absent' : 'Present' } });
@@ -156,11 +303,19 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         expect(done.statusCode).toBe(200);
         expect(done.json().patient).toMatchObject({ advanceBilledAmount: 2000, totalPaidAmount: 2000, refundDueAmount: 0 });
     });
-    it('an undecided exit retains a seven-day advance and never creates attendance', async () => {
-      await send('POST','/patients/register',{...patient(),exitDate:null,stays:[{...placement('s_p1'),durationDays:7}]});
-      const result=(await send('GET','/patients/p1/financials')).json().patient;
-      expect(result).toMatchObject({advanceBilledAmount:1400,totalPresentDays:0,totalAbsentDays:0,refundDueAmount:0});
-      expect((await query('SELECT id FROM attendance_records')).rows).toHaveLength(0);
+    it('an undecided exit starts with seven days, includes elapsed days and never creates attendance', async () => {
+      // Keep authentication on the real clock; only the billing as-of changes.
+      const token = signedTestToken();
+      const timedSend = (method: any, url: string, payload?: any) => app.inject({ method, url: `/api${url}`, payload, headers: { authorization: `Bearer ${token}` } });
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(admission));
+      try {
+        expect((await timedSend('POST','/patients/register',{...patient(),exitDate:null,stays:[{...placement('s_p1'),durationDays:7}]})).statusCode).toBe(201);
+        const result=(await timedSend('GET','/patients/p1/financials')).json().patient;
+        expect(result).toMatchObject({advanceBilledAmount:1400,totalPresentDays:0,totalAbsentDays:0,refundDueAmount:0});
+        clock.mockReturnValue(Date.parse(admission) + 9 * 86400000);
+        expect((await timedSend('GET','/patients/p1/financials')).json().patient.advanceBilledAmount).toBe(2000);
+        expect((await query('SELECT id FROM attendance_records')).rows).toHaveLength(0);
+      } finally { clock.mockRestore(); }
     });
 
     it('reading a closed legacy invoice and rejecting an excess refund preserves historical charges', async () => {
@@ -181,7 +336,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
     async function syntheticAdmission(options: { days?: number; category?: string; attendants?: any[]; beds?: number } = {}) {
       const days = options.days ?? 7;
       const start = at(1, 0, 0).toISOString();
-      const planned = at(days).toISOString();
+      const planned = at(days, 3, 31).toISOString();
       const id = 'p1';
       if (options.category === 'private') await query("UPDATE rooms SET room_type='private' WHERE id='r1'");
       const response = await send('POST', '/patients/register', {
@@ -287,7 +442,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
     it('General-to-Private transfer owns its date once, retains threshold and persists totals atomically', async () => {
       await syntheticAdmission({ days: 70 });
       await send('POST', '/rooms', { id: 'r_private', roomNumber: 'Private', roomType: 'private', beds: [{ id: 'pb1', bedLabel: 'P1' }] });
-      const transfer = { requestId: 'transfer-approved', expectedStayIds: ['s1'], roomId: 'r_private', roomNumber: 'Private', roomType: 'private', bedId: 'pb1', shiftedAt: at(61).getTime(), exitDate: at(70).getTime() };
+      const transfer = { requestId: 'transfer-approved', expectedStayIds: ['s1'], roomId: 'r_private', roomNumber: 'Private', roomType: 'private', bedId: 'pb1', shiftedAt: at(61).getTime(), exitDate: at(70, 3, 31).getTime() };
       const response = await send('POST', '/patients/p1/transfer', transfer);
       expect(response.statusCode, response.body).toBe(200);
       expect(response.json().patient.advanceBilledAmount).toBe(21000);
