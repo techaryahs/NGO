@@ -21,11 +21,74 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
     });
     beforeEach(async () => {
         installTestFirebaseKeys();
-        await query('TRUNCATE users,patients,rooms,stays,payments,attendance_records CASCADE');
+        await query('TRUNCATE billing_corrections,users,patients,rooms,stays,payments,attendance_records CASCADE');
         await query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','admin@ngo.test','Synthetic','admin')");
         expect((await send('POST', '/rooms', { id: 'r1', roomNumber: 'R1', roomType: 'general', beds: [{ id: 'b1', bedLabel: '1' }, { id: 'b2', bedLabel: '2' }] })).statusCode).toBe(201);
     });
     afterAll(async () => { await app.close(); await pool.end(); });
+    it('a corrected admission accepts only the adjusted payment and discharges at that same total', async () => {
+        await register();
+        for (let day = 19; day <= 31; day++)
+            expect((await send('POST', '/attendance', { patientId: 'p1', date: `2026-10-${day}`, payload: { status: 'Present' } })).statusCode).toBe(200);
+        const before = (await send('GET', '/patients/p1/financials')).json();
+        const choice = before.patient.admissionBalances[cycle].dayCharges.find((d: any) => d.eligible);
+        const correction = await send('POST', '/patients/p1/billing-corrections', { reason: 'Billing correction', dates: [{ day: choice.day, stayId: choice.stayId, amount: choice.amount }] });
+        expect(correction.statusCode, correction.body).toBe(201);
+        const preview = (await send('GET', `/patients/p1/financials?checkoutAt=${Date.parse(exit)}`)).json();
+        const adjusted = preview.patient.admissionBalances[cycle].total;
+        expect(adjusted).toBe(before.patient.admissionBalances[cycle].total - choice.amount);
+        const payment = await send('POST', '/payments', { id: 'corrected-discharge-payment', patientId: 'p1', cycleId: cycle, amount: adjusted, method: 'cash', collectOutstanding: true });
+        expect(payment.statusCode, payment.body).toBe(201);
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) });
+        expect(done.statusCode, done.body).toBe(200);
+        expect(done.json().patient.admissionBalances[cycle]).toMatchObject({ total: adjusted, netPaid: adjusted, due: 0, refundDue: 0, finalized: true });
+    });
+    it('a correction to a paid admission records a refund due without creating a refund', async () => {
+        await register();
+        const initial = (await send('GET', '/patients/p1/financials')).json();
+        const bill = initial.patient.admissionBalances[cycle].total;
+        expect((await send('POST', '/payments', { id: 'original-receipt', patientId: 'p1', cycleId: cycle, amount: bill, method: 'cash' })).statusCode).toBe(201);
+        const before = (await send('GET', '/patients/p1/financials')).json();
+        const choice = before.patient.admissionBalances[cycle].dayCharges.find((d: any) => d.eligible);
+        const corrected = await send('POST', '/patients/p1/billing-corrections', { reason: 'Billing correction', dates: [{ day: choice.day, stayId: choice.stayId, amount: choice.amount }] });
+        expect(corrected.statusCode, corrected.body).toBe(201);
+        const after = (await send('GET', '/patients/p1/financials')).json();
+        expect(after.patient.admissionBalances[cycle]).toMatchObject({ total: bill - choice.amount, netPaid: bill, due: 0, refundDue: choice.amount });
+        expect((await query("SELECT id,type,amount FROM payments WHERE patient_id='p1'")).rows).toEqual([{ id: 'original-receipt', type: 'payment', amount: bill.toFixed(2) }]);
+        expect((await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(exit) })).statusCode).toBe(409);
+    });
+    it('admin corrects dates once without changing payments or attendance; staff and discharged patients are rejected', async () => {
+        await register();
+        await query("INSERT INTO users(id,email,name,role) VALUES('correction-staff','staff@ngo.test','Staff','staff')");
+        const initial = (await send('GET', '/patients/p1/financials')).json();
+        const choices = initial.patient.admissionBalances[cycle].dayCharges.filter((d: any) => d.eligible && !d.excluded).slice(0, 2);
+        expect(choices).toHaveLength(2);
+        const payload = { reason: 'Billing correction', dates: choices.map(({day, stayId, amount}: any) => ({day, stayId, amount})) };
+        const denied = await app.inject({ method: 'POST', url: '/api/patients/p1/billing-corrections', payload,
+            headers: { authorization: `Bearer ${signedTestToken('correction-staff')}` } });
+        expect(denied.statusCode).toBe(403);
+        const beforeLedger = (await query("SELECT * FROM payments WHERE patient_id='p1'")).rows;
+        const beforeAttendance = (await query("SELECT * FROM attendance_records WHERE patient_id='p1'")).rows;
+        const corrected = await send('POST', '/patients/p1/billing-corrections', payload);
+        expect(corrected.statusCode, corrected.body).toBe(201);
+        const after = (await send('GET', '/patients/p1/financials')).json();
+        expect(after.patient.admissionBalances[cycle].total).toBe(initial.patient.admissionBalances[cycle].total - choices.reduce((n: number, d: any) => n + d.amount, 0));
+        expect((await send('POST', '/patients/p1/billing-corrections', payload)).statusCode).toBe(409);
+        const savedCorrections = (await query("SELECT cycle_id,stay_id,amount,reason,operator_uid,created_at FROM billing_corrections WHERE patient_id='p1' ORDER BY billable_date")).rows;
+        expect(savedCorrections).toHaveLength(2);
+        expect(savedCorrections[0]).toMatchObject({ cycle_id: cycle, stay_id: choices[0].stayId, reason: 'Billing correction', operator_uid: 'test-uid-admin' });
+        expect(savedCorrections[0].created_at).toBeInstanceOf(Date);
+        expect((await query("SELECT * FROM payments WHERE patient_id='p1'")).rows).toEqual(beforeLedger);
+        expect((await query("SELECT * FROM attendance_records WHERE patient_id='p1'")).rows).toEqual(beforeAttendance);
+        const due = after.patient.admissionBalances[cycle].due;
+        const collection = { id: 'corrected-collection', patientId: 'p1', cycleId: cycle, method: 'cash', collectOutstanding: true, amount: due };
+        expect((await send('POST', '/payments', { ...collection, id: 'excess', amount: due + 1 })).statusCode).toBe(409);
+        expect((await send('POST', '/payments', collection)).statusCode).toBe(201);
+        expect((await send('POST', '/payments', collection)).statusCode).toBe(200);
+        expect((await send('GET', '/patients/p1/financials')).json().patient.admissionBalances[cycle].due).toBe(0);
+        await query("UPDATE patients SET status='discharged' WHERE id='p1'");
+        expect((await send('POST', '/patients/p1/billing-corrections', payload)).statusCode).toBe(409);
+    });
     it('unmatched receipts remain visible; unsafe actions roll back and evidence-backed allocation is audited', async () => {
         await register();
         await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('unmatched','p1','unknown-cycle','payment',1200,CURRENT_TIMESTAMP)");

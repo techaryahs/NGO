@@ -1583,6 +1583,15 @@ class BackendApiService {
     {if (checkoutAt != null) 'checkoutAt': checkoutAt.millisecondsSinceEpoch},
   );
 
+  Future<Map<String, dynamic>> correctBilling(
+    String patientId, {
+    required String reason,
+    required List<Map<String, dynamic>> dates,
+  }) => _postAdmission(
+    'patients/${Uri.encodeComponent(patientId)}/billing-corrections',
+    {'reason': reason, 'dates': dates},
+  );
+
   Future<Map<String, dynamic>> dischargePatient(
     String patientId, {
     DateTime? checkoutAt,

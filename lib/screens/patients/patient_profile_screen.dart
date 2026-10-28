@@ -12,6 +12,7 @@ import 'widgets/edit_patient_dialog.dart';
 import 'widgets/stay_history_tab.dart';
 import 'widgets/refund_dialog.dart';
 import 'widgets/payment_dialog.dart';
+import 'widgets/billing_correction_dialog.dart';
 import 'widgets/shift_patient_dialog.dart';
 import 'widgets/photo_preview_dialog.dart';
 import '../../utils/bed_helper.dart';
@@ -70,6 +71,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   late final Stream<List<PatientModel>> _patientsStream;
   bool _isPreparingDischarge = false;
   bool _paymentDialogOpen = false;
+  bool _isBillingAdmin = false;
   PatientModel? _checkoutPatient;
   String? _checkoutKey;
   bool _checkoutFailed = false;
@@ -78,7 +80,34 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   void initState() {
     super.initState();
     _patientsStream = ServiceLocator().patientService.getPatientsStream();
+    _loadBillingAdmin();
     _tabController = TabController(length: 4, vsync: this);
+  }
+
+  Future<void> _loadBillingAdmin() async {
+    try {
+      final auth = ServiceLocator().authService;
+      final uid = auth.currentUser?.uid;
+      if (uid != null && await auth.getUserRole(uid) == 'admin' && mounted) {
+        setState(() => _isBillingAdmin = true);
+      }
+    } catch (_) {
+      /* A failed role lookup never enables an admin action. */
+    }
+  }
+
+  Future<void> _adjustCharges(PatientModel patient) async {
+    final changed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => BillingCorrectionDialog(patient: patient),
+    );
+    if (changed == true && mounted) {
+      setState(() {
+        _checkoutKey = null;
+        _checkoutPatient = null;
+      });
+    }
   }
 
   @override
@@ -1166,6 +1195,14 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         patient: currentPatient,
                         onRecordPayment: () =>
                             _handlePayNow(context, currentPatient),
+                        onAdjustCharges:
+                            _isBillingAdmin &&
+                                [
+                                  'active',
+                                  'paid',
+                                ].contains(currentPatient.status.toLowerCase())
+                            ? () => _adjustCharges(currentPatient)
+                            : null,
                       ),
                     _PaymentHistoryTab(patient: currentPatient),
                     _AttendanceTab(patient: currentPatient),
@@ -1261,8 +1298,13 @@ Widget buildPatientOverviewForTesting(
 class _OverviewTab extends StatelessWidget {
   final PatientModel patient;
   final VoidCallback? onRecordPayment;
+  final VoidCallback? onAdjustCharges;
 
-  const _OverviewTab({required this.patient, this.onRecordPayment});
+  const _OverviewTab({
+    required this.patient,
+    this.onRecordPayment,
+    this.onAdjustCharges,
+  });
 
   String? get _lobby {
     if (patient.lobby?.trim().isNotEmpty == true) return patient.lobby!.trim();
@@ -1611,6 +1653,12 @@ class _OverviewTab extends StatelessWidget {
                   : null,
               icon: const Icon(Icons.receipt_long),
               label: const Text('Record Payment'),
+            ),
+          if (onAdjustCharges != null)
+            TextButton.icon(
+              onPressed: onAdjustCharges,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Adjust Charges'),
             ),
         ],
       ),

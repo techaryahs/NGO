@@ -116,7 +116,7 @@ export function receiptCycle(row: any, patient: any, stays: any[], context: 'rec
  * recorded attendants and the existing 60-day rates. Receipts are never inferred
  * from patient summaries. All calculations use integer paise from NUMERIC text.
  */
-type BillingSource = { stays: any[]; records: any[]; receipts: any[]; pricing: Record<string, any>; roster?: any[] };
+type BillingSource = { stays: any[]; records: any[]; receipts: any[]; pricing: Record<string, any>; roster?: any[]; corrections?: any[] };
 export async function projectBilling(client: pg.PoolClient, patient: any, options: {
     finalize?: boolean;
     // Read-only hypothetical stay dates for an approval quote.
@@ -124,6 +124,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     source?: BillingSource;
     asOf?: number;
     checkoutAt?: Date;
+    includeDayCharges?: boolean;
     ignoreCheckout?: boolean;
     // Explicit refund mutations retain the legacy settlement quote context.
     // Ordinary active booking reads must never adopt an uncommitted preview.
@@ -148,6 +149,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     }
     const records = options.source?.records ?? (await client.query("SELECT kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id=$1", [patient.id])).rows;
     const receipts = options.source?.receipts ?? (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [patient.id])).rows;
+    const corrections = options.source ? options.source.corrections ?? [] : (await client.query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id=$1 ORDER BY billable_date', [patient.id])).rows;
     const pricing = approvedPricing(options.source?.pricing ?? Object.fromEntries((await client.query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'")).rows.map(r => [r.settings_key, r.settings_value])));
     const roster = options.source?.roster ?? patient.attendants ?? (await client.query('SELECT id,name FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [patient.id])).rows;
     // Same legacy default-price migration as PaymentService (a configured 150 was
@@ -239,6 +241,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         const unsplit = new Set(segments.filter(s => s.daily_rate_is_manual || s.cost_override != null || s.long_stay_daily_rate != null).map(s => s.id));
         const days: Record<string, number> = Object.fromEntries(segments.map(s => [s.id, 0]));
         const pendingAttendance: { day: string; kind: string; attendantId?: string }[] = [];
+        const dayCharges: { day: string; stayId: string; amount: number; excluded: boolean; eligible: boolean }[] = [];
         let checkoutAdjustment: any = frozen ? saved.checkoutAdjustment : null;
         let actualPatientPresentDays = 0, projectedPatientPresentDays = 0;
         if (!frozen && options.checkoutAt && cycleId === currentCycle)
@@ -345,7 +348,14 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                 const billable = privateRoom || patientBillable || attendantCount > 0;
                 if (!billable) continue;
                 billableDays++;
-                charges[chosen.id] += cost(chosen);
+                const excluded = corrections.some(c => c.cycle_id === cycleId && c.billable_day === d);
+                const dayCost = cost(chosen);
+                dayCharges.push({ day: d, stayId: chosen.id, amount: dayCost / 100, excluded, eligible: chosen.cost_override == null && dayCost > 0 });
+                if (excluded && chosen.cost_override == null) {
+                    days[chosen.id]++;
+                    continue;
+                }
+                charges[chosen.id] += dayCost;
                 // Split the very same daily tariff, including Private's included
                 // attendant. Explicit aggregate overrides have no invented split.
                 if (!unsplit.has(chosen.id)) {
@@ -394,7 +404,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             refunded = accountRefunded;
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
-        balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
+        balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen && options.includeDayCharges ? { dayCharges } : {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
         // A conflicting placement affects every identity it claims, not an
         // unrelated, independently evidenced historical invoice. Untagged or
         // unknown receipts (including refunds) cannot be bounded to one cycle.
@@ -429,7 +439,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         }
     }
     return { patient: { ...patient, ...fields, financial_reconciliation: { ...reconciliation, accountNetPaid: reconciliation.accountPaid - reconciliation.accountRefunded, provisional: current.provisional === true } }, fields, stays: computedStays, receipts, balances, reconciliation, attendance, repriceClosed: options.finalize === true,
-        source: { stays: sourceStays, records, receipts, pricing, roster } };
+        source: { stays: sourceStays, records, receipts, pricing, roster, corrections } };
 }
 
 /** Marginal charge for the added period, using the final invoice engine. */

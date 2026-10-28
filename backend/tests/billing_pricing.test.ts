@@ -55,6 +55,7 @@ function fixture(options: { days?: number; type?: string; absent?: number; recor
     if (sql.startsWith('SELECT * FROM stays')) return { rows: stays };
     if (sql.includes('FROM attendance_records')) return { rows: records };
     if (sql.includes('FROM payments')) return { rows: options.receipts ?? [] };
+    if (sql.includes('FROM billing_corrections')) return { rows: [] };
     if (sql.includes('FROM system_settings')) return { rows: Object.entries(pricing).map(([settings_key, settings_value]) => ({ settings_key, settings_value })) };
     throw new Error(`Unexpected query: ${sql}`);
   } } as unknown as pg.PoolClient;

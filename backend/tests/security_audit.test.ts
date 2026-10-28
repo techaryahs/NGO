@@ -91,6 +91,19 @@ describe('Security Audit — CORS, Authentication, Authorization and Error Expos
     authorization: `Bearer ${token || signedTestToken(uid)}`,
   });
 
+  it('requires an administrator for a billing correction', async () => {
+    for (const role of ['staff', 'volunteer'] as const) {
+      currentUserRole = role;
+      const response = await app.inject({ method: 'POST', url: '/api/patients/p1/billing-corrections',
+        headers: authHeader(), payload: { reason: 'Billing correction', dates: [{ day: '2026-10-01', stayId: 's1', amount: 200 }] } });
+      expect(response.statusCode).toBe(403);
+    }
+    currentUserRole = 'admin';
+    const response = await app.inject({ method: 'POST', url: '/api/patients/p1/billing-corrections',
+      headers: authHeader(), payload: { reason: 'Billing correction', dates: [{ day: '2026-10-01', stayId: 's1', amount: 200 }] } });
+    expect(response.statusCode).toBe(404); // Authorization passed; synthetic patient is absent.
+  });
+
   // ── 1. Unauthenticated and Invalid Token Requests ──────────────────────────
   describe('1. API Route Authentication', () => {
     it('rejects requests without Authorization header with 401 Unauthorized', async () => {

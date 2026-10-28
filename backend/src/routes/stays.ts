@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { httpError } from '../validation.js';
 import { refreshRoomOccupancy } from '../db/occupancy.js';
 import { z } from 'zod';
-import { approvedPricing, newStayIdentity, persistBilling, projectBilling, quoteStayExtension } from '../services/billing.js';
+import { approvedPricing, newStayIdentity, persistBilling, projectBilling, quoteStayExtension, stayCycle } from '../services/billing.js';
 import { finalizeDischarge } from '../services/discharge.js';
 
 export interface RawStayRow {
@@ -404,6 +404,10 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     }
     if ((body.bedId !== undefined && body.bedId !== old.bed_id) || (body.roomId && body.roomId !== old.room_id) || (body.patientId && body.patientId !== old.patient_id)) throw httpError(409, 'An existing stay assignment cannot be changed through this endpoint');
     if (old.status !== 'active' && body.status && body.status !== old.status) throw httpError(409, 'A completed or cancelled stay cannot be reopened');
+    if (body.costOverride != null && (await client.query('SELECT 1 FROM billing_corrections WHERE patient_id=$1 AND cycle_id=$2 LIMIT 1',
+      [old.patient_id, stayCycle(old, patient)])).rowCount)
+      throw httpError(409, 'A fixed stay total cannot replace an admission with date corrections');
+
     body = { ...formatStay(old), ...body };
     if (body.status === 'completed' && body.completedAt == null) body.completedAt = Date.now();
 

@@ -33,6 +33,22 @@ async function calculate(options: Parameters<typeof fixture>[0], checkoutAt?: Da
 }
 
 describe('approved client billing rules', () => {
+  it('excludes selected date charges without altering receipt allocation or attendance and preserves refunds', async () => {
+    const f = fixture({ days: 4 });
+    f.source.records.splice(-2); // No attendance on the planned 9 AM exit day.
+    f.source.receipts.push({ id: 'paid', cycle_id: cycle, amount: '600.00' } as never);
+    const correction = (day: string) => ({ cycle_id: cycle, stay_id: 's0', billable_day: day });
+    const before = await projectBilling(f.client, f.patient, { source: f.source });
+    expect(before.balances[cycle]).toMatchObject({ total: 600, netPaid: 600, due: 0, refundDue: 0 });
+    const one = await projectBilling(f.client, f.patient, { source: { ...f.source, corrections: [correction('2026-01-01')] } });
+    expect(one.balances[cycle]).toMatchObject({ total: 400, netPaid: 600, due: 0, refundDue: 200, actualPatientPresentDays: 3 });
+    const two = await projectBilling(f.client, f.patient, { source: { ...f.source, corrections: [correction('2026-01-01'), correction('2026-01-02')] }, includeDayCharges: true });
+    expect(two.balances[cycle]).toMatchObject({ total: 200, netPaid: 600, due: 0, refundDue: 400, actualPatientPresentDays: 3 });
+    expect(two.balances[cycle].dayCharges.filter((d: any) => d.excluded)).toHaveLength(2);
+    const final = await projectBilling(f.client, { ...f.patient, status: 'discharged' }, { source: { ...f.source, corrections: [correction('2026-01-01'), correction('2026-01-02')] }, finalize: true, checkoutAt: at(4) });
+    expect(final.balances[cycle]).toMatchObject({ total: 200, netPaid: 600, refundDue: 400 });
+  });
+
   it('quotes October 23 to 28 as five additional patient-and-attendant days, without rebilling the advance', async () => {
     const f = fixture({ days: 13, people: [{ id: 'helper', name: 'Helper' }] });
     const start = new Date('2026-10-16T07:30:00Z');

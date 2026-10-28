@@ -276,6 +276,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     const stayRows = await query('SELECT * FROM stays WHERE patient_id = ANY($1) ORDER BY admission_date,id', [patientIds]);
     const recordRows = await query('SELECT patient_id,kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id = ANY($1)', [patientIds]);
     const pricingRows = await query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'");
+    const correctionRows = await query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id = ANY($1)', [patientIds]);
     // Partition each batch once. Authoritative projection must not rescan all
     // patients' attendance/receipts for every patient on a large list page.
     const byPatient = (rows: any[]) => {
@@ -287,12 +288,13 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       return groups;
     };
     const staysByPatient = byPatient(stayRows.rows), recordsByPatient = byPatient(recordRows.rows), receiptsByPatient = byPatient(paymentsRes.rows);
+    const correctionsByPatient = byPatient(correctionRows.rows);
     const pricing = Object.fromEntries(pricingRows.rows.map(r => [r.settings_key, r.settings_value]));
     const formattedList = await Promise.all(patients.map(async row => {
       const projection = await projectBilling({} as any, row, { source: {
         stays: staysByPatient.get(row.id) ?? [],
         records: recordsByPatient.get(row.id) ?? [],
-        receipts: receiptsByPatient.get(row.id) ?? [], pricing,
+        receipts: receiptsByPatient.get(row.id) ?? [], corrections: correctionsByPatient.get(row.id) ?? [], pricing,
         roster: attendantsByPatient.get(row.id) || [],
       }});
       return formatPatient(projection.patient, attendantsByPatient.get(row.id) || [], paymentsByPatient.get(row.id) || []);
