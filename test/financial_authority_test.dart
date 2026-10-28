@@ -4,6 +4,28 @@ import 'package:ngo/models/stay_model.dart';
 import 'package:ngo/utils/stay_billing.dart';
 
 void main() {
+  test('backend cycle eligibility isolates confirmed refunds from account warnings', () {
+    final patient = PatientModel.fromMap('cycles', {
+      'financialReconciliation': {'required': true},
+      'admissionBalances': {
+        'confirmed': {'refundDue': 150, 'refundEligible': true, 'reconciliationRequired': false},
+        'unresolved': {'refundDue': 200, 'refundEligible': false, 'reconciliationRequired': true},
+        'provisional': {'refundDue': 300, 'refundEligible': true, 'provisional': true},
+        'oldResponse': {'refundDue': 400},
+      },
+    });
+    for (final p in [patient, PatientModel.fromMap('cycles', patient.toMap())]) {
+      expect(p.confirmedRefundDueAmount, 150);
+      expect(p.financialUncertain, isTrue);
+    }
+  });
+  test('empty balance fallback retains uncertainty protection', () {
+    expect(PatientModel.fromMap('fallback', {'totalRefundDueAmount': 150}).confirmedRefundDueAmount, 150);
+    expect(PatientModel.fromMap('fallback', {
+      'totalRefundDueAmount': 150,
+      'financialReconciliation': {'required': true},
+    }).confirmedRefundDueAmount, 0);
+  });
   test('ledger-supported legacy historical invoice remains in dashboard refunds', () {
     final patient = PatientModel.fromMap('imported', {
       'status': 'discharged',

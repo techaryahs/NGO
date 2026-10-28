@@ -2,6 +2,47 @@ import { describe, expect, it } from 'vitest';
 import { projectBilling, receiptCycle, stayCycle, newStayIdentity } from '../src/services/billing.js';
 
 describe('unallocated payment reconciliation', () => {
+  async function independentCycles(options: { unallocated?: boolean; conflictOld?: boolean; provisional?: boolean } = {}) {
+    const start = new Date('2026-10-01T04:00:00Z');
+    const current = String(start.getTime());
+    const patient = { id: 'cycles', status: 'discharged', admission_date: start,
+      admission_balances: {
+        old: { total: 300, paid: 500, refunded: 50, netPaid: 450, due: 0, refundDue: 150,
+          finalized: true, provisional: options.provisional === true },
+        [current]: { total: 200, finalized: true },
+      } };
+    const source = { stays: [{ id: 'later-stay', cycle_id: current, status: 'completed',
+      patient_snapshot: { admissionDate: options.conflictOld ? 'old' : 'conflicting-later-identity' },
+      admission_date: start, total_cost: '200.00' }], records: [], roster: [], pricing: {},
+      receipts: [
+        { id: 'original', cycle_id: 'old', amount: '500.00', source: 'firebase_export' },
+        { id: 'refund', cycle_id: 'old', amount: '-50.00', source: 'firebase_export' },
+        ...(options.unallocated ? [{ id: 'unknown-refund', cycle_id: null, amount: '-20.00', source: 'firebase_export' }] : []),
+      ] };
+    const result = await projectBilling({} as any, patient, { source });
+    expect(result.reconciliation.required).toBe(true);
+    return result;
+  }
+  it('confirms an explicitly evidenced legacy invoice independently of a later identity conflict', async () => {
+    const result = await independentCycles();
+    expect(result.balances.old).toMatchObject({ total: 300, paid: 500, refunded: 50,
+      refundDue: 150, reconciliationRequired: false, refundEligible: true });
+    const current = String(new Date('2026-10-01T04:00:00Z').getTime());
+    expect(result.balances[current]).toMatchObject({ reconciliationRequired: true, refundEligible: false });
+  });
+  it('excludes every identity claimed by a conflicting stay', async () => {
+    const result = await independentCycles({ conflictOld: true });
+    expect(result.balances.old).toMatchObject({ reconciliationRequired: true, refundEligible: false });
+  });
+  it('does not certify any cycle when an unallocated refund could change its balance', async () => {
+    const result = await independentCycles({ unallocated: true });
+    expect(result.balances.old.refundEligible).toBe(false);
+    expect(result.reconciliation.unallocatedReceipts).toHaveLength(1);
+    expect(result.receipts.at(-1)?.cycle_id).toBeNull();
+  });
+  it('excludes provisional frozen legacy balances', async () => {
+    expect((await independentCycles({ provisional: true })).balances.old.refundEligible).toBe(false);
+  });
   const legacyStart = new Date('2026-08-01T04:00:00Z');
   const legacyCycle = String(legacyStart.getTime());
   async function legacyProjection(overrides: any = {}, receiptOverrides: any = {}) {

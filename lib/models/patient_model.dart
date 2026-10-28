@@ -230,18 +230,21 @@ class PatientModel {
             (b['reconciliationRequired'] == true || b['provisional'] == true),
       );
   double get confirmedRefundDueAmount {
-    if (financialReconciliation['required'] == true ||
-        admissionBalances.values.any(
-          (b) => b is Map && b['reconciliationRequired'] == true,
-        )) {
-      return 0;
-    }
     if (admissionBalances.isEmpty) {
       return financialUncertain ? 0 : totalRefundDueAmount;
     }
     return admissionBalances.values.fold<double>(
       0,
-      (sum, b) => b is Map && b['provisional'] != true
+      // Explicit backend eligibility can confirm an independent cycle despite
+      // an account warning. Older responses retain their conservative gate.
+      (sum, b) => b is Map && b['provisional'] != true &&
+          b['reconciliationRequired'] != true &&
+          (b.containsKey('refundEligible')
+              ? b['refundEligible'] == true
+              : financialReconciliation['required'] != true &&
+                  !admissionBalances.values.any(
+                    (other) => other is Map && other['reconciliationRequired'] == true,
+                  ))
           ? sum + ((b['refundDue'] as num?)?.toDouble() ?? 0)
           : sum,
     );

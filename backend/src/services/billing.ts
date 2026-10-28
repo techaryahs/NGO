@@ -384,7 +384,21 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
         balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
-        balances[cycleId].reconciliationRequired = reconciliation.required;
+        // A conflicting placement affects every identity it claims, not an
+        // unrelated, independently evidenced historical invoice. Untagged or
+        // unknown receipts (including refunds) cannot be bounded to one cycle.
+        const identityUncertain = identityIssues.some(issue => {
+            const claimed = [issue.cycleId, issue.snapshotCycleId, issue.summaryCycleId, ...issue.savedCycleIds]
+                .filter((id): id is string => id != null);
+            return claimed.length === 0 || claimed.includes(cycleId);
+        });
+        const cycleUncertain = identityUncertain || chargeIssues.some(issue => issue.cycleId === cycleId) ||
+            unallocated.length > 0 && !supportedLegacyInvoice ||
+            saved?.reconciliationRequired === true;
+        balances[cycleId].reconciliationRequired = cycleUncertain;
+        balances[cycleId].refundEligible = !cycleUncertain && balances[cycleId].provisional !== true &&
+            pendingAttendance.length === 0 && !(balances[cycleId].pendingAttendance?.length) &&
+            (segments.length > 0 || saved?.total != null || patient.billing_amount_override != null);
         if (!frozen) {
             balances[cycleId].segmentPatientCharges = Object.fromEntries(Object.entries(patientCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
             balances[cycleId].segmentAttendantCharges = Object.fromEntries(Object.entries(attendantCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
