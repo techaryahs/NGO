@@ -51,7 +51,7 @@ class _DialogBalanceService extends PaymentService {
   _DialogBalanceService() : super(null);
   @override
   Future<({double total, double paid, double due, String? cycleId})>
-  collectionBalance(String patientId) async =>
+  collectionBalance(String patientId, {DateTime? checkoutAt}) async =>
       (total: 1600.0, paid: 0.0, due: 1600.0, cycleId: null);
 }
 
@@ -64,6 +64,7 @@ class _CashDialogService extends _DialogBalanceService {
     required String patientName,
     required PaymentModel payment,
     bool collectOutstanding = false,
+    DateTime? checkoutAt,
   }) async {
     calls++;
     received = payment;

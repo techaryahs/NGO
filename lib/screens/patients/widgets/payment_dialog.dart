@@ -24,6 +24,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
   double? totalBillOverride,
   String? patientId,
   bool allowOfflineMethods = false,
+  DateTime? checkoutAt,
 }) {
   final attemptKey = UniqueKey();
   return showDialog<PaymentDialogResult>(
@@ -44,6 +45,7 @@ Future<PaymentDialogResult?> showPatientPaymentDialog({
       alreadyPaid: alreadyPaid,
       showPayLater: showPayLater,
       allowOfflineMethods: allowOfflineMethods,
+      checkoutAt: checkoutAt,
     ),
   );
 }
@@ -55,6 +57,7 @@ class _PatientPaymentDialog extends StatefulWidget {
   final double alreadyPaid;
   final bool showPayLater;
   final bool allowOfflineMethods;
+  final DateTime? checkoutAt;
   const _PatientPaymentDialog({
     super.key,
     required this.patientName,
@@ -63,6 +66,7 @@ class _PatientPaymentDialog extends StatefulWidget {
     required this.alreadyPaid,
     required this.showPayLater,
     required this.allowOfflineMethods,
+    this.checkoutAt,
   });
   @override
   State<_PatientPaymentDialog> createState() => _PatientPaymentDialogState();
@@ -109,6 +113,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
     try {
       final balance = await ServiceLocator().paymentService.collectionBalance(
         widget.patientId!,
+        checkoutAt: widget.checkoutAt,
       );
       if (!mounted) return;
       setState(() {
@@ -179,6 +184,7 @@ class _PatientPaymentDialogState extends State<_PatientPaymentDialog> {
         patientName: widget.patientName,
         payment: payment,
         collectOutstanding: true,
+        checkoutAt: widget.checkoutAt,
       );
       if (mounted) {
         Navigator.pop(context, PaymentDialogResult(recordedPaymentId: id));

@@ -284,6 +284,12 @@ export async function paymentRoutes(fastify: FastifyInstance, _opts: FastifyPlug
             !projection.stays.some(s => s.status === 'active' && stayCycle(s, patient.rows[0]) === cycle)))
           throw httpError(409, 'Verify the active admission and placement before collecting an extension balance');
         const balance = projection.balances[cycle];
+        // The quote and the current server-time projection must both authorize
+        // the amount; a stale quote cannot authorize extra collection.
+        const quoted = checkoutAt ? await projectBilling(client, patient.rows[0], { checkoutAt }) : projection;
+        const quotedBalance = quoted.balances[cycle];
+        if (quotedBalance?.reconciliationRequired) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence for this admission before collecting an outstanding balance');
+        if (!quotedBalance || cents(amount) > cents(quotedBalance.due)) throw httpError(409, 'Payment exceeds the quoted outstanding balance. Refresh the bill before collecting payment.');
         if (balance?.reconciliationRequired) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence for this admission before collecting an outstanding balance');
         if (!balance || cents(amount) > cents(balance.due)) throw httpError(409, 'Payment exceeds the current outstanding balance. Refresh the bill before collecting payment.');
       }

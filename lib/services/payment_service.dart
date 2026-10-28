@@ -165,8 +165,8 @@ class PaymentService {
 
   /// Uses the existing invoice projection; never reads an earlier receipt's UTR.
   Future<({double total, double paid, double due, String? cycleId})>
-  collectionBalance(String patientId) async {
-    final values = await billingUpdates(patientId);
+  collectionBalance(String patientId, {DateTime? checkoutAt}) async {
+    final values = await billingUpdates(patientId, checkoutAt: checkoutAt);
     final reconciliation =
         values['patients/$patientId/financialReconciliation'];
     final admission = values['patients/$patientId/admissionDate'];
@@ -731,6 +731,7 @@ class PaymentService {
     required String patientName,
     required PaymentModel payment,
     bool collectOutstanding = false,
+    DateTime? checkoutAt,
   }) {
     final running = _paymentSubmissions[patientId];
     if (running != null) {
@@ -756,6 +757,7 @@ class PaymentService {
               patientName: patientName,
               payment: payment,
               collectOutstanding: collectOutstanding,
+              checkoutAt: checkoutAt,
               requestId: requestId,
             );
             debugPrint('[Payment] requestId=$requestId phase=acknowledged');
@@ -802,6 +804,7 @@ class PaymentService {
     required String patientName,
     required PaymentModel payment,
     required bool collectOutstanding,
+    required DateTime? checkoutAt,
     required String requestId,
   }) async {
     if (!payment.amount.isFinite || payment.amount <= 0) {
@@ -879,6 +882,7 @@ class PaymentService {
         'patientName': patientName,
         'type': 'payment',
         if (collectOutstanding) 'collectOutstanding': true,
+        if (checkoutAt != null) 'checkoutAt': checkoutAt.millisecondsSinceEpoch,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 

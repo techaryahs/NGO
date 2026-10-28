@@ -70,6 +70,9 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
   late final Stream<List<PatientModel>> _patientsStream;
   bool _isPreparingDischarge = false;
   bool _paymentDialogOpen = false;
+  PatientModel? _checkoutPatient;
+  String? _checkoutKey;
+  bool _checkoutFailed = false;
 
   @override
   void initState() {
@@ -132,9 +135,19 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
             currentPatient.attendanceCharges,
         patientId: currentPatient.id,
         allowOfflineMethods: true,
+        checkoutAt:
+            ServiceLocator().patientService.isPostgres &&
+                currentPatient.exitDate != null &&
+                DateTime.now().isAfter(currentPatient.exitDate!)
+            ? DateTime.now()
+            : null,
       );
 
       if (result?.recordedPaymentId != null && context.mounted) {
+        setState(() {
+          _checkoutKey = null;
+          _checkoutPatient = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -699,16 +712,50 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     );
   }
 
+  void _requestCheckoutQuote(PatientModel patient, DateTime now) {
+    final key =
+        '${patient.id}:${patient.admissionDate.millisecondsSinceEpoch}:${patient.exitDate?.millisecondsSinceEpoch}:${patient.updatedAt.millisecondsSinceEpoch}:${patient.totalPaidAmount}:${patient.currentDueAmount}:${now.millisecondsSinceEpoch ~/ 60000}';
+    if (_checkoutKey == key) return;
+    _checkoutKey = key;
+    _checkoutPatient = null;
+    _checkoutFailed = false;
+    ServiceLocator().backendApiService
+        .financialSnapshot(patient.id, checkoutAt: now)
+        .then((snapshot) {
+          if (!mounted || _checkoutKey != key) return;
+          final result = PatientModel.fromMap(
+            patient.id,
+            Map<String, dynamic>.from(snapshot['patient'] as Map),
+          );
+          setState(() => _checkoutPatient = result);
+        })
+        .catchError((Object _) {
+          if (mounted && _checkoutKey == key) {
+            setState(() => _checkoutFailed = true);
+          }
+        });
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<PatientModel>>(
       stream: _patientsStream,
       builder: (context, snapshot) {
         final patientList = snapshot.data ?? [];
-        final currentPatient = patientList.firstWhere(
+        final listedPatient = patientList.firstWhere(
           (p) => p.id == widget.patient.id,
           orElse: () => widget.patient,
         );
+        final now = DateTime.now();
+        final needsCheckout =
+            ['active', 'paid'].contains(listedPatient.status.toLowerCase()) &&
+            listedPatient.exitDate != null &&
+            now.isAfter(listedPatient.exitDate!) &&
+            ServiceLocator().patientService.isPostgres;
+        if (needsCheckout) _requestCheckoutQuote(listedPatient, now);
+        final currentPatient = needsCheckout
+            ? (_checkoutPatient ?? listedPatient)
+            : listedPatient;
 
         final isActive =
             currentPatient.status == 'active' ||
@@ -724,10 +771,17 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
             currentPatient.financialReconciliation.isNotEmpty
             ? currentPatient.effectiveDueAmount
             : (currentCycleTotal - currentCyclePaid).clamp(0, double.infinity);
+        final balance = currentPatient
+            .admissionBalances[StayBilling.currentCycle(currentPatient)];
+        final collectionBlocked =
+            balance is Map && balance.containsKey('reconciliationRequired')
+            ? balance['reconciliationRequired'] == true
+            : currentPatient.financialReconciliation['required'] == true;
         final showPayBtn =
             isActive &&
+            (!needsCheckout || _checkoutPatient != null) &&
             currentCycleDue > 0 &&
-            currentPatient.financialReconciliation['required'] != true;
+            !collectionBlocked;
         final payBtnLabel = currentCyclePaid > 0 ? 'Pay Remaining' : 'Pay Now';
         final photoBytes = _decodePhoto(currentPatient.photoDataUrl);
 
@@ -1095,11 +1149,24 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _OverviewTab(
-                      patient: currentPatient,
-                      onRecordPayment: () =>
-                          _handlePayNow(context, currentPatient),
-                    ),
+                    if (needsCheckout && _checkoutPatient == null)
+                      Center(
+                        child: _checkoutFailed
+                            ? TextButton(
+                                onPressed: () =>
+                                    setState(() => _checkoutKey = null),
+                                child: const Text(
+                                  'Could not verify checkout balance. Retry.',
+                                ),
+                              )
+                            : const CircularProgressIndicator(),
+                      )
+                    else
+                      _OverviewTab(
+                        patient: currentPatient,
+                        onRecordPayment: () =>
+                            _handlePayNow(context, currentPatient),
+                      ),
                     _PaymentHistoryTab(patient: currentPatient),
                     _AttendanceTab(patient: currentPatient),
                     StayHistoryTab(

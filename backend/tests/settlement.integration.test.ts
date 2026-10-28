@@ -556,6 +556,9 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       const payload = { id: 'extension-payment', patientId: 'p1', cycleId: current, amount: 2000, method: 'cash', collectOutstanding: true, checkoutAt };
       const clock = vi.spyOn(Date, 'now').mockReturnValue(checkoutAt + 60000);
       try {
+        expect((await send('POST', '/payments', { ...payload, id: 'excess', amount: 2000.01 })).statusCode).toBe(409);
+        expect((await send('POST', '/payments', { ...payload, id: 'stale-quote', checkoutAt: Date.parse(planned) })).statusCode).toBe(409);
+        expect((await send('POST', '/payments', { ...payload, id: 'future-quote', checkoutAt: checkoutAt + 120000 })).statusCode).toBe(409);
         expect((await send('POST', '/payments', payload)).statusCode).toBe(201);
         expect((await send('POST', '/payments', payload)).statusCode).toBe(200);
       } finally { clock.mockRestore(); }
