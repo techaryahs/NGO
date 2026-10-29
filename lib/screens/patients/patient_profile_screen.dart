@@ -519,6 +519,20 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
           final reasons = readiness['reasons'] is List
               ? List<String>.from(readiness['reasons'])
               : const <String>[];
+          final displayReasons = <String>[...reasons];
+          if (confirmedExit == null) {
+            displayReasons.add(
+              'Confirmed exit date & time is required — please select an exit date and time',
+            );
+          }
+          if (!ready && displayReasons.isEmpty) {
+            displayReasons.add(
+              'Discharge is not ready yet — close and reopen this dialog to refresh the settlement preview.',
+            );
+          }
+          final onlyNeedsExit = readiness['ready'] == true &&
+              settlementError == null &&
+              confirmedExit == null;
           Future<void> refreshSettlement([DateTime? targetCheckout]) async {
             final effectiveCheckout = targetCheckout ?? confirmedExit ?? checkoutAt;
             final updated = await ServiceLocator().patientService
@@ -627,6 +641,10 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                         'Attendance and payment checks are complete. The patient can be discharged.',
                         style: TextStyle(color: Color(0xFF3B6D11)),
                       )
+                    else if (onlyNeedsExit)
+                      const Text(
+                        'Select a confirmed exit date & time to continue.',
+                      )
                     else ...[
                       const Text(
                         'Discharge is blocked:',
@@ -635,7 +653,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      for (final reason in reasons) Text('• $reason'),
+                      for (final reason in displayReasons) Text('• $reason'),
                     ],
                   ],
                 ),
@@ -765,7 +783,13 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                           color: Colors.white,
                         ),
                       )
-                    : Text(ready ? 'Confirm discharge' : 'Discharge blocked'),
+                    : Text(
+                        ready
+                            ? 'Confirm discharge'
+                            : onlyNeedsExit
+                                ? 'Select an exit date'
+                                : 'Discharge blocked',
+                      ),
               ),
             ],
           );
