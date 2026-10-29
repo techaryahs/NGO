@@ -793,14 +793,6 @@ class PatientService {
       final reasons = <String>[
         if (summary['reconciliationRequired'] == true)
           'Reconcile receipt allocations, admission identities and invoice evidence before discharge or refund.',
-        if (missingPatient > 0)
-          'Resolve $missingPatient Pending patient attendance day(s) before discharge.',
-        if (missingAttendants > 0)
-          'Resolve $missingAttendants Pending attendant attendance mark(s) before discharge.',
-        if (pending > 0.005)
-          '₹${pending.toStringAsFixed(0)} remains to be paid.',
-        if (refundDue > 0.005 && summary['reconciliationRequired'] != true)
-          '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
       ];
       return {
         'total': summary['total'] ?? patient.advanceBilledAmount,
@@ -943,13 +935,6 @@ class PatientService {
     final reasons = <String>[
       if (needsPlannedExit)
         'Set the planned exit date before discharging this patient.',
-      if (missingPatientDays > 0)
-        'Mark $missingPatientDays patient attendance day(s) through ${_shortDate(end!)} for checkout ${_shortDateTime(checkoutAt ?? plannedExit!)}.',
-      if (missingAttendantMarks > 0)
-        'Resolve $missingAttendantMarks Pending attendant attendance mark(s) before discharge.',
-      if (pending > 0.005) '₹${pending.toStringAsFixed(0)} remains to be paid.',
-      if (refundDue > 0.005)
-        '₹${refundDue.toStringAsFixed(0)} must be refunded first.',
     ];
     return {
       'total': total,
@@ -964,15 +949,9 @@ class PatientService {
     };
   }
 
-  String _shortDate(DateTime value) =>
-      '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
 
-  String _shortDateTime(DateTime value) {
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final minute = value.minute.toString().padLeft(2, '0');
-    final suffix = value.hour >= 12 ? 'PM' : 'AM';
-    return '${_shortDate(value)} $hour:$minute $suffix';
-  }
+
+
 
   Future<void> _persistOverrideExitDate(
     String patientId,

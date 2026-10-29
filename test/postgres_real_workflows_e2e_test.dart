@@ -893,7 +893,7 @@ void main() {
         );
         expect(readiness, containsPair('total', 400));
         expect(readiness, containsPair('refundDue', 3600));
-        expect(readiness['ready'], isFalse);
+        expect(readiness['ready'], isTrue);
         final overview =
             (await backendApi.financialSnapshot(pid))['patient'] as Map;
         expect(overview['advanceBilledAmount'], 4000);
@@ -910,11 +910,7 @@ void main() {
       expect(boundary['total'], 3600);
       expect(boundary['refundDue'], 400);
       expect(await stored(), before);
-      await expectLater(
-        patientService.dischargePatient(pid, checkoutAt: checkout),
-        throwsA(isA<Exception>()),
-      );
-      expect(await stored(), before);
+      // Under Amendment 1, discharge is never blocked by pending dues/refunds.
       final refundDate = DateTime.parse('2026-10-22T12:00:00Z');
       final requestId = AttendantModel.generateId();
       final refundId = await paymentService.recordRefund(
@@ -1004,6 +1000,15 @@ void main() {
           },
         ],
       );
+      for (var day = 1; day <= 19; day++) {
+        await backendApi.postAttendance(
+          kind: 'attendance',
+          date: StayBilling.dateKey(DateTime(2026, 10, day)),
+          patientId: pid,
+          payload: {'status': 'Present'},
+        );
+      }
+      await paymentService.recalculatePatientAttendanceAndBilling(pid);
       final partial = PaymentModel(
         id: AttendantModel.generateId(),
         amount: 1400,
@@ -1176,6 +1181,14 @@ void main() {
             },
           ],
         );
+        for (var day = 1; day <= 10; day++) {
+          await backendApi.postAttendance(
+            kind: 'attendance',
+            date: StayBilling.dateKey(DateTime(2026, 10, day)),
+            patientId: pid,
+            payload: {'status': 'Present'},
+          );
+        }
         await paymentService.recalculatePatientAttendanceAndBilling(pid);
         var patient = (await patientService.getPatient(pid))!;
         expect(patient.advanceBilledAmount, 2000);
@@ -1434,7 +1447,7 @@ void main() {
           (await queryRows(
             "SELECT sum(total_cost)::text AS total FROM stays WHERE patient_id='approved_patient'",
           )).single['total'],
-          scenario.estimate.toStringAsFixed(2),
+          '0.00',
         );
         for (var day = 1; day <= scenario.days; day++) {
           await backendApi.postAttendance(
@@ -1487,7 +1500,7 @@ void main() {
         );
         expect(patient, containsPair('totalPaidAmount', scenario.finalAmount));
         expect(patient, containsPair('currentDueAmount', 0));
-        expect(patient['exitDate'], planned.millisecondsSinceEpoch);
+        expect(patient['exitDate'], checkout.millisecondsSinceEpoch);
         expect(patient['dischargeDate'], checkout.millisecondsSinceEpoch);
         expect(
           (await queryRows(
@@ -1602,6 +1615,15 @@ void main() {
           'payload': {'status': 'Absent'},
         });
       }
+      for (var day = 11; day <= 60; day++) {
+        final key = StayBilling.dateKey(DateTime(2026, 1, day));
+        await backendApi.post('attendance', {
+          'patientId': 'quote_patient',
+          'date': key,
+          'payload': {'status': 'Present'},
+        });
+      }
+      await paymentService.recalculatePatientAttendanceAndBilling('quote_patient');
       expect(
         await roomService.quoteStayExtension(
           stayId: 'quote_stay',
@@ -1621,6 +1643,15 @@ void main() {
         requestId: 'quote-approval',
         reason: 'Approved',
       );
+      for (var day = 61; day <= 70; day++) {
+        final key = StayBilling.dateKey(DateTime(2026, 1, day));
+        await backendApi.post('attendance', {
+          'patientId': 'quote_patient',
+          'date': key,
+          'payload': {'status': 'Present'},
+        });
+      }
+      await paymentService.recalculatePatientAttendanceAndBilling('quote_patient');
       final saved = (await queryRows(
         "SELECT duration_days,total_extended_days,total_cost::text,extensions FROM stays WHERE id='quote_stay'",
       )).single;
@@ -1638,12 +1669,17 @@ void main() {
                 StayModel.fromMap(raw['id'], Map<String, dynamic>.from(raw)),
           )
           .toList();
+      final allAttendance = {
+        ...absent,
+        for (var day = 11; day <= 70; day++)
+          StayBilling.dateKey(DateTime(2026, 1, day)): 'Present',
+      };
       expect(
         StayBilling.calculate(
           patient: PatientModel.fromMap('quote_patient', rawPatient),
           stays: stays,
           pricing: {'generalRoomBedPrice': 200},
-          attendance: absent,
+          attendance: allAttendance,
           calendarDayBilling: true,
         ).single.total,
         12000,
@@ -2097,7 +2133,7 @@ void main() {
       final tables = await queryRows(
         "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
       );
-      expect(tables.length, 19); // Includes the append-only payment history.
+      expect(tables.length, 20); // Includes billing_corrections and append-only payment history.
       expect(
         tables.any((table) => table['tablename'] == 'payment_change_history'),
         isTrue,
@@ -3445,7 +3481,7 @@ void main() {
         (await patientService.getPatient(
           'p_attendance_accuracy',
         ))!.currentDueAmount,
-        600,
+        0,
       );
       Future<void> mark(String date, String status, double expected) async {
         await backendApi.postAttendanceBulk(
@@ -3469,14 +3505,13 @@ void main() {
         );
       }
 
-      // Preserve the existing policy: general-room absence reduces the charge.
-      await mark('2026-04-01', 'Absent', 400);
-      await mark('2026-04-02', 'Absent', 200);
-      await mark('2026-04-01', 'Present', 400);
+      await mark('2026-04-01', 'Absent', 0);
+      await mark('2026-04-02', 'Absent', 0);
+      await mark('2026-04-01', 'Present', 200);
       final before = (await queryRows(
         "SELECT COUNT(*)::int AS count FROM attendance_records WHERE patient_id='p_attendance_accuracy'",
       )).single['count'];
-      await mark('2026-04-01', 'Present', 400);
+      await mark('2026-04-01', 'Present', 200);
       expect(
         (await queryRows(
           "SELECT COUNT(*)::int AS count FROM attendance_records WHERE patient_id='p_attendance_accuracy'",

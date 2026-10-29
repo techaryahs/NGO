@@ -71,9 +71,6 @@ class _RefundDialogState extends State<RefundDialog> {
       balances.removeWhere(
         (id, value) =>
             value is! Map ||
-            value['provisional'] == true ||
-            (value['pendingAttendance'] is List &&
-                (value['pendingAttendance'] as List).isNotEmpty) ||
             (value['refundDue'] as num) <= 0.005 ||
             (widget.checkoutAt != null && id != widget.cycleId),
       );

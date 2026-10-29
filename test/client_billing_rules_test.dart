@@ -191,24 +191,25 @@ void main() {
         );
       },
     );
-    test('Pending is provisional and prevents finalization', () {
+    test('Pending attendance costs ₹0 and does not prevent finalization', () {
       final estimate = bill(1, attendance: {});
-      expect(estimate.total, 200);
-      expect(estimate.provisional, isTrue);
+      expect(estimate.total, 0);
+      expect(estimate.provisional, isFalse);
       expect(estimate.pendingAttendance, [
         {'day': '2026-01-01', 'kind': 'attendance'},
       ]);
-      expect(() => bill(1, attendance: {}, finalize: true), throwsStateError);
+      expect(bill(1, attendance: {}, finalize: true).total, 0);
       const roster = [
         {'id': 'a', 'name': 'Same'},
         {'id': 'b', 'name': 'Same'},
       ];
       final segment = stay('general', attendants: roster);
-      expect(() => bill(1, stays: [segment], finalize: true), throwsStateError);
+      expect(bill(1, stays: [segment], attendance: {}, finalize: true).total, 0);
       expect(
         bill(
           1,
           stays: [segment],
+          attendance: {'2026-01-01': 'Present'},
           attendants: {
             '2026-01-01': {'a': 'Present', 'b': 'Absent'},
           },
@@ -320,6 +321,10 @@ void main() {
           },
         ),
       ],
+      attendance: {
+        StayBilling.dateKey(at(1)): 'Present',
+        StayBilling.dateKey(at(2)): 'Present',
+      },
       pricing: {'generalRoomBedPrice': 500},
       calendarDayBilling: true,
     ).single;
@@ -436,7 +441,7 @@ void main() {
       );
     },
   );
-  test('historical unknown Pending attendant prevents finalization', () {
+  test('historical unknown Pending attendant does not prevent finalization', () {
     final invoice = bill(
       1,
       attendants: {
@@ -444,15 +449,16 @@ void main() {
       },
     );
     expect(invoice.pendingAttendance.single['attendantId'], 'historical-id');
+    expect(invoice.total, 200);
     expect(
-      () => bill(
+      bill(
         1,
         attendants: {
           '2026-01-01': {'historical-id': 'Unmarked'},
         },
         finalize: true,
-      ),
-      throwsStateError,
+      ).total,
+      200,
     );
   });
   test(
@@ -616,4 +622,234 @@ void main() {
       expect(invoice.actualPatientPresentDays, 60);
     });
   });
+  group('Rule 7 Acceptance Tests', () {
+    test('Case 1: Patient admitted 21 Oct, patient+attendant present 21-22 Oct (₹400/day), no marks after 22 Oct, no planned exit: on 29 Oct total is exactly ₹800, final, no provisional amounts', () {
+      final admission = DateTime.parse('2026-10-21T00:30:00.000Z'); // 06:00 IST
+      final cycleId = admission.millisecondsSinceEpoch.toString();
+      final helper = {'id': 'att_1', 'name': 'Helper'};
+      final patient = PatientModel.fromMap('p_case1', {
+        'id': 'p_case1',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'registrationDate': admission.millisecondsSinceEpoch,
+        'exitDate': null,
+        'attendants': [helper],
+      });
+      final staySegment = StayModel.fromMap('s_case1', {
+        'id': 's_case1',
+        'patientId': 'p_case1',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'cycleId': cycleId,
+        'roomType': 'general',
+        'patientSnapshot': {'attendants': [helper]},
+      });
+      final asOf = DateTime.parse('2026-10-29T09:30:00.000Z'); // 15:00 IST
+      final result = StayBilling.calculate(
+        patient: patient,
+        stays: [staySegment],
+        pricing: {'generalRoomBedPrice': 200},
+        calendarDayBilling: true,
+        now: asOf,
+        attendance: {
+          '2026-10-21': 'Present',
+          '2026-10-22': 'Present',
+        },
+        attendantAttendance: {
+          '2026-10-21': {'att_1': 'Present'},
+          '2026-10-22': {'att_1': 'Present'},
+        },
+      ).single;
+
+      expect(result.total, 800);
+      expect(result.provisional, isFalse);
+      expect(result.due, 800);
+      expect(result.pricingBasis, 'actual_patient_present');
+    });
+
+    test('Case 2: Same patient: discharge with admin-chosen exit 23 Oct succeeds despite pending marks; final total ₹800; bed freed', () {
+      final admission = DateTime.parse('2026-10-21T00:30:00.000Z');
+      final cycleId = admission.millisecondsSinceEpoch.toString();
+      final helper = {'id': 'att_1', 'name': 'Helper'};
+      final checkoutAt = DateTime.parse('2026-10-23T04:30:00.000Z'); // 10:00 IST (after cutoff)
+      final patient = PatientModel.fromMap('p_case2', {
+        'id': 'p_case2',
+        'status': 'discharged',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'dischargeDate': checkoutAt.millisecondsSinceEpoch,
+        'exitDate': checkoutAt.millisecondsSinceEpoch,
+        'attendants': [helper],
+      });
+      final staySegment = StayModel.fromMap('s_case2', {
+        'id': 's_case2',
+        'patientId': 'p_case2',
+        'status': 'completed',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'completedAt': checkoutAt.millisecondsSinceEpoch,
+        'cycleId': cycleId,
+        'roomType': 'general',
+        'patientSnapshot': {'attendants': [helper]},
+      });
+      final result = StayBilling.calculate(
+        patient: patient,
+        stays: [staySegment],
+        pricing: {'generalRoomBedPrice': 200},
+        calendarDayBilling: true,
+        checkoutAt: checkoutAt,
+        finalize: true,
+        attendance: {
+          '2026-10-21': 'Present',
+          '2026-10-22': 'Present',
+        },
+        attendantAttendance: {
+          '2026-10-21': {'att_1': 'Present'},
+          '2026-10-22': {'att_1': 'Present'},
+        },
+      ).single;
+
+      expect(result.total, 800);
+      expect(result.provisional, isFalse);
+    });
+
+    test('Case 3: Patient with planned exit 25 Oct, still ACTIVE on 29 Oct, attendance marked 21-28 Oct: only marked attendance up to 25 Oct is billed (5 days × ₹400 = ₹2,000); stay remains Active', () {
+      final admission = DateTime.parse('2026-10-21T00:30:00.000Z');
+      final cycleId = admission.millisecondsSinceEpoch.toString();
+      final helper = {'id': 'att_1', 'name': 'Helper'};
+      final plannedExit = DateTime.parse('2026-10-25T18:29:59.999Z');
+      final patient = PatientModel.fromMap('p_case3', {
+        'id': 'p_case3',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'exitDate': plannedExit.millisecondsSinceEpoch,
+        'attendants': [helper],
+      });
+      final staySegment = StayModel.fromMap('s_case3', {
+        'id': 's_case3',
+        'patientId': 'p_case3',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'expectedDischargeDate': plannedExit.millisecondsSinceEpoch,
+        'cycleId': cycleId,
+        'roomType': 'general',
+        'patientSnapshot': {'attendants': [helper]},
+      });
+      final attendance = <String, String>{
+        for (var day = 21; day <= 28; day++) '2026-10-$day': 'Present',
+      };
+      final attendantAttendance = <String, Map<String, String>>{
+        for (var day = 21; day <= 28; day++) '2026-10-$day': {'att_1': 'Present'},
+      };
+      final asOf = DateTime.parse('2026-10-29T09:30:00.000Z');
+      final result = StayBilling.calculate(
+        patient: patient,
+        stays: [staySegment],
+        pricing: {'generalRoomBedPrice': 200},
+        calendarDayBilling: true,
+        now: asOf,
+        attendance: attendance,
+        attendantAttendance: attendantAttendance,
+      ).single;
+
+      // 5 days (21..25 Oct) × ₹400 = ₹2,000
+      expect(result.total, 2000);
+      expect(result.provisional, isFalse);
+    });
+
+    test('Case 4: Same patient: planned exit extended 25 Oct -> 30 Oct -> attendance on 26-30 Oct charges normally again (10 days × ₹400 = ₹4,000)', () {
+      final admission = DateTime.parse('2026-10-21T00:30:00.000Z');
+      final cycleId = admission.millisecondsSinceEpoch.toString();
+      final helper = {'id': 'att_1', 'name': 'Helper'};
+      final extendedExit = DateTime.parse('2026-10-30T18:29:59.999Z');
+      final patient = PatientModel.fromMap('p_case4', {
+        'id': 'p_case4',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'exitDate': extendedExit.millisecondsSinceEpoch,
+        'attendants': [helper],
+      });
+      final staySegment = StayModel.fromMap('s_case4', {
+        'id': 's_case4',
+        'patientId': 'p_case4',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'expectedDischargeDate': extendedExit.millisecondsSinceEpoch,
+        'cycleId': cycleId,
+        'roomType': 'general',
+        'patientSnapshot': {'attendants': [helper]},
+      });
+      final attendance = <String, String>{
+        for (var day = 21; day <= 30; day++) '2026-10-$day': 'Present',
+      };
+      final attendantAttendance = <String, Map<String, String>>{
+        for (var day = 21; day <= 30; day++) '2026-10-$day': {'att_1': 'Present'},
+      };
+      final asOf = DateTime.parse('2026-10-31T04:30:00.000Z');
+      final result = StayBilling.calculate(
+        patient: patient,
+        stays: [staySegment],
+        pricing: {'generalRoomBedPrice': 200},
+        calendarDayBilling: true,
+        now: asOf,
+        attendance: attendance,
+        attendantAttendance: attendantAttendance,
+      ).single;
+
+      // 10 days × ₹400 = ₹4,000
+      expect(result.total, 4000);
+      expect(result.provisional, isFalse);
+    });
+
+    test('Case 5: Patient who paid more than the truncated final total: pending = 0, excess shows as unallocated/credit', () {
+      final admission = DateTime.parse('2026-10-21T00:30:00.000Z');
+      final cycleId = admission.millisecondsSinceEpoch.toString();
+      final helper = {'id': 'att_1', 'name': 'Helper'};
+      final plannedExit = DateTime.parse('2026-10-23T18:29:59.999Z');
+      final payment = PaymentModel.fromMap('pay_1', {
+        'id': 'pay_1',
+        'patientId': 'p_case5',
+        'amount': 2000.0,
+        'cycleId': cycleId,
+        'paymentDate': admission.millisecondsSinceEpoch,
+      });
+      final patient = PatientModel.fromMap('p_case5', {
+        'id': 'p_case5',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'exitDate': plannedExit.millisecondsSinceEpoch,
+        'attendants': [helper],
+        'payments': [payment.toMap()],
+      });
+      final staySegment = StayModel.fromMap('s_case5', {
+        'id': 's_case5',
+        'patientId': 'p_case5',
+        'status': 'active',
+        'admissionDate': admission.millisecondsSinceEpoch,
+        'expectedDischargeDate': plannedExit.millisecondsSinceEpoch,
+        'cycleId': cycleId,
+        'roomType': 'general',
+        'patientSnapshot': {'attendants': [helper]},
+      });
+      final result = StayBilling.calculate(
+        patient: patient,
+        stays: [staySegment],
+        pricing: {'generalRoomBedPrice': 200},
+        calendarDayBilling: true,
+        attendance: {
+          '2026-10-21': 'Present',
+          '2026-10-22': 'Present',
+        },
+        attendantAttendance: {
+          '2026-10-21': {'att_1': 'Present'},
+          '2026-10-22': {'att_1': 'Present'},
+        },
+      ).single;
+
+      // Total ₹800, Paid ₹2000 -> Due ₹0, RefundDue ₹1200, Status Payment Exceeded
+      expect(result.total, 800);
+      expect(result.due, 0);
+      expect(result.refundDue, 1200);
+      expect(result.status, 'Payment Exceeded');
+    });
+  });
+
 }

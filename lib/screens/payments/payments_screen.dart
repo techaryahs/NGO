@@ -325,9 +325,7 @@ class _PaymentsScreenState extends State<PaymentsScreen>
               Row(
                 children: [
                   _SummaryCard(
-                    title: activePatients.any((p) => p.financialUncertain)
-                        ? "Provisional Outstanding Due"
-                        : "Total Outstanding Due",
+                    title: "Total Outstanding Due",
                     value: totalDue,
                     color: const Color(0xFFD32F2F),
                     icon: Icons.warning_rounded,
@@ -974,7 +972,7 @@ class _PatientBillingTileState extends State<_PatientBillingTile> {
                 ],
 
                 Text(
-                  "${patient.financialUncertain ? 'Provisional due' : 'Due'}: ${fmt.format(patient.effectiveDueAmount)}",
+                  "Due: ${fmt.format(patient.effectiveDueAmount)}",
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 18,

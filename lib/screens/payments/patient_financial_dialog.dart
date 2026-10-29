@@ -209,13 +209,6 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
               const SizedBox(height: 20),
 
               // Overview Cards
-              if (_patient.financialUncertain)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    'Financial amounts are provisional. Resolve payment allocation and attendance before final settlement.',
-                  ),
-                ),
               Row(
                 children: [
                   _MetricCard(
@@ -401,9 +394,7 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
         final paid = (data['paid'] as num?)?.toDouble() ?? 0.0;
         final refunded = (data['refunded'] as num?)?.toDouble() ?? 0.0;
         final due = (data['due'] as num?)?.toDouble() ?? 0.0;
-        final uncertain =
-            data['reconciliationRequired'] == true ||
-            data['provisional'] == true;
+        final uncertain = data['reconciliationRequired'] == true;
         final refundDue = uncertain
             ? 0.0
             : (data['refundDue'] as num?)?.toDouble() ?? 0.0;
@@ -489,14 +480,7 @@ class _PatientFinancialDialogState extends State<PatientFinancialDialog> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    if (data['provisional'] == true)
-                      Text(
-                        'Provisional${data['plannedExitConfirmed'] == false ? ' ongoing estimate · exit unconfirmed' : ''} · attendance Pending',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                        ),
-                      ),
+
                     if (data['checkoutAdjustment'] is Map)
                       Text(
                         'After 9 AM checkout adjustment (${data['checkoutAdjustment']['day']}, billable day ${data['checkoutAdjustment']['billableDay']}): ${currency.format(data['checkoutAdjustment']['amount'] ?? 0)}',

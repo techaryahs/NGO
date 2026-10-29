@@ -188,6 +188,7 @@ void main() {
         ),
       ],
       pricing: {},
+      attendance: {for (var i = 1; i <= 7; i++) '2026-01-0$i': 'Present'},
       now: DateTime(2026, 2, 7),
     ).single;
 
@@ -206,6 +207,7 @@ void main() {
           ),
         ],
         pricing: {'generalRoomBedPrice': 200},
+        attendance: {for (var i = 1; i <= 38; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
         now: DateTime(2026, 2, 7),
       ).single;
 
@@ -228,6 +230,10 @@ void main() {
         ),
       ],
       pricing: {'generalRoomBedPrice': 200},
+      attendance: {
+        for (var i = 1; i <= 7; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present',
+        for (var i = 20; i <= 38; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present',
+      },
       now: DateTime(2026, 2, 7),
     ).single;
 
@@ -254,8 +260,8 @@ void main() {
       },
     ).single;
 
-    expect(bill.days['lobby'], 7);
-    expect(bill.total, 2000);
+    expect(bill.days['lobby'], 4);
+    expect(bill.total, 1400);
   });
 
   test('patient marks do not create unmarked attendant charges', () {
@@ -271,8 +277,8 @@ void main() {
       },
     ).single;
 
-    expect(bill.days['lobby'], 7);
-    expect(bill.total, 1400);
+    expect(bill.days['lobby'], 4);
+    expect(bill.total, 800);
   });
 
   test(
@@ -309,8 +315,8 @@ void main() {
         },
       );
 
-      expect(stale['patients/p/advanceBilledAmount'], 2200);
-      expect(corrected['patients/p/advanceBilledAmount'], 2400);
+      expect(stale['patients/p/advanceBilledAmount'], 1800);
+      expect(corrected['patients/p/advanceBilledAmount'], 2000);
     },
   );
 
@@ -327,6 +333,10 @@ void main() {
       patient: patient(),
       stays: [StayModel.fromMap('general', data)],
       pricing: {},
+      attendance: {
+        '2026-01-01': 'Present',
+        '2026-01-02': 'Present',
+      },
       attendantAttendance: {
         '2026-01-01': {'Attendant': 'Present'},
         '2026-01-02': {'Attendant': 'Absent'},
@@ -348,6 +358,10 @@ void main() {
       patient: patient(),
       stays: [StayModel.fromMap('general', data)],
       pricing: {},
+      attendance: {
+        '2026-01-01': 'Present',
+        '2026-01-02': 'Present',
+      },
     ).single;
     expect(bill.total, 400);
   });
@@ -358,6 +372,7 @@ void main() {
       patient: patient(status: 'active', exit: 71),
       stays: [StayModel.fromMap('general', data)],
       pricing: {'generalRoomBedPrice': 200},
+      attendance: {for (var i = 1; i <= 70; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
     ).single;
 
     expect(bill.days['general'], 70);
@@ -427,22 +442,28 @@ void main() {
       final data = segment('general', 'general', 1, 72, status: 'active');
       data['durationDays'] = 60;
       data['totalExtendedDays'] = 10;
-      final absent = <String, String>{
+      final attendance60 = <String, String>{
         for (var day = 1; day <= 10; day++)
           StayBilling.dateKey(DateTime(2026, 1, day)): 'Absent',
+        for (var day = 11; day <= 70; day++)
+          StayBilling.dateKey(DateTime(2026, 1, day)): 'Present',
+      };
+      final attendance61 = <String, String>{
+        ...attendance60,
+        StayBilling.dateKey(DateTime(2026, 1, 71)): 'Present',
       };
       final sixty = StayBilling.calculate(
         patient: patient(status: 'active', exit: 70, exitMinute: 1),
         stays: [StayModel.fromMap('general', data)],
         pricing: {},
-        attendance: absent,
+        attendance: attendance60,
         calendarDayBilling: true,
       ).single;
       final sixtyOne = StayBilling.calculate(
         patient: patient(status: 'active', exit: 71, exitMinute: 1),
         stays: [StayModel.fromMap('general', data)],
         pricing: {},
-        attendance: absent,
+        attendance: attendance61,
         calendarDayBilling: true,
       ).single;
       expect(sixty.days['general'], 60);
@@ -468,6 +489,10 @@ void main() {
             for (var day = 1; day <= 10; day++)
               StayBilling.dateKey(DateTime(2026, 1, day)): {
                 'p': {'status': 'Absent'},
+              },
+            for (var day = 11; day <= 60; day++)
+              StayBilling.dateKey(DateTime(2026, 1, day)): {
+                'p': {'status': 'Present'},
               },
           },
         },
@@ -548,6 +573,7 @@ void main() {
             ),
           ],
           pricing: {'generalRoomBedPrice': 200},
+          attendance: {for (var i = 1; i <= 70; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
         ).single.total,
         60 * 200 + 10 * 250,
         reason: 'Lobby uses the verified General pricing path',
@@ -591,6 +617,7 @@ void main() {
       patient: patient(status: 'active', exit: 8, payments: [payment(800)]),
       stays: [StayModel.fromMap('lobby', data)],
       pricing: {'generalRoomBedPrice': 200},
+      attendance: {for (var i = 1; i <= 7; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
       attendantAttendance: present,
     ).single;
 
@@ -610,6 +637,7 @@ void main() {
         patient: patient(status: 'active', exit: 10),
         stays: [StayModel.fromMap('lobby', data)],
         pricing: {'generalRoomBedPrice': 200},
+        attendance: {for (var i = 1; i <= 9; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
         attendantAttendance: {
           for (final day in [1, 2, 3, 6, 7, 8])
             '2026-01-${day.toString().padLeft(2, '0')}': {
@@ -633,6 +661,7 @@ void main() {
         patient: PatientModel.fromMap('p', patientData),
         stays: [StayModel.fromMap('lobby', data)],
         pricing: {'generalRoomBedPrice': 200},
+        attendance: {for (var i = 1; i <= 9; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
         attendantAttendance: {
           for (final day in [1, 2, 3, 6, 7, 8])
             '2026-01-${day.toString().padLeft(2, '0')}': {
@@ -654,6 +683,7 @@ void main() {
       patient: patient(),
       stays: stays,
       pricing: {},
+      attendance: {for (var i = 1; i <= 9; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
     ).single;
     expect(bill.total, 4 * 700 + 2 * 200);
   });
@@ -734,6 +764,7 @@ void main() {
       patient: patient(),
       stays: mixedStays(),
       pricing: {},
+      attendance: {for (var i = 1; i <= 7; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
     ).single;
     expect(bill.charges['private'], 4 * 700);
     expect(bill.charges['general'], 3 * 200);
@@ -752,6 +783,7 @@ void main() {
         StayModel.fromMap('general', next),
       ],
       pricing: {},
+      attendance: {for (var i = 1; i <= 7; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
     ).single;
     expect(bill.total, 3400);
     expect(bill.days.values.fold<int>(0, (a, b) => a + b), 7);
@@ -763,7 +795,10 @@ void main() {
       patient: patient(),
       stays: mixedStays(),
       pricing: {},
-      attendance: {'2026-01-02': 'Absent'},
+      attendance: {
+        for (var i = 1; i <= 7; i++)
+          '2026-01-0$i': i == 2 ? 'Absent' : 'Present',
+      },
     ).single;
     expect(bill.total, 3400);
   });
@@ -772,6 +807,7 @@ void main() {
       patient: patient(payments: [payment(4000), payment(-250, date: 9)]),
       stays: mixedStays(),
       pricing: {},
+      attendance: {for (var i = 5; i <= 7; i++) '2026-01-0$i': 'Present'},
     ).single;
     expect(bill.paid, 4000);
     expect(bill.refunded, 250);
@@ -798,6 +834,10 @@ void main() {
       ),
       stays: stays,
       pricing: {},
+      attendance: {
+        for (var i = 5; i <= 7; i++) '2026-01-0$i': 'Present',
+        for (var i = 15; i <= 16; i++) '2026-01-$i': 'Present',
+      },
     );
     expect(bills.firstWhere((b) => b.id == cycle).refundDue, 0);
     expect(bills.firstWhere((b) => b.id == newCycle).netPaid, 300);
@@ -831,7 +871,8 @@ void main() {
       patient: patient(status: 'active'),
       stays: stays,
       pricing: {},
-      now: DateTime(2026, 1, 6),
+      attendance: {for (var i = 1; i <= 7; i++) StayBilling.dateKey(DateTime(2026, 1, i)): 'Present'},
+      now: DateTime(2026, 1, 7),
     ).single;
     expect(bill.total, 3400);
   });
@@ -842,6 +883,14 @@ void main() {
       final db = TestDatabase({
         'patients': {'p': data},
         'stays': {for (final s in mixedStays()) s.id: s.toMap()},
+        'attendance': {
+          'daily': {
+            for (var day = 5; day <= 7; day++)
+              '2026-01-${day.toString().padLeft(2, '0')}': {
+                'p': {'status': 'Present'},
+              },
+          },
+        },
       });
       await StayHistoryService(db).updateStay(
         'general',
@@ -880,6 +929,18 @@ void main() {
           for (final s in mixedStays()) s.id: s.toMap(),
           'new': segment('new', 'general', 15, 17, cycleId: newCycle),
         },
+        'attendance': {
+          'daily': {
+            for (var day = 5; day <= 7; day++)
+              '2026-01-${day.toString().padLeft(2, '0')}': {
+                'p': {'status': 'Present'},
+              },
+            for (var day = 15; day <= 16; day++)
+              '2026-01-$day': {
+                'p': {'status': 'Present'},
+              },
+          },
+        },
       });
       await StayHistoryService(db).updateStay(
         'general',
@@ -907,6 +968,14 @@ void main() {
           'p': patient(payments: [payment(4000)]).toMap(),
         },
         'stays': {for (final s in mixedStays()) s.id: s.toMap()},
+        'attendance': {
+          'daily': {
+            for (var day = 5; day <= 7; day++)
+              '2026-01-${day.toString().padLeft(2, '0')}': {
+                'p': {'status': 'Present'},
+              },
+          },
+        },
       });
       final id = await PaymentService(db).recordRefund(
         patientId: 'p',
@@ -929,6 +998,14 @@ void main() {
         'p': patient(payments: [payment(4000)]).toMap(),
       },
       'stays': {for (final s in mixedStays()) s.id: s.toMap()},
+      'attendance': {
+        'daily': {
+          for (var day = 5; day <= 7; day++)
+            '2026-01-${day.toString().padLeft(2, '0')}': {
+              'p': {'status': 'Present'},
+            },
+        },
+      },
     });
     await expectLater(
       PaymentService(db).recordRefund(

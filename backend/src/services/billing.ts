@@ -10,6 +10,18 @@ const localClock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', 
 export const afterCheckoutCutoff = (value: any) => localClock.format(new Date(value)) > '09:00';
 export const checkoutEnd = (value: any) => afterCheckoutCutoff(value) ? nextDay(dayKey(value)) : dayKey(value);
 export const usesLongStayTier = (priorPatientPresentDays: number) => priorPatientPresentDays >= 60;
+export function normalizeExitDate(value: any): Date {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+        return new Date(`${value.trim()}T23:59:59.999+05:30`);
+    }
+    const d = new Date(value);
+    const iso = d.toISOString();
+    if (iso.endsWith('T00:00:00.000Z') && typeof value === 'string' && !value.includes('T00:00:00')) {
+        const dayStr = dayKey(d);
+        return new Date(`${dayStr}T23:59:59.999+05:30`);
+    }
+    return d;
+}
 export function money(value: unknown): number {
     const text = String(value ?? 0);
     const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(text);
@@ -142,11 +154,6 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     // checkout preview. Explicit checkout quotes and extension simulations
     // retain their own dates; historical admissions remain frozen.
     const asOf = new Date(options.asOf ?? Date.now());
-    if (!options.checkoutAt && !options.ignoreCheckout && !options.stayEndDates &&
-        ['active', 'paid'].includes(String(patient.status).toLowerCase()) && patient.exit_date &&
-        asOf > new Date(patient.exit_date) && checkoutEnd(asOf) > dayKey(patient.exit_date) && stays.some(s => s.status === 'active' && stayCycle(s, patient) === currentCycle)) {
-        options = { ...options, checkoutAt: asOf };
-    }
     const records = options.source?.records ?? (await client.query("SELECT kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id=$1", [patient.id])).rows;
     const receipts = options.source?.receipts ?? (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [patient.id])).rows;
     const corrections = options.source ? options.source.corrections ?? [] : (await client.query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id=$1 AND reverted_at IS NULL ORDER BY billable_date', [patient.id])).rows;
@@ -251,12 +258,11 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             let end: any, isActualCheckout = false;
             if (options.checkoutAt && cycleId === currentCycle) { end = options.checkoutAt; isActualCheckout = true; }
             else if (active) {
-                end = patient.exit_date;
-                if (!end) {
-                    // An open admission retains its seven-day advance, extending for
-                    // elapsed days, stay extensions and genuinely recorded attendance.
-                    const candidates = [nextDay(start, 6) + 'T03:30:00Z', dayKey(options.asOf ?? Date.now()) + 'T03:30:00Z', ...segments.filter(s => s.status === 'active').map(s => (s.expected_discharge_date ? dayKey(new Date(new Date(s.expected_discharge_date).getTime() - 86400000)) : nextDay(start, 6)) + 'T03:30:00Z'), ...[...attendance.keys(), ...attendants.keys()].map(d => d + 'T03:30:00Z')];
-                    end = new Date(Math.max(...candidates.map(d => new Date(d).getTime())));
+                if (patient.exit_date) {
+                    end = normalizeExitDate(patient.exit_date);
+                } else {
+                    const today = dayKey(options.asOf ?? Date.now());
+                    end = new Date(today + 'T23:59:59.999+05:30');
                 }
             }
             else
@@ -285,13 +291,11 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                     continue;
                 const patientState = attendance.get(d) ?? 'Pending';
                 if (!['Present', 'Absent'].includes(patientState)) pendingAttendance.push({ day: d, kind: 'attendance' });
-                const patientBillable = patientState === 'Present' || (!options.finalize && patientState !== 'Absent');
-                const patientPresentDaysBefore = options.finalize ? actualPatientPresentDays : projectedPatientPresentDays;
+                const patientBillable = patientState === 'Present';
+                const patientPresentDaysBefore = actualPatientPresentDays;
                 const longStay = usesLongStayTier(patientPresentDaysBefore);
                 if (patientState === 'Present') actualPatientPresentDays++;
-                // A projection can assume unresolved patient dates are Present,
-                // but never changes their attendance or actual threshold count.
-                if (patientBillable) projectedPatientPresentDays++;
+                projectedPatientPresentDays = actualPatientPresentDays;
                 const marks = attendants.get(d) ?? new Map<string, string>();
                 const resolveAttendants = (stay: any) => {
                 const unresolved: typeof pendingAttendance = [];
@@ -325,7 +329,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                 };
                 const resolved = new Map(candidates.map(s => [s.id, resolveAttendants(s)]));
                 const cost = (s: any, attendantCount = resolved.get(s.id)!.attendantCount) => {
-                    if (s.room_type !== 'private' && !patientBillable && !attendantCount) return 0;
+                    if (!patientBillable && !attendantCount) return 0;
                     const stayPricing = s.billing_summary?.pricing ?? pricing;
                     const base = s.daily_rate_is_manual && s.daily_rate != null ? money(s.daily_rate) : baseDailyChargeCents(s.room_type, attendantCount, stayPricing, patientBillable);
                     return !longStay ? base : s.long_stay_daily_rate != null ? money(s.long_stay_daily_rate) : dailyChargeCents(s.room_type, attendantCount, stayPricing, patientBillable, base);
@@ -345,7 +349,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
                 const { attendantCount, unresolved } = resolved.get(chosen.id)!;
                 pendingAttendance.push(...unresolved);
                 const privateRoom = chosen.room_type === 'private';
-                const billable = privateRoom || patientBillable || attendantCount > 0;
+                const billable = patientBillable || attendantCount > 0;
                 if (!billable) continue;
                 billableDays++;
                 const excluded = corrections.some(c => c.cycle_id === cycleId && c.billable_day === d);
@@ -413,7 +417,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             refunded = accountRefunded;
         }
         const net = paid - refunded, due = Math.max(0, billed - net), excess = Math.max(0, net - billed);
-        balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen && options.includeDayCharges ? { dayCharges } : {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: pendingAttendance.length > 0 || active && !patient.exit_date && !options.checkoutAt, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: options.finalize ? 'actual_patient_present' : 'projected_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
+        balances[cycleId] = { ...(frozen ? saved : {}), cycleId, total: billed / 100, paid: paid / 100, refunded: refunded / 100, netPaid: net / 100, due: due / 100, refundDue: excess / 100, status: status(net, due, excess), segmentCharges: segments.length ? Object.fromEntries(Object.entries(charges).map(([k, v]) => [k, v / 100])) : (patient.admission_balances?.[cycleId]?.segmentCharges ?? {}), segmentDays: segments.length ? days : (patient.admission_balances?.[cycleId]?.segmentDays ?? {}), ...(!frozen && options.includeDayCharges ? { dayCharges } : {}), ...(!frozen ? { finalized: options.finalize === true && cycleId === currentCycle, provisional: false, pendingAttendance, actualPatientPresentDays, projectedPatientPresentDays, pricingBasis: 'actual_patient_present', checkoutAdjustment, checkoutAt: cycleId === currentCycle && options.checkoutAt ? options.checkoutAt.getTime() : null, plannedExitConfirmed: patient.exit_date != null } : {}) };
         // A conflicting placement affects every identity it claims, not an
         // unrelated, independently evidenced historical invoice. Untagged or
         // unknown receipts (including refunds) cannot be bounded to one cycle.
@@ -427,7 +431,6 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             saved?.reconciliationRequired === true;
         balances[cycleId].reconciliationRequired = cycleUncertain;
         balances[cycleId].refundEligible = !cycleUncertain && balances[cycleId].provisional !== true &&
-            pendingAttendance.length === 0 && !(balances[cycleId].pendingAttendance?.length) &&
             (segments.length > 0 || saved?.total != null || patient.billing_amount_override != null);
         if (!frozen) {
             balances[cycleId].segmentPatientCharges = Object.fromEntries(Object.entries(patientCharges).filter(([id]) => !unsplit.has(id)).map(([id, amount]) => [id, amount / 100]));
@@ -439,7 +442,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
     const marks = [...attendance].filter(([d]) => d >= rangeStart && d <= rangeEnd).map(([, s]) => s);
     const fields = { advance_billed_amount: decimal(money(current.total)), attendance_charges: '0.00', billing_amount_override: stays.length ? null : patient.billing_amount_override, total_paid_amount: decimal(money(current.netPaid)), current_due_amount: decimal(money(current.due)), refund_due_amount: decimal(money(current.refundDue)), total_refund_due_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refundDue), 0)), total_refunded_amount: decimal(Object.values(balances).reduce((sum, b) => sum + money(b.refunded), 0)), payment_pending: current.due > 0, payment_status: current.status, admission_balances: balances, total_present_days: marks.filter(s => s === 'Present').length, total_absent_days: marks.filter(s => s === 'Absent').length };
     const conflictedStays = new Set(identityIssues.map(issue => issue.stayId));
-    const computedStays = stays.map(s => { const b = balances[stayCycle(s, patient)]; return b && !conflictedStays.has(s.id) && s.status !== 'cancelled' && !(b.finalized && !options.finalize) && stayCycle(s, patient) === currentCycle ? { ...s, total_cost: decimal(money(b.segmentCharges[s.id] ?? 0)), billing_summary: { ...s.billing_summary, pricing: s.billing_summary?.pricing ?? pricing, days: b.segmentDays[s.id] ?? 0, amount: b.segmentCharges[s.id] ?? 0, admissionId: b.cycleId, provisional: b.provisional, checkoutAdjustment: b.checkoutAdjustment?.stayId == null || b.checkoutAdjustment.stayId === s.id ? b.checkoutAdjustment : null, pendingAttendance: b.pendingAttendance }, cycle_id: b.cycleId, daily_rate: s.daily_rate_is_manual ? s.daily_rate : null } : s; });
+    const computedStays = stays.map(s => { const b = balances[stayCycle(s, patient)]; return b && !conflictedStays.has(s.id) && s.status !== 'cancelled' && !(b.finalized && !options.finalize) && stayCycle(s, patient) === currentCycle ? { ...s, total_cost: decimal(money(b.segmentCharges[s.id] ?? 0)), billing_summary: { ...s.billing_summary, pricing: s.billing_summary?.pricing ?? pricing, days: b.segmentDays[s.id] ?? 0, amount: b.segmentCharges[s.id] ?? 0, admissionId: b.cycleId, provisional: false, checkoutAdjustment: b.checkoutAdjustment?.stayId == null || b.checkoutAdjustment.stayId === s.id ? b.checkoutAdjustment : null, pendingAttendance: b.pendingAttendance }, cycle_id: b.cycleId, daily_rate: s.daily_rate_is_manual ? s.daily_rate : null } : s; });
     for (const s of computedStays) {
         const b = balances[stayCycle(s, patient)];
         if (!conflictedStays.has(s.id) && s.status !== 'cancelled' && stayCycle(s, patient) === currentCycle && !(b.finalized && !options.finalize) && b.segmentPatientCharges?.[s.id] != null) {
@@ -447,7 +450,7 @@ export async function projectBilling(client: pg.PoolClient, patient: any, option
             s.extra_attendant_cost = decimal(money(b.segmentAttendantCharges[s.id]));
         }
     }
-    return { patient: { ...patient, ...fields, financial_reconciliation: { ...reconciliation, accountNetPaid: reconciliation.accountPaid - reconciliation.accountRefunded, provisional: current.provisional === true } }, fields, stays: computedStays, receipts, balances, reconciliation, attendance, repriceClosed: options.finalize === true,
+    return { patient: { ...patient, ...fields, financial_reconciliation: { ...reconciliation, accountNetPaid: reconciliation.accountPaid - reconciliation.accountRefunded, provisional: false } }, fields, stays: computedStays, receipts, balances, reconciliation, attendance, repriceClosed: options.finalize === true,
         source: { stays: sourceStays, records, receipts, pricing, roster, corrections } };
 }
 
@@ -466,13 +469,34 @@ export async function quoteStayExtension(client: pg.PoolClient, patient: any, st
         throw httpError(409, 'Reconcile admission identities before pricing a stay extension');
     const before = beforeProjection.balances[cycle];
     const afterPatient = { ...patient, exit_date: patient.exit_date ? new Date(new Date(patient.exit_date).getTime() + additionalDays * 86400000) : null };
-    const after = (await projectBilling(client, afterPatient, { asOf, ignoreCheckout: true, source: beforeProjection.source, stayEndDates: {
-        [stay.id]: new Date(new Date(stay.expected_discharge_date).getTime() + additionalDays * 86400000),
-    } })).balances[cycle];
+    const simulatedRecords = [...(beforeProjection.source?.records ?? [])];
+    const existingPatientDays = new Set(simulatedRecords.filter((r: any) => r.kind === 'attendance').map((r: any) => r.day));
+    const existingAttendantDays = new Set(simulatedRecords.filter((r: any) => r.kind === 'attendant_attendance').map((r: any) => r.day));
+    const rosterList = Array.isArray(stay.patient_snapshot?.attendants) ? stay.patient_snapshot.attendants : (patient.attendants ?? []);
+    let cur = from;
+    while (cur < through) {
+        if (!existingPatientDays.has(cur)) {
+            simulatedRecords.push({ kind: 'attendance', day: cur, payload: { status: 'Present' } });
+        }
+        if (!existingAttendantDays.has(cur)) {
+            for (const att of rosterList) {
+                if (eligibleAttendant(att, cur)) {
+                    simulatedRecords.push({ kind: 'attendant_attendance', day: cur, payload: { attendantName: att.name ?? att.attendant_name, status: 'Present' } });
+                }
+            }
+        }
+        cur = nextDay(cur);
+    }
+    const after = (await projectBilling(client, afterPatient, {
+        asOf,
+        ignoreCheckout: true,
+        source: { ...(beforeProjection.source ?? {}), records: simulatedRecords },
+        stayEndDates: { [stay.id]: new Date(new Date(stay.expected_discharge_date).getTime() + additionalDays * 86400000) }
+    })).balances[cycle];
     const cost = money(after.total) - money(before.total);
     if (cost < 0) throw httpError(409, 'Extension quote would reduce existing charges');
     return { additionalDays, additionalCost: cost / 100, from, throughExclusive: through,
-        priorBillableDays: before.projectedPatientPresentDays,
+        priorBillableDays: before.actualPatientPresentDays,
         actualPatientPresentDays: before.actualPatientPresentDays,
         pricingBasis: 'projected_billable_attendance' };
 }

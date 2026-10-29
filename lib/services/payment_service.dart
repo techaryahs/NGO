@@ -468,10 +468,17 @@ class PaymentService {
                 }),
         )
         .toList();
+    final extensionPatientAttendance = <String, String?>{};
+    final start = patient.exitDate ?? stay.expectedDischargeDate;
+    for (var i = 0; i < additionalDays; i++) {
+      final date = start.add(Duration(days: i));
+      extensionPatientAttendance[StayBilling.dateKey(date)] = 'Present';
+    }
     final after = await billingUpdates(
       stay.patientId,
       patientData: afterData,
       stays: afterStays,
+      patientAttendanceOverrides: extensionPatientAttendance,
     );
     final key = 'patients/${stay.patientId}/advanceBilledAmount';
     return (((after[key] as num).toDouble() - (before[key] as num).toDouble()) *

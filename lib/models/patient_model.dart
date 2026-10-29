@@ -223,11 +223,8 @@ class PatientModel {
 
   bool get financialUncertain =>
       financialReconciliation['required'] == true ||
-      financialReconciliation['provisional'] == true ||
       admissionBalances.values.any(
-        (b) =>
-            b is Map &&
-            (b['reconciliationRequired'] == true || b['provisional'] == true),
+        (b) => b is Map && b['reconciliationRequired'] == true,
       );
   List<String> get financialReviewReasons {
     final reasons = <String>[];
@@ -247,18 +244,9 @@ class PatientModel {
     if (charges is List && charges.isNotEmpty) {
       reasons.add('Invoice evidence is missing or unresolved.');
     }
-    final cycle =
-        admissionBalances[admissionDate.millisecondsSinceEpoch.toString()];
-    if (cycle is Map &&
-        cycle['pendingAttendance'] is List &&
-        (cycle['pendingAttendance'] as List).isNotEmpty) {
-      reasons.add(
-        '${(cycle['pendingAttendance'] as List).length} attendance mark(s) remain pending; charges are provisional.',
-      );
-    }
     if (reasons.isEmpty && financialUncertain) {
       reasons.add(
-        'Financial amounts remain provisional. Confirm attendance, admission and receipt evidence before final settlement.',
+        'Confirm admission and receipt evidence before final settlement.',
       );
     }
     return reasons;

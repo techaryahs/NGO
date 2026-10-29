@@ -67,11 +67,11 @@ describe('approved client billing rules', () => {
     expect(await quoteStayExtension({ query } as any, f.patient, f.source.stays[0], 5)).toMatchObject({ additionalCost: 2000 });
     const overdueAt = Date.parse('2026-10-28T11:44:00Z');
     const overdue = await projectBillingEngine(f.client, f.patient, { source: f.source, asOf: overdueAt });
-    expect(overdue.balances[current]).toMatchObject({ total: 5200, netPaid: 3200, due: 2000, refundDue: 0 });
+    expect(overdue.balances[current]).toMatchObject({ total: 3200, netPaid: 3200, due: 0, refundDue: 0 });
     (f.source.receipts as any[]).push({ id: 'collection', cycle_id: current, amount: '2000.00' });
     const withStalePreview = { ...f.patient, admission_balances: { [current]: { checkoutAt: start.getTime() } } };
     const collected = await projectBillingEngine(f.client, withStalePreview, { source: f.source, asOf: overdueAt, useSavedCheckout: true });
-    expect(collected.balances[current]).toMatchObject({ total: 5200, netPaid: 5200, due: 0, refundDue: 0 });
+    expect(collected.balances[current]).toMatchObject({ total: 3200, netPaid: 5200, due: 0, refundDue: 2000 });
     (f.source.receipts as any[]).pop();
     const checkoutAt = new Date('2026-10-28T11:44:00Z');
     const preview = await projectBilling(f.client, f.patient, { source: f.source, checkoutAt });
@@ -164,7 +164,7 @@ describe('approved client billing rules', () => {
     expect((await calculate({ category: 'private', patientStates: ['Absent'], people, attendantStates: ['Present', 'Present', 'Absent'] })).balances[cycle].total).toBe(900);
     const absent = Array.from({ length: 61 }, () => 'Absent');
     expect((await calculate({ days: 61, category: 'private', patientStates: absent, people, attendantStates: ['Present', 'Present', 'Absent'] })).balances[cycle].total).toBe(54900);
-    expect((await calculate({ days: 61, category: 'private', patientStates: absent })).balances[cycle].total).toBe(42700);
+    expect((await calculate({ days: 61, category: 'private', patientStates: absent })).balances[cycle].total).toBe(0);
   });
   it('65 attendant-only General days do not advance the patient Present threshold', async () => {
     const patientStates = Array.from({ length: 65 }, () => 'Absent');
@@ -173,9 +173,9 @@ describe('approved client billing rules', () => {
   });
   it('Private absence before 60 actual Present days retains the initial room tier', async () => {
     const patientStates = [...Array.from({ length: 20 }, () => 'Absent'), ...Array.from({ length: 60 }, () => 'Present')];
-    expect((await calculate({ days: 80, category: 'private', patientStates })).balances[cycle].total).toBe(56000);
+    expect((await calculate({ days: 80, category: 'private', patientStates })).balances[cycle].total).toBe(42000);
     patientStates.push('Present');
-    expect((await calculate({ days: 81, category: 'private', patientStates })).balances[cycle].total).toBe(56900);
+    expect((await calculate({ days: 81, category: 'private', patientStates })).balances[cycle].total).toBe(42900);
   });
   it('an ID-keyed same-name roster is not collapsed into one attendant', async () => {
     const people = [{ id: 'a', name: 'Same' }, { id: 'b', name: 'Same' }];
@@ -195,7 +195,7 @@ describe('approved client billing rules', () => {
     const result = await projectBilling(f.client, f.patient, { source: f.source });
     expect(result.balances[cycle].total).toBe(200);
     expect(result.balances[cycle].pendingAttendance.filter((entry: any) => entry.kind === 'attendant_attendance')).toHaveLength(2);
-    expect(result.balances[cycle].provisional).toBe(true);
+    expect(result.balances[cycle].provisional).toBe(false);
     expect(f.source.records[1].payload).toEqual({ Same: { attendantName: 'Same', status: 'Present' } });
   });
   it('unmarked and explicit Pending records stay provisional and are listed for finalization', async () => {
@@ -203,17 +203,18 @@ describe('approved client billing rules', () => {
     f.source.records = [];
     const result = await projectBilling(f.client, f.patient, { source: f.source });
     expect(result.attendance.has('2026-01-01')).toBe(false);
-    expect(result.balances[cycle]).toMatchObject({ provisional: true, pendingAttendance: [
+    expect(result.balances[cycle]).toMatchObject({ provisional: false, pendingAttendance: [
       { day: '2026-01-01', kind: 'attendance' }, { day: '2026-01-01', kind: 'attendant_attendance', attendantId: 'a' },
     ] });
-    expect((await calculate({ patientStates: ['Pending'] })).balances[cycle].provisional).toBe(true);
+    expect((await calculate({ patientStates: ['Pending'] })).balances[cycle].provisional).toBe(false);
+    expect((await calculate({ patientStates: ['Pending'] })).balances[cycle].total).toBe(0);
   });
   it('an explicitly Pending historical attendant outside the current roster still blocks finalization', async () => {
     const f = fixture();
     f.source.records[1].payload = { departed: { attendantId: 'departed', attendantName: 'Historical helper', status: 'Pending' } } as any;
     const result = await projectBilling(f.client, f.patient, { source: f.source });
     expect(result.balances[cycle].total).toBe(200);
-    expect(result.balances[cycle]).toMatchObject({ provisional: true, pendingAttendance: [
+    expect(result.balances[cycle]).toMatchObject({ provisional: false, pendingAttendance: [
       { day: '2026-01-01', kind: 'attendant_attendance', attendantId: 'departed' },
     ] });
   });
@@ -324,9 +325,14 @@ describe('approved client billing rules', () => {
         cycle_id: cycle,
         room_type: 'general',
       }];
+      const records = Array.from({ length: 11 }, (_, i) => ({
+        kind: 'attendance',
+        day: at(i + 1, 0, 0).toISOString().slice(0, 10),
+        payload: { status: 'Present' },
+      }));
       const source = {
         stays,
-        records: [],
+        records,
         receipts: [],
         roster: [],
         pricing: { generalRoomBedPrice: 200 },
@@ -358,9 +364,14 @@ describe('approved client billing rules', () => {
         cycle_id: cycle,
         room_type: 'general',
       }];
+      const records = Array.from({ length: 11 }, (_, i) => ({
+        kind: 'attendance',
+        day: at(i + 1, 0, 0).toISOString().slice(0, 10),
+        payload: { status: 'Present' },
+      }));
       const source = {
         stays,
-        records: [],
+        records,
         receipts: [],
         roster: [],
         pricing: { generalRoomBedPrice: 200 },
@@ -392,9 +403,14 @@ describe('approved client billing rules', () => {
         cycle_id: cycle,
         room_type: 'general',
       }];
+      const records = Array.from({ length: 10 }, (_, i) => ({
+        kind: 'attendance',
+        day: at(i + 1).toISOString().slice(0, 10),
+        payload: { status: 'Present' },
+      }));
       const source = {
         stays,
-        records: [],
+        records,
         receipts: [{
           id: 'pay_1',
           patient_id: patient.id,
@@ -459,6 +475,259 @@ describe('approved client billing rules', () => {
       expect(result.balances[cycle].paid).toBe(1800);
       expect(result.balances[cycle].due).toBe(0);
       expect(result.balances[cycle].refundDue).toBe(200);
+    });
+  });
+
+  describe('Rule 7 Acceptance Tests', () => {
+    it('Case 1: Patient admitted 21 Oct, patient+attendant present 21-22 Oct in general room, no marks after 22 Oct, no planned exit: on 29 Oct total is exactly ₹800 final', async () => {
+      const admission = new Date('2026-10-21T06:00:00+05:30');
+      const cycleId = String(admission.getTime());
+      const helper = { id: 'att_1', name: 'Helper' };
+      const patient = {
+        id: 'p_case1',
+        admission_date: admission,
+        registration_date: admission,
+        status: 'active',
+        exit_date: null,
+        attendants: [helper],
+      };
+      const stays = [{
+        id: 's_case1',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: admission,
+        created_at: admission,
+        updated_at: admission,
+        cycle_id: cycleId,
+        room_type: 'general',
+        patient_snapshot: { attendants: [helper] },
+      }];
+      // Only 21 and 22 Oct have attendance marked Present for both
+      const records = [
+        { kind: 'attendance', day: '2026-10-21', payload: { status: 'Present' } },
+        { kind: 'attendant_attendance', day: '2026-10-21', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } },
+        { kind: 'attendance', day: '2026-10-22', payload: { status: 'Present' } },
+        { kind: 'attendant_attendance', day: '2026-10-22', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } },
+      ];
+      const source = {
+        stays,
+        records,
+        receipts: [],
+        roster: [helper],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const client = {} as unknown as pg.PoolClient;
+      // Viewed on 29 Oct
+      const asOf = Date.parse('2026-10-29T15:00:00+05:30');
+      const result = await projectBillingEngine(client, patient as any, { source: source as any, asOf });
+      const balance = result.balances[cycleId];
+
+      expect(balance.total).toBe(800); // 2 days * (200 + 200) = 800
+      expect(balance.provisional).toBe(false);
+      expect(balance.pricingBasis).toBe('actual_patient_present');
+      expect(result.patient.advance_billed_amount).toBe('800.00');
+      expect(result.patient.financial_reconciliation.provisional).toBe(false);
+      expect(result.stays[0].billing_summary.provisional).toBe(false);
+    });
+
+    it('Case 2: Same patient: discharge with admin-chosen exit 23 Oct succeeds despite pending marks; final total ₹800', async () => {
+      const admission = new Date('2026-10-21T06:00:00+05:30');
+      const cycleId = String(admission.getTime());
+      const helper = { id: 'att_1', name: 'Helper' };
+      const patient = {
+        id: 'p_case2',
+        admission_date: admission,
+        registration_date: admission,
+        status: 'active',
+        exit_date: null,
+        attendants: [helper],
+      };
+      const stays = [{
+        id: 's_case2',
+        patient_id: patient.id,
+        status: 'active',
+        room_id: 'r1',
+        bed_id: 'b1',
+        admission_date: admission,
+        created_at: admission,
+        updated_at: admission,
+        cycle_id: cycleId,
+        room_type: 'general',
+        patient_snapshot: { attendants: [helper] },
+      }];
+      // Marked only on 21 and 22 Oct. Days 23..29 are unmarked (pending)
+      const records = [
+        { kind: 'attendance', day: '2026-10-21', payload: { status: 'Present' } },
+        { kind: 'attendant_attendance', day: '2026-10-21', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } },
+        { kind: 'attendance', day: '2026-10-22', payload: { status: 'Present' } },
+        { kind: 'attendant_attendance', day: '2026-10-22', payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } },
+      ];
+      const source = {
+        stays,
+        records,
+        receipts: [],
+        roster: [helper],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+
+      // Admin chooses checkout at 09:00 AM on 23 Oct (excludes 23 Oct checkout day per 09:00 cutoff)
+      const checkoutAt = new Date('2026-10-23T09:00:00+05:30');
+      const result = await projectBillingEngine({} as any, { ...patient, status: 'discharged', discharge_date: checkoutAt }, { source: source as any, finalize: true, checkoutAt });
+      const balance = result.balances[cycleId];
+
+      expect(balance.total).toBe(800);
+      expect(balance.provisional).toBe(false);
+      expect(balance.due).toBe(800);
+      expect(balance.refundDue).toBe(0);
+    });
+
+    it('Case 3: Patient with planned exit 25 Oct, still ACTIVE on 29 Oct, attendance marked 21-28 Oct: only marked attendance up to 25 Oct billed (₹2,000); 26-28 Oct are ₹0; stay remains Active', async () => {
+      const admission = new Date('2026-10-21T06:00:00+05:30');
+      const cycleId = String(admission.getTime());
+      const helper = { id: 'att_1', name: 'Helper' };
+      const plannedExit = new Date('2026-10-25T23:59:59+05:30'); // Date-only planned exit: end of day
+      const patient = {
+        id: 'p_case3',
+        admission_date: admission,
+        registration_date: admission,
+        status: 'active',
+        exit_date: plannedExit,
+        attendants: [helper],
+      };
+      const stays = [{
+        id: 's_case3',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: admission,
+        created_at: admission,
+        updated_at: admission,
+        cycle_id: cycleId,
+        room_type: 'general',
+        patient_snapshot: { attendants: [helper] },
+      }];
+      // Attendance marked Present for patient AND attendant on all 8 days: 21 to 28 Oct
+      const records: any[] = [];
+      for (let day = 21; day <= 28; day++) {
+        records.push({ kind: 'attendance', day: `2026-10-${day}`, payload: { status: 'Present' } });
+        records.push({ kind: 'attendant_attendance', day: `2026-10-${day}`, payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } });
+      }
+      const source = {
+        stays,
+        records,
+        receipts: [],
+        roster: [helper],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      // Viewed on 29 Oct
+      const asOf = Date.parse('2026-10-29T15:00:00+05:30');
+      const result = await projectBillingEngine({} as any, patient as any, { source: source as any, asOf });
+      const balance = result.balances[cycleId];
+
+      // Only 21, 22, 23, 24, 25 Oct are billed: 5 days * ₹400 = ₹2,000. 26-28 Oct charges are ₹0.
+      expect(balance.total).toBe(2000);
+      expect(result.patient.status).toBe('active');
+      expect(result.stays[0].status).toBe('active');
+    });
+
+    it('Case 4: Same patient: planned exit extended 25 Oct -> 30 Oct -> attendance on 26-30 Oct charges normally again (total ₹4,000)', async () => {
+      const admission = new Date('2026-10-21T06:00:00+05:30');
+      const cycleId = String(admission.getTime());
+      const helper = { id: 'att_1', name: 'Helper' };
+      // Extended planned exit to 30 Oct end of day
+      const extendedExit = new Date('2026-10-30T23:59:59+05:30');
+      const patient = {
+        id: 'p_case4',
+        admission_date: admission,
+        registration_date: admission,
+        status: 'active',
+        exit_date: extendedExit,
+        attendants: [helper],
+      };
+      const stays = [{
+        id: 's_case4',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: admission,
+        created_at: admission,
+        updated_at: admission,
+        cycle_id: cycleId,
+        room_type: 'general',
+        patient_snapshot: { attendants: [helper] },
+      }];
+      // Attendance marked Present for patient AND attendant on all 10 days: 21 to 30 Oct
+      const records: any[] = [];
+      for (let day = 21; day <= 30; day++) {
+        records.push({ kind: 'attendance', day: `2026-10-${day}`, payload: { status: 'Present' } });
+        records.push({ kind: 'attendant_attendance', day: `2026-10-${day}`, payload: { [helper.id]: { attendantId: helper.id, attendantName: helper.name, status: 'Present' } } });
+      }
+      const source = {
+        stays,
+        records,
+        receipts: [],
+        roster: [helper],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const asOf = Date.parse('2026-10-31T10:00:00+05:30');
+      const result = await projectBillingEngine({} as any, patient as any, { source: source as any, asOf });
+      const balance = result.balances[cycleId];
+
+      // 10 days * ₹400 = ₹4,000
+      expect(balance.total).toBe(4000);
+      expect(result.patient.status).toBe('active');
+    });
+
+    it('Case 5: Patient who paid more than the truncated final total: pending = 0, excess shows as unallocated/credit', async () => {
+      const admission = new Date('2026-10-21T06:00:00+05:30');
+      const cycleId = String(admission.getTime());
+      const patient = {
+        id: 'p_case5',
+        admission_date: admission,
+        registration_date: admission,
+        status: 'active',
+        exit_date: new Date('2026-10-25T23:59:59+05:30'),
+        attendants: [],
+      };
+      const stays = [{
+        id: 's_case5',
+        patient_id: patient.id,
+        status: 'active',
+        admission_date: admission,
+        created_at: admission,
+        updated_at: admission,
+        cycle_id: cycleId,
+        room_type: 'general',
+      }];
+      // 4 days present (21..24 Oct) @ 200 = 800
+      const records = [21, 22, 23, 24].map(day => ({
+        kind: 'attendance',
+        day: `2026-10-${day}`,
+        payload: { status: 'Present' },
+      }));
+      // Advance payment was 2,000
+      const receipts = [{
+        id: 'rec_1',
+        patient_id: patient.id,
+        cycle_id: cycleId,
+        amount: '2000.00',
+        payment_date: admission,
+      }];
+      const source = {
+        stays,
+        records,
+        receipts,
+        roster: [],
+        pricing: { generalRoomBedPrice: 200 },
+      };
+      const result = await projectBillingEngine({} as any, patient as any, { source: source as any });
+      const balance = result.balances[cycleId];
+
+      expect(balance.total).toBe(800);
+      expect(balance.paid).toBe(2000);
+      expect(balance.due).toBe(0); // pending never goes negative
+      expect(balance.refundDue).toBe(1200); // excess exposed as credit
+      expect(balance.status).toBe('Payment Exceeded');
+      expect(result.patient.payment_pending).toBe(false);
+      expect(result.patient.refund_due_amount).toBe('1200.00');
     });
   });
 });

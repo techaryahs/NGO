@@ -35,7 +35,7 @@ class AdmissionBalance {
     this.projectedPatientPresentDays = 0,
     this.pricingBasis = 'projected_patient_present',
   });
-  bool get provisional => pendingAttendance.isNotEmpty || provisionalState;
+  bool get provisional => false;
   double get netPaid => paid - refunded;
   double get due => (total - netPaid).clamp(0.0, double.infinity);
   double get refundDue => (netPaid - total).clamp(0.0, double.infinity);
@@ -236,40 +236,7 @@ class StayBilling {
           if (patient.exitDate != null) {
             end = patient.exitDate!;
           } else {
-            final estimateEnd = start.add(
-              Duration(
-                days: PricingHelper.advanceDays - (calendarDayBilling ? 1 : 0),
-              ),
-            );
-            final activeSegmentEnds = segments
-                .where((segment) => segment.isActive)
-                .map(
-                  (segment) => calendarDayBilling
-                      ? segment.expectedDischargeDate.subtract(
-                          const Duration(days: 1),
-                        )
-                      : segment.expectedDischargeDate,
-                )
-                .where((date) => date.millisecondsSinceEpoch > 0);
-            end = activeSegmentEnds.fold<DateTime>(
-              estimateEnd,
-              (latest, date) => date.isAfter(latest) ? date : latest,
-            );
-            final todayEnd = billingDay(
-              now ?? DateTime.now(),
-            ).add(Duration(days: calendarDayBilling ? 0 : 1));
-            if (todayEnd.isAfter(end)) end = todayEnd;
-            for (final key in {
-              ...attendance.keys,
-              ...attendantAttendance.keys,
-            }) {
-              final recorded = DateTime.tryParse(key);
-              if (recorded == null) continue;
-              final recordedEnd = day(
-                recorded,
-              ).add(Duration(days: calendarDayBilling ? 0 : 1));
-              if (recordedEnd.isAfter(end)) end = recordedEnd;
-            }
+            end = billingDay(now ?? DateTime.now());
           }
         } else {
           end =
@@ -303,7 +270,9 @@ class StayBilling {
             exclusiveEnd = billingDay(end).add(const Duration(days: 1));
           }
         } else {
-          final late = PricingHelper.afterCheckoutCutoff(end);
+          final late = isActualCheckout || patient.exitDate != null
+              ? PricingHelper.afterCheckoutCutoff(end)
+              : true;
           exclusiveEnd = late
               ? billingDay(end).add(const Duration(days: 1))
               : billingDay(end);
@@ -347,10 +316,7 @@ class StayBilling {
           if (!const {'Present', 'Absent'}.contains(status)) {
             pending.add({'day': dateKey(date), 'kind': 'attendance'});
           }
-          final patientBillable =
-              status == 'Present' ||
-              ((!finalize && !onlyPresent && status != 'Absent') &&
-                  (calendarDayBilling || date.isBefore(checkoutExclusiveEnd)));
+          final patientBillable = status == 'Present';
           final patientPresentDaysBefore = finalize
               ? actualPatientPresentDays
               : projectedPatientPresentDays;
@@ -677,11 +643,7 @@ class StayBilling {
       if (patient.payments == null && isCurrent) {
         paid = patient.totalPaidAmount ?? 0;
       }
-      if (finalize && isCurrent && pending.isNotEmpty) {
-        throw StateError(
-          'Resolve ${pending.length} pending attendance record(s) before finalizing billing',
-        );
-      }
+
       result.add(
         AdmissionBalance(
           group.key,
@@ -696,17 +658,11 @@ class StayBilling {
           plannedExitConfirmed: frozen && saved['plannedExitConfirmed'] is bool
               ? saved['plannedExitConfirmed'] as bool
               : patient.exitDate != null,
-          provisionalState: frozen
-              ? saved['provisional'] == true
-              : active && patient.exitDate == null && checkoutAt == null,
+          provisionalState: false,
           checkoutAt: isCurrent ? checkoutAt?.millisecondsSinceEpoch : null,
           actualPatientPresentDays: actualPatientPresentDays,
           projectedPatientPresentDays: projectedPatientPresentDays,
-          pricingBasis: frozen && saved['pricingBasis'] is String
-              ? saved['pricingBasis'] as String
-              : (finalize
-                    ? 'actual_patient_present'
-                    : 'projected_patient_present'),
+          pricingBasis: 'actual_patient_present',
         ),
       );
     }

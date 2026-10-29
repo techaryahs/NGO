@@ -360,11 +360,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
       if (currentBalance is Map) {
         billingSheet.appendRow([
           TextCellValue('Billing status'),
-          TextCellValue(
-            currentBalance['provisional'] == true
-                ? 'Provisional - attendance Pending'
-                : 'Final',
-          ),
+          TextCellValue('Final'),
         ]);
         final adjustment = currentBalance['checkoutAdjustment'];
         if (adjustment is Map) {
@@ -508,9 +504,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
     final plannedExitDate = plannedExitValue is int
         ? DateTime.fromMillisecondsSinceEpoch(plannedExitValue)
         : currentPatient.exitDate;
-    final plannedExitText = plannedExitDate == null
-        ? 'Not decided'
-        : DateFormat('dd MMM yyyy, hh:mm a').format(plannedExitDate);
+    DateTime? confirmedExit = plannedExitDate;
     var isSubmitting = false;
     String? settlementError;
     await showDialog(
@@ -518,18 +512,19 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
-          final ready = readiness['ready'] == true && settlementError == null;
+          final ready = readiness['ready'] == true && settlementError == null && confirmedExit != null;
           final refundDue = (readiness['refundDue'] as num?)?.toDouble() ?? 0;
           final earlyCheckout =
               plannedExitDate != null && checkoutAt.isBefore(plannedExitDate);
           final reasons = readiness['reasons'] is List
               ? List<String>.from(readiness['reasons'])
               : const <String>[];
-          Future<void> refreshSettlement() async {
+          Future<void> refreshSettlement([DateTime? targetCheckout]) async {
+            final effectiveCheckout = targetCheckout ?? confirmedExit ?? checkoutAt;
             final updated = await ServiceLocator().patientService
                 .getDischargeReadiness(
                   currentPatient.id,
-                  checkoutAt: checkoutAt,
+                  checkoutAt: effectiveCheckout,
                 );
             if (dialogContext.mounted) {
               setDialogState(() {
@@ -565,9 +560,47 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                     Text(
                       'Refund due: ${currency.format(readiness['refundDue'])}',
                     ),
-                    Text('Planned exit: $plannedExitText'),
-                    Text(
-                      'Proposed checkout: ${DateFormat('dd MMM yyyy, hh:mm a').format(checkoutAt)} (Asia/Kolkata)',
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Confirmed Exit Date & Time:\n${confirmedExit != null ? DateFormat('dd MMM yyyy, hh:mm a').format(confirmedExit!) : 'Required — please select'}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: confirmedExit == null ? Colors.red : null,
+                            ),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(confirmedExit == null ? 'Select Exit' : 'Change Exit'),
+                          onPressed: isSubmitting ? null : () async {
+                            final now = DateTime.now();
+                            final initialDate = confirmedExit ?? now;
+                            final pickedDate = await showDatePicker(
+                              context: dialogContext,
+                              initialDate: initialDate,
+                              firstDate: currentPatient.admissionDate,
+                              lastDate: now.add(const Duration(days: 365)),
+                            );
+                            if (pickedDate == null || !dialogContext.mounted) return;
+                            final pickedTime = await showTimePicker(
+                              context: dialogContext,
+                              initialTime: TimeOfDay.fromDateTime(confirmedExit ?? now),
+                            );
+                            if (pickedTime == null || !dialogContext.mounted) return;
+                            final updatedDateTime = DateTime(
+                              pickedDate.year,
+                              pickedDate.month,
+                              pickedDate.day,
+                              pickedTime.hour,
+                              pickedTime.minute,
+                            );
+                            setDialogState(() => confirmedExit = updatedDateTime);
+                            await refreshSettlement(updatedDateTime);
+                          },
+                        ),
+                      ],
                     ),
                     if (readiness['checkoutAdjustment'] is Map)
                       Text(
@@ -683,7 +716,7 @@ class _PatientProfileScreenState extends State<PatientProfileScreen>
                               .dischargePatient(
                                 currentPatient.id,
                                 patientOverride: currentPatient,
-                                checkoutAt: checkoutAt,
+                                checkoutAt: confirmedExit ?? checkoutAt,
                               );
                           if (dialogContext.mounted) {
                             Navigator.pop(dialogContext);
@@ -1631,9 +1664,7 @@ class _OverviewTab extends StatelessWidget {
           const SizedBox(height: 12),
           _Row2(
             _InfoField(
-              label: patient.financialUncertain
-                  ? "Provisional Pending Amount"
-                  : "Pending Amount",
+              label: "Pending Amount",
               value: currencyFmt.format(pending),
               icon: Icons.pending_actions_outlined,
             ),

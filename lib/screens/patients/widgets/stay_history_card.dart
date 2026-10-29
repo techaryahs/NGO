@@ -365,8 +365,7 @@ class _StayHistoryCardView extends StatelessWidget {
         (summary['due'] as num?)?.toDouble() ??
         (total - paid).clamp(0.0, double.infinity);
     final refund =
-        summary['reconciliationRequired'] == true ||
-            summary['provisional'] == true
+        summary['reconciliationRequired'] == true
         ? 0.0
         : (summary['refundDue'] as num?)?.toDouble() ??
               (paid - total).clamp(0.0, double.infinity);
@@ -455,14 +454,7 @@ class _StayHistoryCardView extends StatelessWidget {
         Icons.event_available_rounded,
       ),
       _detail('Total amount', money.format(total), Icons.payments_outlined),
-      if (summary['provisional'] == true)
-        _detail(
-          'Estimate status',
-          summary['plannedExitConfirmed'] == false
-              ? 'Provisional ongoing stay · exit unconfirmed'
-              : 'Provisional · attendance Pending',
-          Icons.info_outline,
-        ),
+
       if (summary['checkoutAdjustment'] is Map)
         _detail(
           'After 9 AM checkout adjustment',

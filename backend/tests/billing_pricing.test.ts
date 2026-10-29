@@ -50,7 +50,13 @@ function fixture(options: { days?: number; type?: string; absent?: number; recor
     admission_date: at(1), created_at: at(1), updated_at: at(1), expected_discharge_date: at(71),
     duration_days: 60, total_extended_days: 10, cycle_id: cycle,
     daily_rate_is_manual: options.manual != null, daily_rate: options.manual, long_stay_daily_rate: options.longRate }];
-  const records = options.records ?? Array.from({ length: options.absent ?? 0 }, (_, i) => ({ kind: 'attendance', day: at(i + 1).slice(0, 10), payload: { status: 'Absent' } }));
+  const totalDays = Math.max(options.days ?? 70, (options.absent ?? 0) + 60);
+  const absentCount = options.absent ?? 0;
+  const records = options.records ?? Array.from({ length: totalDays }, (_, i) => ({
+    kind: 'attendance',
+    day: at(i + 1).slice(0, 10),
+    payload: { status: i < absentCount ? 'Absent' : 'Present' },
+  }));
   const client = { query: async (sql: string) => {
     if (sql.startsWith('SELECT * FROM stays')) return { rows: stays };
     if (sql.includes('FROM attendance_records')) return { rows: records };
@@ -81,9 +87,12 @@ describe('attendance-aware financial projection', () => {
 
   it('keeps Lobby and Private category rates and changing attendant marks', async () => {
     expect((await projection({ type: 'lobby' })).balances[cycle].total).toBe(14500);
-    const records = Array.from({ length: 10 }, (_, i) => ['A', 'B'].map(attendantName => ({
-      kind: 'attendant_attendance', day: at(i + 61).slice(0, 10), payload: { attendantName, status: 'Present' },
-    }))).flat();
+    const records = [
+      ...Array.from({ length: 70 }, (_, i) => ({ kind: 'attendance', day: at(i + 1).slice(0, 10), payload: { status: 'Present' } })),
+      ...Array.from({ length: 10 }, (_, i) => ['A', 'B'].map(attendantName => ({
+        kind: 'attendant_attendance', day: at(i + 61).slice(0, 10), payload: { attendantName, status: 'Present' },
+      }))).flat(),
+    ];
     expect((await projection({ type: 'private', records })).balances[cycle].total).toBe(60 * 700 + 10 * 1200);
     expect((await projection({ type: 'general', records })).balances[cycle].total).toBe(12000 + 10 * 750);
     expect((await projection({ type: 'lobby', records })).balances[cycle].total).toBe(12000 + 10 * 750);
@@ -123,7 +132,10 @@ describe('approval quotes share the final invoice engine', () => {
     expect(await quoteStayExtension(f.client, f.patient, f.stay, 11)).toMatchObject({ additionalCost: 2250 });
   });
   it('uses only present attendants, Private rates and stored overrides', async () => {
-    const records = Array.from({ length: 10 }, (_, i) => ['A', 'B'].map(attendantName => ({ kind: 'attendant_attendance', day: at(i + 61).slice(0, 10), payload: { attendantName, status: 'Present' } }))).flat();
+    const records = [
+      ...Array.from({ length: 60 }, (_, i) => ({ kind: 'attendance', day: at(i + 1).slice(0, 10), payload: { status: 'Present' } })),
+      ...Array.from({ length: 10 }, (_, i) => ['A', 'B'].map(attendantName => ({ kind: 'attendant_attendance', day: at(i + 61).slice(0, 10), payload: { attendantName, status: 'Present' } }))).flat(),
+    ];
     const privateStay = fixture({ days: 60, type: 'private', records });
     expect((await quoteStayExtension(privateStay.client, privateStay.patient, privateStay.stay, 10)).additionalCost).toBe(12000);
     const manual = fixture({ days: 60, manual: '123.45', longRate: '300.00' });

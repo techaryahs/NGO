@@ -99,8 +99,6 @@ async function applyPaymentDelta(client: PaymentClient, patient: LockedPatient, 
     if (change.refunded > 0 && change.refunded > Math.max(0, previousNet - billed) + change.paid) {
       throw httpError(409, 'Refund exceeds the remaining excess payment');
     }
-    if (change.refunded > 0 && (balance.pendingAttendance?.length || balance.provisional))
-      throw httpError(409, 'Resolve provisional charges and attendance before determining a refund');
     if (net < 0) throw httpError(409, 'Payment change would make financial balances negative');
   }
   await persistBilling(client, projection);

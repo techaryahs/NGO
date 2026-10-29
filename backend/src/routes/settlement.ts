@@ -25,8 +25,14 @@ export async function settlementRoutes(app: FastifyInstance) {
                 throw httpError(404, 'Patient not found');
             const input = z.object({ checkoutAt: z.coerce.number().finite().refine(v => Number.isFinite(new Date(v).getTime()), 'Invalid checkout time').optional() }).safeParse(mode === 'read' ? request.query : request.body ?? {});
             if (!input.success) throw httpError(400, 'Invalid checkout time');
-            const checkout = patient.status !== 'discharged' && (input.data.checkoutAt != null || mode === 'discharge')
-                ? new Date(input.data.checkoutAt ?? Date.now()) : undefined;
+            let checkout: Date | undefined;
+            if (patient.status !== 'discharged') {
+                if (input.data.checkoutAt != null) checkout = new Date(input.data.checkoutAt);
+                else if (mode === 'discharge') {
+                    if (patient.exit_date) checkout = new Date(patient.exit_date);
+                    else throw httpError(400, 'Exit date/time is required to discharge a patient without a planned exit date');
+                }
+            }
             if (checkout && checkout < new Date(patient.admission_date)) throw httpError(400, 'Checkout cannot precede admission');
             let projection = await projectBilling(client, patient, { checkoutAt: checkout, includeDayCharges: mode === 'read' });
             if (mode === 'discharge' && patient.status !== 'discharged')

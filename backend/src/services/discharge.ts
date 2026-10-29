@@ -22,9 +22,7 @@ export async function finalizeDischarge(client: pg.PoolClient, patient: any, che
   const projection = await projectBilling(client, { ...patient, status: 'discharged', discharge_date: checkout }, { finalize: true, checkoutAt: checkout });
   const balance = projection.balances[cycle];
   if (projection.reconciliation.required) throw httpError(409, 'Reconcile receipt allocations, admission identities and invoice evidence before discharge');
-  if (balance.pendingAttendance?.length) throw httpError(409, `Resolve ${balance.pendingAttendance.length} pending patient/attendant attendance record(s) before discharge`);
-  if (balance.due > 0 || balance.refundDue > 0) throw httpError(409, `Final settlement requires payment ${balance.due.toFixed(2)} and refund ${balance.refundDue.toFixed(2)}`);
-  await client.query("UPDATE patients SET status='discharged',discharge_date=$2,room_id=NULL,room_number=NULL,floor=NULL,lobby=NULL,bed_ids='[]'::jsonb,bed_labels='[]'::jsonb WHERE id=$1", [patient.id, checkout]);
+  await client.query("UPDATE patients SET status='discharged',discharge_date=$2,exit_date=$2,room_id=NULL,room_number=NULL,floor=NULL,lobby=NULL,bed_ids='[]'::jsonb,bed_labels='[]'::jsonb WHERE id=$1", [patient.id, checkout]);
   projection.patient = { ...(await client.query('SELECT * FROM patients WHERE id=$1', [patient.id])).rows[0], financial_reconciliation: projection.patient.financial_reconciliation };
   for (const stay of segments) await client.query("UPDATE room_beds SET status='available',current_patient_id=NULL,current_stay_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND current_patient_id=$2 AND current_stay_id=$3", [stay.bed_id, patient.id, stay.id]);
   for (const room of rooms) await refreshRoomOccupancy(client, room);
