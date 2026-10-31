@@ -651,7 +651,11 @@ class _AddPatientDialogState extends State<AddPatientDialog> {
               .where((b) => b.id == selectedBed.id)
               .firstOrNull;
           if (bed == null ||
-              (!bed.isAvailable && bed.currentPatientId != _createdPatientId)) {
+              (bed.currentPatientId != null &&
+                  bed.currentPatientId != _createdPatientId) ||
+              (bed.currentPatientId == null &&
+                  (bed.status != 'available' ||
+                      bed.currentStayId != null))) {
             throw Exception(
               '${BedHelper.getBedDisplayName(selectedBed.bedLabel, roomIdentifier: room.roomIdentifier)} is no longer available. Please reselect beds.',
             );

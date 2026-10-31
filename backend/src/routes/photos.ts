@@ -96,7 +96,10 @@ export async function photoRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
 
   // ── DELETE /api/photos/* ────────────────────────────────────────────────────
   fastify.delete('/photos/*', { preHandler: requireRoles(['admin', 'staff']) }, async (request, reply) => {
-    const rawRef = (request.params as any)['*'] as string;
+    let rawRef = (request.params as any)['*'] as string;
+    if (rawRef.startsWith('photos/patientPhotos/')) {
+      rawRef = rawRef.slice('photos/'.length);
+    }
     const photoRef = rawRef.startsWith('patientPhotos/') ? rawRef : `patientPhotos/${rawRef}`;
     if (!validPhotoRef.test(photoRef)) return reply.status(400).send({ error: 'BadRequest', message: 'Invalid photo reference' });
 
