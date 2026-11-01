@@ -96,16 +96,21 @@ export function formatStay(row: RawStayRow) {
 export async function insertStayWithClient(client: Awaited<ReturnType<typeof getClient>>, rawBody: Record<string, any>, userId: string): Promise<RawStayRow> {
   const body = { ...rawBody };
   const stayId = body.id || `s_${randomUUID()}`;
-  const admissionDate = body.admissionDate != null ? new Date(body.admissionDate) : new Date();
+
+  // Lifecycle mutations use patient -> room -> stay -> bed lock order.
+  const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [body.patientId])).rows[0];
+  if (!patient) throw httpError(409, 'Patient does not exist');
+
+  const admissionDate = body.admissionDate != null
+    ? new Date(body.admissionDate)
+    : patient.admission_date != null
+      ? new Date(patient.admission_date)
+      : new Date();
   const durationDays = body.durationDays != null ? parseInt(body.durationDays, 10) : 1;
   const expectedDischargeDate = body.expectedDischargeDate != null
     ? new Date(body.expectedDischargeDate)
     : new Date(admissionDate.getTime() + durationDays * 86400000);
   const expiryDate = body.expiryDate != null ? new Date(body.expiryDate) : expectedDischargeDate;
-
-  // Lifecycle mutations use patient -> room -> stay -> bed lock order.
-  const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [body.patientId])).rows[0];
-  if (!patient) throw httpError(409, 'Patient does not exist');
 
   const isLobbyPlacement = body.roomType === 'lobby' || String(body.roomId || '').startsWith('lobby:');
   if (isLobbyPlacement) {

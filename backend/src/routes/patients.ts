@@ -92,6 +92,79 @@ interface RawPatientRow {
   created_by: string;
   created_at: Date | string;
   updated_at: Date | string;
+  active_stays?: ActivePlacementStay[] | null;
+  activeStays?: ActivePlacementStay[] | null;
+}
+
+export interface ActivePlacementStay {
+  id?: string;
+  room_id: string;
+  room_number?: string | null;
+  room_type?: string | null;
+  bed_id?: string | null;
+  bed_label?: string | null;
+  status?: string;
+  created_at?: Date | string;
+  admission_date?: Date | string;
+  floor?: number | null;
+  room_floor?: number | null;
+}
+
+export function derivePlacement(
+  row: RawPatientRow,
+  activeStays?: ActivePlacementStay[] | null
+): {
+  roomId: string | null;
+  roomNumber: string | null;
+  floor: number | null;
+  bedIds: string[];
+  bedLabels: string[];
+  lobby: string | null;
+} {
+  const candidateStays = activeStays ?? (row as any).activeStays ?? (row as any).active_stays;
+  const active = Array.isArray(candidateStays)
+    ? candidateStays.filter(s => s && s.status === 'active')
+    : [];
+
+  if (active.length === 0) {
+    return {
+      roomId: row.room_id,
+      roomNumber: row.room_number,
+      floor: row.floor,
+      bedIds: Array.isArray(row.bed_ids) ? row.bed_ids : [],
+      bedLabels: Array.isArray(row.bed_labels) ? row.bed_labels : [],
+      lobby: row.lobby,
+    };
+  }
+
+  const primaryStay = active[0];
+
+  if (primaryStay.room_id && primaryStay.room_id.startsWith('lobby:')) {
+    const lobbyName = primaryStay.room_id.slice(6);
+    const leadingChar = lobbyName.trim().charAt(0);
+    const floor = (leadingChar === '1' || leadingChar === '2') ? parseInt(leadingChar, 10) : null;
+    return {
+      lobby: lobbyName,
+      floor,
+      roomId: null,
+      roomNumber: null,
+      bedIds: [],
+      bedLabels: [],
+    };
+  }
+
+  const roomStays = active.filter(s => s.room_id === primaryStay.room_id);
+  const floorVal = primaryStay.floor ?? primaryStay.room_floor ?? null;
+  const floor = floorVal != null ? parseInt(String(floorVal), 10) : null;
+
+  return {
+    roomId: primaryStay.room_id,
+    roomNumber: primaryStay.room_number ?? null,
+    floor,
+    bedIds: roomStays.map(s => s.bed_id).filter((id): id is string => Boolean(id)),
+    bedLabels: roomStays.map(s => s.bed_label).filter((l): l is string => Boolean(l)),
+    lobby: null,
+  };
 }
 
 interface RawAttendantRow {
@@ -114,7 +187,13 @@ function toEpochMs(d: Date | string | number | null | undefined): number | null 
   return isNaN(parsed) ? null : parsed;
 }
 
-export function formatPatient(row: RawPatientRow, attendants: RawAttendantRow[] = [], payments: ReturnType<typeof formatPayment>[] = []) {
+export function formatPatient(
+  row: RawPatientRow,
+  attendants: RawAttendantRow[] = [],
+  payments: ReturnType<typeof formatPayment>[] = [],
+  activeStays?: ActivePlacementStay[] | null
+) {
+  const placement = derivePlacement(row, activeStays);
   return {
     id: row.id,
     version: row.version ?? 0,
@@ -135,12 +214,12 @@ export function formatPatient(row: RawPatientRow, attendants: RawAttendantRow[] 
     status: row.status,
     dischargeDate: toEpochMs(row.discharge_date),
     exitDate: toEpochMs(row.exit_date),
-    roomId: row.room_id,
-    roomNumber: row.room_number,
-    floor: row.floor,
-    bedIds: Array.isArray(row.bed_ids) ? row.bed_ids : [],
-    bedLabels: Array.isArray(row.bed_labels) ? row.bed_labels : [],
-    lobby: row.lobby,
+    roomId: placement.roomId,
+    roomNumber: placement.roomNumber,
+    floor: placement.floor,
+    bedIds: placement.bedIds,
+    bedLabels: placement.bedLabels,
+    lobby: placement.lobby,
     address: row.address,
     registrationNumber: row.registration_number,
     registrationDate: toEpochMs(row.registration_date),
@@ -273,7 +352,14 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       paymentsByPatient.set(payment.patient_id, list);
     }
 
-    const stayRows = await query('SELECT * FROM stays WHERE patient_id = ANY($1) ORDER BY admission_date,id', [patientIds]);
+    const stayRows = await query<RawStayRow & { room_floor?: number | null }>(
+      `SELECT s.*, r.floor AS room_floor
+       FROM stays s
+       LEFT JOIN rooms r ON r.id = s.room_id
+       WHERE s.patient_id = ANY($1)
+       ORDER BY s.admission_date, s.id`,
+      [patientIds]
+    );
     const recordRows = await query('SELECT patient_id,kind,attendance_date::text AS day,payload FROM attendance_records WHERE patient_id = ANY($1)', [patientIds]);
     const pricingRows = await query("SELECT settings_key,settings_value FROM system_settings WHERE category='pricing'");
     const correctionRows = await query('SELECT *,billable_date::text AS billable_day FROM billing_corrections WHERE patient_id = ANY($1) AND reverted_at IS NULL', [patientIds]);
@@ -297,7 +383,13 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         receipts: receiptsByPatient.get(row.id) ?? [], corrections: correctionsByPatient.get(row.id) ?? [], pricing,
         roster: attendantsByPatient.get(row.id) || [],
       }});
-      return formatPatient(projection.patient, attendantsByPatient.get(row.id) || [], paymentsByPatient.get(row.id) || []);
+      const patientStays = staysByPatient.get(row.id) ?? [];
+      return formatPatient(
+        projection.patient,
+        attendantsByPatient.get(row.id) || [],
+        paymentsByPatient.get(row.id) || [],
+        patientStays
+      );
     }));
 
     if (q.format === 'map') {
@@ -326,8 +418,22 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
     );
 
     const paymentsRes = await query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id]);
+    const activeStaysRes = await query<ActivePlacementStay>(
+      `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
+              r.floor AS room_floor
+       FROM stays s
+       LEFT JOIN rooms r ON r.id = s.room_id
+       WHERE s.patient_id = $1 AND s.status = 'active'
+       ORDER BY s.created_at, s.id`,
+      [id]
+    );
     const projection = await projectBilling({ query } as any, patientRes.rows[0]);
-    return reply.send(formatPatient(projection.patient, attendantsRes.rows, paymentsRes.rows.map(payment => formatPayment(payment as any))));
+    return reply.send(formatPatient(
+      projection.patient,
+      attendantsRes.rows,
+      paymentsRes.rows.map(payment => formatPayment(payment as any)),
+      activeStaysRes.rows
+    ));
   }));
 
   // ── POST /api/patients ──────────────────────────────────────────────────────
@@ -379,7 +485,14 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       `;
 
       const dob = new Date(body.dateOfBirth);
-      const admissionDate = new Date(body.admissionDate);
+      const admissionDate =
+        body.registrationDate != null ? new Date(body.registrationDate)
+          : body.admissionDate != null ? new Date(body.admissionDate)
+          : new Date();
+
+      if (body.exitDate != null && new Date(body.exitDate) < admissionDate) {
+        throw httpError(400, 'Planned exit cannot precede admission');
+      }
 
       const patientValues = [
         patientId,
@@ -406,7 +519,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         body.lobby || null,
         body.address || null,
         body.registrationNumber || null,
-        body.registrationDate != null ? new Date(body.registrationDate) : null,
+        body.registrationDate != null ? new Date(body.registrationDate) : admissionDate,
         body.panCardNumber || null,
         body.aadhaarCardNumber || null,
         body.receiptNumber || null,
@@ -470,8 +583,31 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         }
       }
 
+      // Create stays & allocate beds if requested
+      const createdStayRows: RawStayRow[] = [];
+      if (Array.isArray(body.stays)) {
+        for (const stayItem of body.stays) {
+          const stayRow = await insertStayWithClient(
+            client,
+            { ...stayItem, patientId, admissionDate: admissionDate.getTime() },
+            user.id
+          );
+          createdStayRows.push(stayRow);
+        }
+      }
+
       await client.query('COMMIT');
-      return reply.status(201).send(formatPatient(insertedPatient.rows[0], attendants));
+      const formattedPatient = formatPatient(insertedPatient.rows[0], attendants);
+      if (createdStayRows.length > 0) {
+        const formattedStays = createdStayRows.map(formatStay);
+        return reply.status(201).send({
+          ...formattedPatient,
+          patient: formattedPatient,
+          stays: formattedStays,
+          stayIds: formattedStays.map(s => s.id),
+        });
+      }
+      return reply.status(201).send(formattedPatient);
     } catch (err: unknown) {
       await client.query('ROLLBACK');
       throw err;
@@ -502,8 +638,13 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         'SELECT * FROM patients WHERE id = $1 FOR UPDATE',
         [patientId]
       );
-      const existingStaysRes = await client.query<RawStayRow>(
-        "SELECT * FROM stays WHERE patient_id = $1 AND status = 'active' ORDER BY created_at, id FOR UPDATE",
+      const existingStaysRes = await client.query<RawStayRow & { room_floor?: number | null }>(
+        `SELECT s.*, r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1 AND s.status = 'active'
+         ORDER BY s.created_at, s.id
+         FOR UPDATE`,
         [patientId]
       );
 
@@ -544,7 +685,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         const formattedPatient = formatPatient(
           existingProjection.patient,
           attRes.rows,
-          paymentsRes.rows.map(p => formatPayment(p as any))
+          paymentsRes.rows.map(p => formatPayment(p as any)),
+          existingStaysRes.rows
         );
         const formattedStays = existingStaysRes.rows.map(formatStay);
         return reply.status(200).send({
@@ -585,7 +727,13 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       }
 
       const dob = new Date(body.dateOfBirth);
-      const admissionDate = new Date(body.admissionDate);
+      const admissionDate =
+        body.registrationDate != null ? new Date(body.registrationDate)
+          : body.admissionDate != null ? new Date(body.admissionDate)
+          : new Date();
+      if (body.exitDate != null && new Date(body.exitDate) < admissionDate) {
+        throw httpError(400, 'Planned exit cannot precede admission');
+      }
       const hasStaysToCreate = requestedStays.length > 0;
 
       // When stays are provided, room/bed placement will be set authoritatively by insertStayWithClient.
@@ -716,7 +864,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       for (const stayItem of requestedStays) {
         const stayRow = await insertStayWithClient(
           client,
-          { ...stayItem, patientId },
+          { ...stayItem, patientId, admissionDate: admissionDate.getTime() },
           user.id
         );
         createdStayRows.push(stayRow);
@@ -733,7 +881,16 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const projection = await projectBilling(client, finalPatientRes.rows[0]);
       if (createdStayRows.length) await persistBilling(client, projection);
       await client.query('COMMIT');
-      const formattedPatient = formatPatient(projection?.patient ?? finalPatientRes.rows[0], attendants);
+      const activePlacementStays = (await client.query<ActivePlacementStay>(
+        `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
+                r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1 AND s.status = 'active'
+         ORDER BY s.created_at, s.id`,
+        [patientId]
+      )).rows;
+      const formattedPatient = formatPatient(projection?.patient ?? finalPatientRes.rows[0], attendants, [], activePlacementStays);
       const formattedStays = (projection?.stays ?? createdStayRows).map(formatStay);
       return reply.status(201).send({
         ...formattedPatient,
@@ -798,7 +955,16 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1', [id])).rows;
       const payments = (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id])).rows;
       await client.query('COMMIT');
-      return reply.send({ patient: formatPatient(projection.patient, attendants, payments.map(p => formatPayment(p as any))), stays: projection.stays.map(formatStay) });
+      const activePlacementStays = (await client.query<ActivePlacementStay>(
+        `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
+                r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1 AND s.status = 'active'
+         ORDER BY s.created_at, s.id`,
+        [id]
+      )).rows;
+      return reply.send({ patient: formatPatient(projection.patient, attendants, payments.map(p => formatPayment(p as any)), activePlacementStays), stays: projection.stays.map(formatStay) });
     } catch (err) { await client.query('ROLLBACK'); throw err; }
     finally { client.release(); }
   });
@@ -835,9 +1001,16 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const current = (await client.query('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
       const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1', [id])).rows;
       const receipts = (await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date,id', [id])).rows;
-      const stays = (await client.query<RawStayRow>('SELECT * FROM stays WHERE patient_id=$1 ORDER BY admission_date,id', [id])).rows;
+      const stays = (await client.query<RawStayRow & { room_floor?: number | null }>(
+        `SELECT s.*, r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1
+         ORDER BY s.admission_date, s.id`,
+        [id]
+      )).rows;
       await client.query('COMMIT');
-      return reply.status(previous ? 200 : 201).send({ patient: formatPatient(current, attendants, receipts.map(formatPayment)), stays: stays.map(formatStay), idempotentRetry: Boolean(previous) });
+      return reply.status(previous ? 200 : 201).send({ patient: formatPatient(current, attendants, receipts.map(formatPayment), stays), stays: stays.map(formatStay), idempotentRetry: Boolean(previous) });
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   });
@@ -1106,8 +1279,17 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         await persistBilling(client, projection);
         responsePatient = projection.patient;
       }
+      const activePlacementStays = (await client.query<ActivePlacementStay>(
+        `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
+                r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1 AND s.status = 'active'
+         ORDER BY s.created_at, s.id`,
+        [id]
+      )).rows;
       await client.query('COMMIT');
-      return reply.send(formatPatient(responsePatient, attendants, payments.rows.map(payment => formatPayment(payment as any))));
+      return reply.send(formatPatient(responsePatient, attendants, payments.rows.map(payment => formatPayment(payment as any)), activePlacementStays));
     } catch (err: unknown) {
       await client.query('ROLLBACK');
       throw err;
