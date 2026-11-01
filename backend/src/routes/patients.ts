@@ -979,25 +979,42 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
   fastify.post('/patients/:id/rejoin', async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as Record<string, any>;
-    const fingerprint = createHash('sha256').update(JSON.stringify([id, toEpochMs(body.registrationDate), toEpochMs(body.exitDate), body.exitDateUnconfirmed, body.roomId, body.bedId ?? null, body.durationDays ?? null])).digest('hex');
     const client = await getClient();
     try {
       await client.query('BEGIN');
       const patient = (await client.query<RawPatientRow>('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [id])).rows[0];
       if (!patient) throw httpError(404, 'Patient not found');
       const previous = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1', [body.requestId])).rows[0];
-      if (previous && (previous.patient_id !== id || previous.patient_snapshot?.rejoinFingerprint !== fingerprint)) throw httpError(409, 'Rejoin request ID already used differently');
+      if (!previous && (patient.status !== 'discharged' || (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id])).rowCount)) {
+        throw httpError(400, 'Rejoin requires a discharged patient without an active stay; update the registration date to on or after the previous discharge');
+      }
+      let registration = previous?.admission_date ?? patient.registration_date;
+      const requestedRegistration = body.registrationDate == null ? new Date(NaN) : new Date(body.registrationDate);
       if (!previous) {
-        if (body.registrationDate != null) {
-          const registration = registrationAdmission(body.registrationDate);
+        const discharge = patient.discharge_date == null ? -Infinity : new Date(patient.discharge_date).getTime();
+        const previousRegistrationDate = patient.registration_date;
+        let advanced = false;
+        if (Number.isFinite(requestedRegistration.getTime()) && requestedRegistration.getTime() >= discharge) {
+          registration = requestedRegistration;
+        } else if (!((toEpochMs(patient.registration_date) ?? NaN) >= discharge)) {
+          registration = new Date();
+          advanced = true;
+        }
+        if (toEpochMs(registration) !== toEpochMs(patient.registration_date)) {
           await client.query('UPDATE patients SET registration_date=$2 WHERE id=$1', [id, registration]);
           patient.registration_date = registration;
         }
-        const admission = registrationAdmission(patient.registration_date);
-        if (patient.status !== 'discharged' || (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id])).rowCount ||
-            patient.discharge_date && admission < new Date(patient.discharge_date)) {
-          throw httpError(400, 'Rejoin requires a discharged patient without an active stay; update the registration date to on or after the previous discharge');
+        if (advanced) {
+          fastify.log.info({ event: 'rejoin_registration_advanced', patientId: id, previousRegistrationDate,
+            newRegistrationDate: registration, dischargeDate: patient.discharge_date });
         }
+      } else if (Number.isFinite(requestedRegistration.getTime()) && requestedRegistration >= new Date(previous.admission_date)) {
+        registration = requestedRegistration;
+      }
+      const fingerprint = createHash('sha256').update(JSON.stringify([id, toEpochMs(registration), toEpochMs(body.exitDate), body.exitDateUnconfirmed, body.roomId, body.bedId ?? null, body.durationDays ?? null])).digest('hex');
+      if (previous && (previous.patient_id !== id || previous.patient_snapshot?.rejoinFingerprint !== fingerprint)) throw httpError(409, 'Rejoin request ID already used differently');
+      if (!previous) {
+        const admission = registrationAdmission(registration);
         if (body.exitDate != null && new Date(body.exitDate) < admission) throw httpError(400, 'Planned exit cannot precede admission');
         const duration = body.exitDate == null ? 7 : Math.max(1, Math.round((Date.parse(nextDay(dayKey(body.exitDate))) - Date.parse(dayKey(admission))) / 86400000));
         // Preserve old balances/receipts. Clear only the new cycle's summaries.

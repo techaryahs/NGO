@@ -5,7 +5,7 @@ import { pool, query } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 import { readFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { dayKey, nextDay } from '../src/services/billing.js';
 import { repairAdmissions } from '../src/services/admission_repair.js';
 import { cleanupPendingPhotos } from '../src/services/photo_staging.js';
@@ -85,6 +85,84 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect(response.json().patient).toMatchObject({ admissionDate: epoch, registrationDate: epoch });
     expect(response.json().stays[0]).toMatchObject({ admissionDate: epoch, cycleId: String(epoch), patientSnapshot: { admissionDate: epoch } });
     expect((await send('POST', '/patients/p1/rejoin', { ...request, admissionDate: 'ignored' })).statusCode).toBe(200);
+  });
+  describe('rejoin registration fallback', () => {
+    const dischargeDate = '2026-01-10T12:00:00.000Z';
+    const staleDate = '2026-01-01T00:00:00.000Z';
+    const eligibleDate = '2026-01-11T12:34:56.789Z';
+    const request = () => ({ requestId: 'rejoin-fallback', exitDate: null, exitDateUnconfirmed: true,
+      roomId: 'r1', roomNumber: 'r1', roomType: 'general', bedId: 'r1b1' });
+    const seed = async (registrationDate = staleDate) => {
+      expect((await send('POST', '/rooms', room())).statusCode).toBe(201);
+      expect((await send('POST', '/patients', patient())).statusCode).toBe(201);
+      await query("UPDATE patients SET status='discharged',discharge_date=$1,registration_date=$2 WHERE id='p1'", [dischargeDate, registrationDate]);
+    };
+    it.each([
+      { name: 'no dates', stored: staleDate, body: {}, effective: null },
+      { name: 'echoed stale registration', stored: staleDate, body: { registrationDate: staleDate }, effective: null },
+      { name: 'early registration', stored: staleDate, body: { registrationDate: '2026-01-05' }, effective: null },
+      { name: 'explicit eligible registration', stored: staleDate, body: { registrationDate: eligibleDate }, effective: eligibleDate },
+      { name: 'explicit discharge instant', stored: staleDate, body: { registrationDate: dischargeDate }, effective: dischargeDate },
+      { name: 'eligible stored registration', stored: eligibleDate, body: {}, effective: eligibleDate },
+      { name: 'early body with eligible stored registration', stored: eligibleDate, body: { registrationDate: staleDate }, effective: eligibleDate },
+    ])('$name preserves one effective admission and retry identity', async ({ stored, body, effective }) => {
+      await seed(stored);
+      const info = vi.spyOn(app.log, 'info');
+      try {
+        const payload = { ...request(), ...body };
+        const before = Date.now();
+        const response = await send('POST', '/patients/p1/rejoin', payload);
+        const after = Date.now();
+        expect(response.statusCode, response.body).toBe(201);
+        const current = (await query("SELECT * FROM patients WHERE id='p1'")).rows[0];
+        const epoch = new Date(current.registration_date).getTime();
+        if (effective) expect(epoch).toBe(Date.parse(effective));
+        else { expect(epoch).toBeGreaterThanOrEqual(before); expect(epoch).toBeLessThanOrEqual(after); }
+        expect(current.status).toBe('active');
+        expect(new Date(current.admission_date).getTime()).toBe(epoch);
+        expect(response.json().patient).toMatchObject({ registrationDate: epoch, admissionDate: epoch });
+        const stays = (await query("SELECT * FROM stays WHERE patient_id='p1'")).rows;
+        expect(stays).toHaveLength(1);
+        const fingerprint = createHash('sha256').update(JSON.stringify(['p1', epoch, null, true, 'r1', 'r1b1', null])).digest('hex');
+        expect(stays[0]).toMatchObject({ cycle_id: String(epoch), room_id: 'r1', bed_id: 'r1b1',
+          patient_snapshot: { rejoinFingerprint: fingerprint, admissionDate: epoch, plannedExitConfirmed: false } });
+        expect(new Date(stays[0].admission_date).getTime()).toBe(epoch);
+        const retry = await send('POST', '/patients/p1/rejoin', payload);
+        expect(retry.statusCode, retry.body).toBe(200);
+        expect(retry.json()).toEqual({ ...response.json(), idempotentRetry: true });
+        const repeat = await send('POST', '/patients/p1/rejoin', { ...payload, requestId: 'second-rejoin' });
+        expect(repeat.statusCode, repeat.body).toBe(400);
+        expect(repeat.json().message).toBe('Rejoin requires a discharged patient without an active stay; update the registration date to on or after the previous discharge');
+        expect((await query("SELECT registration_date FROM patients WHERE id='p1'")).rows[0].registration_date).toEqual(current.registration_date);
+        expect((await query("SELECT * FROM stays WHERE patient_id='p1'")).rows).toEqual(stays);
+        const advances = info.mock.calls.map(([entry]) => entry as any).filter(entry => entry?.event === 'rejoin_registration_advanced');
+        expect(advances).toHaveLength(effective ? 0 : 1);
+        if (!effective) {
+          expect(advances[0]).toMatchObject({ patientId: 'p1', previousRegistrationDate: new Date(stored),
+            newRegistrationDate: new Date(epoch), dischargeDate: new Date(dischargeDate) });
+        }
+      } finally { info.mockRestore(); }
+    });
+    it.each(['not discharged', 'active stay'])('preserves the gate for %s without advancing registration', async gate => {
+      await seed();
+      if (gate === 'not discharged') await query("UPDATE patients SET status='active' WHERE id='p1'");
+      else {
+        await query("UPDATE patients SET status='active' WHERE id='p1'");
+        expect((await send('POST', '/stays', stay())).statusCode).toBe(201);
+        await query("UPDATE patients SET status='discharged' WHERE id='p1'");
+      }
+      const before = (await query("SELECT * FROM patients WHERE id='p1'")).rows;
+      const staysBefore = (await query("SELECT * FROM stays WHERE patient_id='p1'")).rows;
+      const info = vi.spyOn(app.log, 'info');
+      try {
+        const response = await send('POST', '/patients/p1/rejoin', { ...request(), registrationDate: eligibleDate });
+        expect(response.statusCode, response.body).toBe(400);
+        expect(response.json().message).toBe('Rejoin requires a discharged patient without an active stay; update the registration date to on or after the previous discharge');
+        expect((await query("SELECT * FROM patients WHERE id='p1'")).rows).toEqual(before);
+        expect((await query("SELECT * FROM stays WHERE patient_id='p1'")).rows).toEqual(staysBefore);
+        expect(info.mock.calls.filter(([entry]) => (entry as any)?.event === 'rejoin_registration_advanced')).toHaveLength(0);
+      } finally { info.mockRestore(); }
+    });
   });
   it('rejects rejoin before discharge and rolls back a registration update', async () => {
     await send('POST', '/patients', patient());
