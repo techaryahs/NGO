@@ -215,7 +215,9 @@ describe.runIf(process.env.AUDIT_DATABASE_TESTS === '1')('Modules: real PostgreS
     expect((await request('PUT', '/api/photos/invalid', { data: 'aGVsbG8=' })).statusCode).toBe(400);
     expect((await request('PUT', url, { data: 'aGVsbG8=', contentType: 'text/html' })).statusCode).toBe(400);
     expect((await request('PUT', url, { data: '!', version: -1 })).statusCode).toBe(400);
-    expect((await request('PUT', `/api/photos/${prefix}missing/patient`, { data: 'aGVsbG8=' })).statusCode).toBe(409);
+    const missingPut = await request('PUT', `/api/photos/${prefix}missing/patient`, { data: 'aGVsbG8=' });
+    expect(missingPut.statusCode).toBe(200);
+    expect(missingPut.json()).toMatchObject({ photoRef: `patientPhotos/${prefix}missing/patient`, patientId: `${prefix}missing`, photoType: 'patient' });
     expect((await request('GET', `/api/photos/${prefix}missing/patient`)).statusCode).toBe(404);
   });
 

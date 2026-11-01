@@ -7,13 +7,17 @@ import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dayKey, nextDay } from '../src/services/billing.js';
+import { repairAdmissions } from '../src/services/admission_repair.js';
+import { cleanupPendingPhotos } from '../src/services/photo_staging.js';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 
 const enabled = process.env.RUN_PG_INTEGRATION === '1';
 describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   const app = buildApp({ logger: false });
   const headers = () => ({ authorization: `Bearer ${signedTestToken()}` });
   const send = async (method: any, url: string, payload?: any) => app.inject({ method, url: `/api${url}`, headers: headers(), payload });
-  const patient = (id = 'p1') => ({ id, fullName: `Synthetic ${id}`, dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', registrationNumber: id, allergies: 'retain', address: 'synthetic address', attendants: [{ name: 'Synthetic helper', age: '32' }], currentDueAmount: '10.00', advanceBilledAmount: '10.00' });
+  const patient = (id = 'p1') => ({ id, fullName: `Synthetic ${id}`, dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', registrationDate: '2026-01-01', registrationNumber: id, allergies: 'retain', address: 'synthetic address', attendants: [{ name: 'Synthetic helper', age: '32' }], currentDueAmount: '10.00', advanceBilledAmount: '10.00' });
   const room = (id = 'r1') => ({ id, roomNumber: id, roomType: 'general', beds: [{ id: `${id}b1`, bedLabel: '1' }, { id: `${id}b2`, bedLabel: '2' }] });
   const stay = (id = 's1', patientId = 'p1', roomId = 'r1') => ({ id, patientId, roomId, bedId: `${roomId}b1`, durationDays: 2, admissionDate: '2026-01-01' });
   beforeAll(async () => {
@@ -26,10 +30,141 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   beforeEach(async () => {
     installTestFirebaseKeys();
     // Allowed only after the exact disposable connection assertion above.
-    await query('TRUNCATE users, rooms, room_beds, patients, stays, patient_attendants, payments, attendance_records, patient_photos, sponsorships CASCADE');
+    await query('TRUNCATE users, rooms, room_beds, patients, stays, patient_attendants, payments, attendance_records, patient_photos, pending_photos, sponsorships CASCADE');
     await query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','admin@ngo.test','Synthetic Admin','admin')");
   });
   afterAll(async () => { await app.close(); await pool.end(); });
+  it('registers the repair job on actual server startup', async () => {
+    const probe = createServer();
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
+    const port = (probe.address() as { port: number }).port;
+    await new Promise<void>(resolve => probe.close(() => resolve()));
+    const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
+      cwd: process.cwd(), env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', LOG_LEVEL: 'info' },
+      stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    });
+    let output = '';
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Server startup timed out: ${output}`)), 12000);
+        child.once('error', error => { clearTimeout(timeout); reject(error); });
+        child.once('exit', code => { clearTimeout(timeout); reject(new Error(`Server exited ${code}: ${output}`)); });
+        child.stderr.on('data', chunk => { output += chunk; });
+        child.stdout.on('data', chunk => {
+          output += chunk;
+          if (output.includes('admission_repair_registered') && output.includes('admission_repair_summary')) {
+            clearTimeout(timeout); resolve();
+          }
+        });
+      });
+      const line = output.split(/\r?\n/).find(line => line.includes('admission_repair_registered'))!;
+      expect(JSON.parse(line)).toMatchObject({ event: 'admission_repair_registered', intervalMs: 3600000, runOnStartup: true });
+      console.log(line);
+    } finally {
+      const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+      child.kill();
+      if (child.exitCode == null && child.signalCode == null) await exited;
+    }
+  }, 15000);
+  it.each(['/patients', '/patients/register'])('requires a valid registration date on %s', async url => {
+    for (const registrationDate of [undefined, null, 'invalid', '2026-02-30']) {
+      expect((await send('POST', url, { ...patient(), registrationDate })).statusCode).toBe(400);
+    }
+    expect((await query('SELECT id FROM patients')).rows).toHaveLength(0);
+  });
+  it.each([false, true])('rejoin derives every admission identity from registration (update=%s)', async update => {
+    await send('POST', '/rooms', room());
+    await send('POST', '/patients', patient());
+    await query("UPDATE patients SET status='discharged',discharge_date='2026-01-02',registration_date='2026-08-29T00:00:00Z' WHERE id='p1'");
+    const registrationDate = update ? '2026-09-01' : '2026-08-29';
+    const request = { requestId: 'rejoin-registration', admissionDate: '2099-01-01', ...(update ? { registrationDate } : {}),
+      exitDate: null, exitDateUnconfirmed: true, roomId: 'r1', roomNumber: 'r1', roomType: 'general', bedId: 'r1b1' };
+    const response = await send('POST', '/patients/p1/rejoin', request);
+    expect(response.statusCode, response.body).toBe(201);
+    const epoch = Date.parse(registrationDate);
+    expect(response.json().patient).toMatchObject({ admissionDate: epoch, registrationDate: epoch });
+    expect(response.json().stays[0]).toMatchObject({ admissionDate: epoch, cycleId: String(epoch), patientSnapshot: { admissionDate: epoch } });
+    expect((await send('POST', '/patients/p1/rejoin', { ...request, admissionDate: 'ignored' })).statusCode).toBe(200);
+  });
+  it('rejects rejoin before discharge and rolls back a registration update', async () => {
+    await send('POST', '/patients', patient());
+    await query("UPDATE patients SET status='discharged',discharge_date='2026-01-10' WHERE id='p1'");
+    const response = await send('POST', '/patients/p1/rejoin', { requestId: 'bad-rejoin', registrationDate: '2026-01-05',
+      admissionDate: '2099-01-01', exitDate: null, exitDateUnconfirmed: true, roomId: 'r1', roomNumber: 'r1', roomType: 'general' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('update the registration date');
+    expect(new Date((await query("SELECT registration_date FROM patients WHERE id='p1'")).rows[0].registration_date).getTime()).toBe(Date.parse('2026-01-01'));
+  });
+  it('forces PUT admission to merged registration and repairs an omitted admission field', async () => {
+    await send('POST', '/patients', patient());
+    const response = await send('PUT', '/patients/p1', { admissionDate: '2099-01-01', registrationDate: '2026-08-29' });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ admissionDate: Date.parse('2026-08-29'), registrationDate: Date.parse('2026-08-29') });
+    await query("UPDATE patients SET admission_date='2026-11-01' WHERE id='p1'");
+    expect((await send('PUT', '/patients/p1', { notes: 'Unrelated edit' })).json().admissionDate).toBe(Date.parse('2026-08-29'));
+    const stored = (await query("SELECT admission_date=registration_date AS aligned FROM patients WHERE id='p1'")).rows[0];
+    expect(stored.aligned).toBe(true);
+  });
+  it('anchors a first stay to registration and preserves an established cycle segment date', async () => {
+    await send('POST', '/rooms', room());
+    await send('POST', '/patients', patient());
+    const first = await send('POST', '/stays', { ...stay(), admissionDate: '2099-01-01' });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json().admissionDate).toBe(Date.parse('2026-01-01'));
+    const segment = await send('POST', '/stays', { ...stay('segment'), bedId: 'r1b2', admissionDate: '2026-01-03' });
+    expect(segment.statusCode, segment.body).toBe(201);
+    expect(segment.json()).toMatchObject({ admissionDate: Date.parse('2026-01-03'), cycleId: String(Date.parse('2026-01-01')) });
+  });
+  async function entryStampedFixture() {
+    await send('POST', '/rooms', room());
+    expect((await send('POST', '/patients/register', { ...patient(), attendants: [], stays: [stay()] })).statusCode).toBe(201);
+    const old = Date.parse('2026-11-01T10:05:00Z'), reg = Date.parse('2026-08-29');
+    const transfer = Date.parse('2026-11-02');
+    await query('UPDATE patients SET admission_date=$1,registration_date=$2,admission_balances=$3::jsonb WHERE id=\'p1\'',
+      [new Date(old), new Date(reg), JSON.stringify({ [old]: { cycleId: String(old), total: 100, segmentCharges: { s1: 100 } } })]);
+    await query('UPDATE stays SET admission_date=$1,cycle_id=$2,patient_snapshot=$3::jsonb,billing_summary=$4::jsonb WHERE id=\'s1\'',
+      [new Date(old), String(old), JSON.stringify({ admissionDate: old, billingSummary: { admissionId: String(old) }, retained: true }), JSON.stringify({ admissionId: String(old), cycleId: String(old), amount: 100 })]);
+    await query(`INSERT INTO stays(id,patient_id,patient_name,room_id,room_number,room_type,admission_date,expected_discharge_date,expiry_date,cycle_id,patient_snapshot,duration_days,created_by)
+      VALUES('transfer','p1','Synthetic','r1','r1','general',$1,$1,$1,$2,$3::jsonb,1,'test-uid-admin')`, [new Date(transfer), String(old), JSON.stringify({ admissionDate: old })]);
+    await query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES('repair-receipt','p1',$1,100,'2026-11-01')", [String(old)]);
+    return { old, reg, transfer };
+  }
+  it('repairs entry-stamped admission identities and receipts once, preserving transfer dates and amounts', async () => {
+    const { old, reg, transfer } = await entryStampedFixture();
+    await send('POST', '/patients', { ...patient('before'), registrationDate: '2026-09-01' });
+    await query("UPDATE patients SET admission_date='2026-08-01' WHERE id='before'");
+    const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='before'")).rows[0];
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    expect(await repairAdmissions(log)).toEqual({ repaired: 1, skipped: 0, failed: 0 });
+    const patientRow = (await query("SELECT * FROM patients WHERE id='p1'")).rows[0];
+    expect(new Date(patientRow.admission_date).getTime()).toBe(reg);
+    expect(patientRow.admission_balances).toEqual({ [reg]: { cycleId: String(reg), total: 100, segmentCharges: { s1: 100 } } });
+    const stays = (await query("SELECT * FROM stays WHERE patient_id='p1' ORDER BY id")).rows;
+    expect(stays.map(s => new Date(s.admission_date).getTime())).toEqual([reg, transfer]);
+    for (const s of stays) {
+      expect(s.cycle_id).toBe(String(reg));
+      expect(s.patient_snapshot.admissionDate).toBe(reg);
+      expect(s.billing_summary).toMatchObject({ admissionId: String(reg), cycleId: String(reg) });
+    }
+    expect(stays[0].patient_snapshot).toMatchObject({ retained: true, billingSummary: { admissionId: String(reg) } });
+    expect(stays[0].billing_summary.amount).toBe(100);
+    expect((await query("SELECT cycle_id,amount::text FROM payments WHERE id='repair-receipt'")).rows[0]).toEqual({ cycle_id: String(reg), amount: '100.00' });
+    expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='before'")).rows[0]).toEqual(before);
+    expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ event: 'admission_repaired', patientId: 'p1', oldAdmission: old, newAdmission: reg }), 'Admission repaired');
+    expect(await repairAdmissions(log)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
+    expect((await query("SELECT * FROM stays WHERE patient_id='p1' ORDER BY id")).rows).toEqual(stays);
+  });
+  it.each(['target', 'unallocated', 'anchor'])('skips a repair with %s ambiguity without partial writes', async reason => {
+    const { reg } = await entryStampedFixture();
+    if (reason === 'target') await query('UPDATE patients SET admission_balances=admission_balances || $1::jsonb WHERE id=\'p1\'', [JSON.stringify({ [reg]: { total: 99 } })]);
+    if (reason === 'unallocated') await query("UPDATE payments SET cycle_id=NULL WHERE id='repair-receipt'");
+    if (reason === 'anchor') await query("UPDATE stays SET admission_date='2026-08-01' WHERE id='s1'");
+    const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0];
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    expect(await repairAdmissions(log)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+    expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0]).toEqual(before);
+    expect(log.warn).toHaveBeenCalledOnce();
+  });
   it.each([0, 5])('post-admission attendee joining on offset %i persists attendance, charges and two-step collection', async offset => {
     const id = randomUUID(), rid = randomUUID().slice(0, 16), sid = randomUUID(), aid = randomUUID();
     // Ten inclusive dates require an exit after 09:00 IST. A date-only
@@ -99,7 +234,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   it('admission-time attendant is snapshotted, and invalid/foreign attendee edits roll back', async () => {
     const id = randomUUID(), rid = randomUUID().slice(0, 16), aid = randomUUID(), sid = randomUUID();
     await send('POST', '/rooms', room(rid));
-    expect((await send('POST', '/patients/register', { ...patient(id), admissionDate: '2026-10-01', exitDate: '2026-10-10',
+    expect((await send('POST', '/patients/register', { ...patient(id), admissionDate: '2026-10-01', registrationDate: '2026-10-01', exitDate: '2026-10-10',
       attendants: [{ id: aid, name: `Attendant ${aid}` }], stays: [{ ...stay(sid, id, rid), admissionDate: '2026-10-01', durationDays: 10 }] })).statusCode).toBe(201);
     expect((await send('GET', `/stays/${sid}`)).json().patientSnapshot.attendants).toMatchObject([{ id: aid }]);
     const before = (await send('GET', `/patients/${id}`)).json();
@@ -128,7 +263,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     const id = randomUUID(), rid = randomUUID().slice(0,16), sid = randomUUID(), aid = randomUUID();
     const today = dayKey(Date.now());
     await send('POST', '/rooms', room(rid));
-    expect((await send('POST', '/patients/register', { ...patient(id), attendants: [], admissionDate: today,
+    expect((await send('POST', '/patients/register', { ...patient(id), attendants: [], admissionDate: today, registrationDate: today,
       exitDate: nextDay(today,9), stays: [{ ...stay(sid,id,rid), admissionDate: today, durationDays: 10 }] })).statusCode).toBe(201);
     const person = { id: aid, name: 'Synthetic helper', startDate: today };
     expect((await send('PUT', `/patients/${id}`, { attendants: [person] })).statusCode).toBe(200);
@@ -353,7 +488,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
 
   it('fresh migration creates all 17 domain tables, is rerunnable and records status', async () => {
     await runMigrations();
-    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toHaveLength(19);
+    expect((await query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toHaveLength(21);
     expect((await query('SELECT name FROM pgmigrations ORDER BY id')).rows.map(x => x.name)).toContain('001_initial_schema');
     // Compare the expected initial catalog with the executed database, including
     // every original column/index/FK, rather than accepting table counts alone.
@@ -410,7 +545,7 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect((await query('SELECT count(*)::int AS count FROM patients')).rows[0].count).toBe(1);
   });
   it('preserves epoch-zero birth and admission dates without substituting defaults', async () => {
-    const response = await send('POST', '/patients', { ...patient(), dateOfBirth: 0, admissionDate: 0 });
+    const response = await send('POST', '/patients', { ...patient(), dateOfBirth: 0, admissionDate: 0, registrationDate: 0 });
     expect(response.statusCode).toBe(201); expect(response.json()).toMatchObject({ dateOfBirth: 0, admissionDate: 0 });
   });
   it('admission and discharge synchronize patient, stay, bed and room; repeat discharge is safe', async () => {
@@ -1026,6 +1161,178 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
       disBeforeMs: Number(disBeforeMs.toFixed(2)),
       disAfterMs: Number(disAfterMs.toFixed(2)),
     }));
+  });
+
+  describe('Photo Staging & Adoption (Real PostgreSQL)', () => {
+    it('(a) PUT photo, unknown patient -> success, no patient_photos row, one staged row', async () => {
+      const unknownPatientId = 'p_real_stage_a';
+      const putRes = await send('PUT', `/photos/patientPhotos/${unknownPatientId}/patient`, {
+        data: 'aGVsbG8=',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(putRes.statusCode).toBe(200);
+      expect(putRes.json()).toMatchObject({
+        photoRef: `patientPhotos/${unknownPatientId}/patient`,
+        patientId: unknownPatientId,
+        photoType: 'patient',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+
+      // no patient_photos row
+      const ppRows = (await query('SELECT * FROM patient_photos WHERE patient_id=$1', [unknownPatientId])).rows;
+      expect(ppRows.length).toBe(0);
+
+      // exactly one staged row in pending_photos
+      const stagedRows = (await query('SELECT * FROM pending_photos WHERE patient_id=$1', [unknownPatientId])).rows;
+      expect(stagedRows.length).toBe(1);
+      expect(stagedRows[0].photo_ref).toBe(`patientPhotos/${unknownPatientId}/patient`);
+      expect(stagedRows[0].kind).toBe('patient');
+      expect(stagedRows[0].data).toBe('aGVsbG8=');
+    });
+
+    it('(b) register that id -> photo in patient_photos, staged row gone, GET serves it', async () => {
+      const patientId = 'p_real_stage_b';
+      // PUT before patient exists
+      const putRes = await send('PUT', `/photos/patientPhotos/${patientId}/patient`, {
+        data: 'aGVsbG8=',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(putRes.statusCode).toBe(200);
+      expect((await query('SELECT * FROM pending_photos WHERE patient_id=$1', [patientId])).rows.length).toBe(1);
+
+      // Register patient
+      const regRes = await send('POST', '/patients/register', patient(patientId));
+      expect(regRes.statusCode).toBe(201);
+
+      // Photo adopted into patient_photos
+      const adopted = (await query('SELECT * FROM patient_photos WHERE patient_id=$1', [patientId])).rows;
+      expect(adopted.length).toBe(1);
+      expect(adopted[0].photo_ref).toBe(`patientPhotos/${patientId}/patient`);
+      expect(adopted[0].photo_type).toBe('patient');
+      expect(adopted[0].data).toBe('aGVsbG8=');
+
+      // Staged row gone
+      const remainingStaged = (await query('SELECT * FROM pending_photos WHERE patient_id=$1', [patientId])).rows;
+      expect(remainingStaged.length).toBe(0);
+
+      // GET serves it
+      const getRes = await send('GET', `/photos/patientPhotos/${patientId}/patient`);
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json()).toMatchObject({
+        photoRef: `patientPhotos/${patientId}/patient`,
+        patientId,
+        photoType: 'patient',
+        data: 'aGVsbG8=',
+      });
+    });
+
+    it('(c) PUT for an existing patient -> unchanged, nothing staged', async () => {
+      const existingId = 'p_real_stage_c';
+      const regRes = await send('POST', '/patients/register', patient(existingId));
+      expect(regRes.statusCode).toBe(201);
+
+      const putRes = await send('PUT', `/photos/patientPhotos/${existingId}/patient`, {
+        data: 'd29ybGQ=',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(putRes.statusCode).toBe(200);
+
+      // in patient_photos
+      const ppRows = (await query('SELECT * FROM patient_photos WHERE patient_id=$1', [existingId])).rows;
+      expect(ppRows.length).toBe(1);
+      expect(ppRows[0].data).toBe('d29ybGQ=');
+
+      // nothing staged
+      const stagedRows = (await query('SELECT * FROM pending_photos WHERE patient_id=$1', [existingId])).rows;
+      expect(stagedRows.length).toBe(0);
+    });
+
+    it('(d) attendant-kind staged photo adopted identically', async () => {
+      const patientId = 'p_real_stage_d';
+      const putAttRes = await send('PUT', `/photos/patientPhotos/${patientId}/attendants/att_1`, {
+        data: 'YXR0ZW5kYW50',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(putAttRes.statusCode).toBe(200);
+      expect(putAttRes.json()).toMatchObject({
+        photoRef: `patientPhotos/${patientId}/attendants/att_1`,
+        patientId,
+        photoType: 'attendant',
+      });
+
+      // staged with kind = 'attendant'
+      const stagedAtt = (await query('SELECT * FROM pending_photos WHERE patient_id=$1', [patientId])).rows;
+      expect(stagedAtt.length).toBe(1);
+      expect(stagedAtt[0].kind).toBe('attendant');
+
+      // register via POST /patients
+      const createRes = await send('POST', '/patients', patient(patientId));
+      expect(createRes.statusCode).toBe(201);
+
+      // adopted into patient_photos with photo_type = 'attendant'
+      const adoptedAtt = (await query('SELECT * FROM patient_photos WHERE patient_id=$1', [patientId])).rows;
+      expect(adoptedAtt.length).toBe(1);
+      expect(adoptedAtt[0].photo_ref).toBe(`patientPhotos/${patientId}/attendants/att_1`);
+      expect(adoptedAtt[0].photo_type).toBe('attendant');
+      expect(adoptedAtt[0].data).toBe('YXR0ZW5kYW50');
+
+      // staged row gone
+      expect((await query('SELECT * FROM pending_photos WHERE patient_id=$1', [patientId])).rows.length).toBe(0);
+
+      // GET serves it
+      const getAttRes = await send('GET', `/photos/patientPhotos/${patientId}/attendants/att_1`);
+      expect(getAttRes.statusCode).toBe(200);
+      expect(getAttRes.json()).toMatchObject({
+        photoRef: `patientPhotos/${patientId}/attendants/att_1`,
+        patientId,
+        photoType: 'attendant',
+        data: 'YXR0ZW5kYW50',
+      });
+    });
+
+    it('(e) cleanup deletes staged items older than 24 h, keeps newer', async () => {
+      await query(`
+        INSERT INTO pending_photos (photo_ref, patient_id, kind, content_type, data, version, created_at)
+        VALUES
+          ('patientPhotos/p_real_old/patient', 'p_real_old', 'patient', 'image/jpeg', 'b2xk', 1, NOW() - INTERVAL '25 hours'),
+          ('patientPhotos/p_real_new/patient', 'p_real_new', 'patient', 'image/jpeg', 'bmV3', 1, NOW() - INTERVAL '1 hour')
+      `);
+
+      const deletedCount = await cleanupPendingPhotos();
+      expect(deletedCount).toBeGreaterThanOrEqual(1);
+
+      const oldRows = (await query("SELECT * FROM pending_photos WHERE photo_ref='patientPhotos/p_real_old/patient'")).rows;
+      expect(oldRows.length).toBe(0);
+
+      const newRows = (await query("SELECT * FROM pending_photos WHERE photo_ref='patientPhotos/p_real_new/patient'")).rows;
+      expect(newRows.length).toBe(1);
+    });
+
+    it('(f) a second identical PUT replaces the staged copy (still one row)', async () => {
+      const patientId = 'p_real_stage_f';
+      const put1 = await send('PUT', `/photos/patientPhotos/${patientId}/patient`, {
+        data: 'Zmlyc3Q=',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(put1.statusCode).toBe(200);
+
+      const put2 = await send('PUT', `/photos/patientPhotos/${patientId}/patient`, {
+        data: 'c2Vjb25k',
+        contentType: 'image/jpeg',
+        version: 1,
+      });
+      expect(put2.statusCode).toBe(200);
+
+      const stagedRows = (await query('SELECT * FROM pending_photos WHERE patient_id=$1', [patientId])).rows;
+      expect(stagedRows.length).toBe(1);
+      expect(stagedRows[0].data).toBe('c2Vjb25k');
+    });
   });
 });
 

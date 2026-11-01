@@ -57,7 +57,7 @@ describe.skipIf(!enabled)('bounded synthetic PostgreSQL scalability evidence', (
   async function seed(count: number) {
     if (!safeTargetVerified) throw new Error('Disposable target was not verified');
     const start = performance.now();
-    await query('TRUNCATE users, rooms, room_beds, patients, stays, patient_attendants, payments, attendance_records, patient_photos, sponsorships CASCADE');
+    await query('TRUNCATE users, rooms, room_beds, patients, stays, patient_attendants, payments, attendance_records, patient_photos, pending_photos, sponsorships CASCADE');
     await query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','scale@ngo.test','Synthetic Scale Admin','admin')");
     await query("INSERT INTO rooms(id,room_number,room_type) VALUES('scale-room','SYNTHETIC','general')");
     await query(`INSERT INTO patients(id, full_name, search_key, date_of_birth, gender, contact_number,

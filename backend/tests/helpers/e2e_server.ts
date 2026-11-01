@@ -53,7 +53,7 @@ async function seedUsers() {
 async function resetDatabase() {
   await query(
     `TRUNCATE users, rooms, room_beds, patients, stays, patient_attendants,
-              payments, attendance_records, patient_photos, sponsorships,
+              payments, attendance_records, patient_photos, pending_photos, sponsorships,
               system_counters, system_settings, purchases, expense_entries,
               salaries, inventory_items, vendors
      CASCADE`,

@@ -16,7 +16,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
   const record = (id: string, amount: string, extra: Record<string, any> = {}) => send('POST', '/payments', { id, patientId: 'p1', amount, cycleId: cycle, date: '2026-01-02', ...extra });
   const balance = (total: number, paid: number, refunded = 0) => ({ total, paid, refunded, netPaid: paid - refunded, due: Math.max(0, total - paid + refunded), refundDue: Math.max(0, paid - refunded - total), status: paid - refunded > total ? 'Payment Exceeded' : paid - refunded === total ? 'Paid' : paid - refunded > 0 ? 'Partially Paid' : 'Unpaid' });
   async function seed(extra: Record<string, any> = {}) {
-    const response = await send('POST', '/patients', { id: 'p1', fullName: 'Synthetic payment accuracy', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01T00:00:00Z', currentDueAmount: '10.00', advanceBilledAmount: String((extra.admissionBalances as any)?.[cycle]?.total ?? (extra.currentDueAmount != null ? Number(extra.currentDueAmount) + Number(extra.totalPaidAmount ?? 0) - Number(extra.refundDueAmount ?? 0) : 10)), ...extra });
+    const response = await send('POST', '/patients', { id: 'p1', fullName: 'Synthetic payment accuracy', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01T00:00:00Z', registrationDate: '2026-01-01T00:00:00Z', currentDueAmount: '10.00', advanceBilledAmount: String((extra.admissionBalances as any)?.[cycle]?.total ?? (extra.currentDueAmount != null ? Number(extra.currentDueAmount) + Number(extra.totalPaidAmount ?? 0) - Number(extra.refundDueAmount ?? 0) : 10)), ...extra });
     expect(response.statusCode).toBe(201);
     // Financial fixtures must contain real receipts, not only saved summaries.
     const balances = extra.admissionBalances ?? { [cycle]: balance(Number(response.json().advanceBilledAmount), Number(extra.totalPaidAmount ?? 0)) };
@@ -300,7 +300,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL payment financial accuracy', () =
   });
   it.each(['PATCH', 'DELETE'])('%s rejects a receipt recreated under another patient while its original owner is locked', async method => {
     await seed(); await record('recreated', '1.00');
-    const other = await send('POST', '/patients', { id: 'p2', fullName: 'Synthetic second patient', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', advanceBilledAmount: 10, totalPaidAmount: 2, currentDueAmount: 8,
+    const other = await send('POST', '/patients', { id: 'p2', fullName: 'Synthetic second patient', dateOfBirth: '1990-01-01', gender: 'Other', contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', registrationDate: '2026-01-01', advanceBilledAmount: 10, totalPaidAmount: 2, currentDueAmount: 8,
       admissionBalances: { [cycle]: { ...balance(10, 2), finalized: true } } });
     expect(other.statusCode).toBe(201);
     const blocker = await pool.connect();

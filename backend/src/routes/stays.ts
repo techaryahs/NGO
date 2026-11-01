@@ -101,6 +101,24 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [body.patientId])).rows[0];
   if (!patient) throw httpError(409, 'Patient does not exist');
 
+  const identity = newStayIdentity(patient, body);
+  // A persisted stay establishes a cycle even after completion (room transfers
+  // can have a gap with no active placement). Only its first stay is an anchor.
+  const cycleStays = (await client.query('SELECT * FROM stays WHERE patient_id=$1', [body.patientId])).rows;
+  if (!cycleStays.some(s => stayCycle(s, patient) === identity.cycleId)) {
+    const registration = patient.registration_date == null ? new Date(NaN) : new Date(patient.registration_date);
+    if (!Number.isFinite(registration.getTime())) throw httpError(400, 'Update the registration date before creating an admission stay');
+    body.admissionDate = registration.getTime();
+    identity.cycleId = String(registration.getTime());
+    identity.snapshotAdmission = registration.getTime();
+    if (body.billingSummary) body.billingSummary = { ...body.billingSummary, admissionId: identity.cycleId,
+      ...(Object.hasOwn(body.billingSummary, 'cycleId') ? { cycleId: identity.cycleId } : {}) };
+    if ((!body.status || body.status === 'active') && new Date(patient.admission_date).getTime() !== registration.getTime()) {
+      await client.query('UPDATE patients SET admission_date=$2 WHERE id=$1', [body.patientId, registration]);
+      patient.admission_date = registration;
+    }
+  }
+
   const admissionDate = body.admissionDate != null
     ? new Date(body.admissionDate)
     : patient.admission_date != null
@@ -163,7 +181,6 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
     [body.patientId, String(new Date(patient.admission_date).getTime())])).rows : [];
   const priorRoster = priorStays.flatMap(s => s.patient_snapshot?.attendants ?? []);
   const roster = attendants.map(person => ({ ...priorRoster.find(p => p.id === person.id), ...person }));
-  const identity = newStayIdentity(patient, body);
   body.patientSnapshot = { ...body.patientSnapshot, admissionDate: identity.snapshotAdmission,
     attendants: active ? roster : body.patientSnapshot?.attendants ?? attendants };
   body.cycleId = identity.cycleId;

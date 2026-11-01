@@ -43,7 +43,7 @@ describe.runIf(process.env.RUN_AUTH_PG_INTEGRATION === '1')('Firebase UID bounda
     await query("UPDATE users SET role='staff' WHERE id=$1", [uid]);
     expect((await send('POST', '/patients', {
       id: 'auth_uid_patient', fullName: 'Synthetic UID audit', dateOfBirth: '1990-01-01', gender: 'Other',
-      contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01',
+      contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic', admissionDate: '2026-01-01', registrationDate: '2026-01-01',
     })).statusCode).toBe(201);
     expect((await send('POST', '/rooms', { id: 'auth_uid_room', roomNumber: 'auth_uid_room', roomType: 'general', beds: [{ id: 'auth_uid_bed', bedLabel: '1' }] })).statusCode).toBe(201);
     expect((await send('POST', '/stays', { id: 'auth_uid_stay', patientId: 'auth_uid_patient', roomId: 'auth_uid_room', bedId: 'auth_uid_bed' })).statusCode).toBe(201);

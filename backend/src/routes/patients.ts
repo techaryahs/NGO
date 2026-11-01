@@ -10,6 +10,13 @@ import { collectionPage, cursorDateSql, parseCollectionCursor } from '../paginat
 import { createHash } from 'node:crypto';
 import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
 import { admissionRoster } from '../services/attendant_roster.js';
+import { adoptPendingPhotos } from '../services/photo_staging.js';
+
+function registrationAdmission(value: any): Date {
+  const result = value == null ? new Date(NaN) : new Date(value);
+  if (!Number.isFinite(result.getTime())) throw httpError(400, 'Update the registration date: a valid registrationDate is required');
+  return result;
+}
 
 async function financialRead<T>(work: (read: typeof query) => Promise<T>): Promise<T> {
   const client = await getClient();
@@ -439,6 +446,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
   // ── POST /api/patients ──────────────────────────────────────────────────────
   fastify.post('/patients', async (request, reply) => {
     const body = request.body as Record<string, any>;
+    const admissionDate = registrationAdmission(body.registrationDate);
     const patientId = body.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const user = request.user!;
     if (Array.isArray(body.payments) && body.payments.length) throw httpError(400, 'Record payments using the payments endpoint');
@@ -485,10 +493,6 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       `;
 
       const dob = new Date(body.dateOfBirth);
-      const admissionDate =
-        body.registrationDate != null ? new Date(body.registrationDate)
-          : body.admissionDate != null ? new Date(body.admissionDate)
-          : new Date();
 
       if (body.exitDate != null && new Date(body.exitDate) < admissionDate) {
         throw httpError(400, 'Planned exit cannot precede admission');
@@ -519,7 +523,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         body.lobby || null,
         body.address || null,
         body.registrationNumber || null,
-        body.registrationDate != null ? new Date(body.registrationDate) : admissionDate,
+        admissionDate,
         body.panCardNumber || null,
         body.aadhaarCardNumber || null,
         body.receiptNumber || null,
@@ -596,6 +600,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         }
       }
 
+      await adoptPendingPhotos(client, patientId);
       await client.query('COMMIT');
       const formattedPatient = formatPatient(insertedPatient.rows[0], attendants);
       if (createdStayRows.length > 0) {
@@ -622,6 +627,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
   // transaction. Handles retries idempotently without creating duplicate records.
   fastify.post('/patients/register', async (request, reply) => {
     const body = request.body as Record<string, any>;
+    const admissionDate = registrationAdmission(body.registrationDate);
     const patientId = body.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const user = request.user!;
     if (Array.isArray(body.payments) && body.payments.length) throw httpError(400, 'Record payments using the payments endpoint');
@@ -681,6 +687,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           [patientId]
         );
         const existingProjection = await projectBilling(client, existingPatientRes.rows[0]);
+        await adoptPendingPhotos(client, patientId);
         await client.query('COMMIT');
         const formattedPatient = formatPatient(
           existingProjection.patient,
@@ -727,10 +734,6 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       }
 
       const dob = new Date(body.dateOfBirth);
-      const admissionDate =
-        body.registrationDate != null ? new Date(body.registrationDate)
-          : body.admissionDate != null ? new Date(body.admissionDate)
-          : new Date();
       if (body.exitDate != null && new Date(body.exitDate) < admissionDate) {
         throw httpError(400, 'Planned exit cannot precede admission');
       }
@@ -793,7 +796,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         initialLobby,
         body.address || null,
         regNumber,
-        body.registrationDate != null ? new Date(body.registrationDate) : admissionDate,
+        admissionDate,
         body.panCardNumber || null,
         body.aadhaarCardNumber || null,
         body.receiptNumber || null,
@@ -880,6 +883,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
 
       const projection = await projectBilling(client, finalPatientRes.rows[0]);
       if (createdStayRows.length) await persistBilling(client, projection);
+      await adoptPendingPhotos(client, patientId);
       await client.query('COMMIT');
       const activePlacementStays = (await client.query<ActivePlacementStay>(
         `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
@@ -975,7 +979,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
   fastify.post('/patients/:id/rejoin', async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as Record<string, any>;
-    const fingerprint = createHash('sha256').update(JSON.stringify([id, toEpochMs(body.admissionDate), toEpochMs(body.exitDate), body.exitDateUnconfirmed, body.roomId, body.bedId ?? null, body.durationDays ?? null])).digest('hex');
+    const fingerprint = createHash('sha256').update(JSON.stringify([id, toEpochMs(body.registrationDate), toEpochMs(body.exitDate), body.exitDateUnconfirmed, body.roomId, body.bedId ?? null, body.durationDays ?? null])).digest('hex');
     const client = await getClient();
     try {
       await client.query('BEGIN');
@@ -984,9 +988,16 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const previous = (await client.query<RawStayRow>('SELECT * FROM stays WHERE id=$1', [body.requestId])).rows[0];
       if (previous && (previous.patient_id !== id || previous.patient_snapshot?.rejoinFingerprint !== fingerprint)) throw httpError(409, 'Rejoin request ID already used differently');
       if (!previous) {
-        if (patient.status !== 'discharged' || (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id])).rowCount) throw httpError(409, 'Only a discharged patient without an active stay can rejoin');
-        const admission = new Date(body.admissionDate);
-        if (admission <= new Date(patient.admission_date) || patient.discharge_date && admission < new Date(patient.discharge_date)) throw httpError(400, 'New admission must follow the previous admission and discharge');
+        if (body.registrationDate != null) {
+          const registration = registrationAdmission(body.registrationDate);
+          await client.query('UPDATE patients SET registration_date=$2 WHERE id=$1', [id, registration]);
+          patient.registration_date = registration;
+        }
+        const admission = registrationAdmission(patient.registration_date);
+        if (patient.status !== 'discharged' || (await client.query("SELECT id FROM stays WHERE patient_id=$1 AND status='active'", [id])).rowCount ||
+            patient.discharge_date && admission < new Date(patient.discharge_date)) {
+          throw httpError(400, 'Rejoin requires a discharged patient without an active stay; update the registration date to on or after the previous discharge');
+        }
         if (body.exitDate != null && new Date(body.exitDate) < admission) throw httpError(400, 'Planned exit cannot precede admission');
         const duration = body.exitDate == null ? 7 : Math.max(1, Math.round((Date.parse(nextDay(dayKey(body.exitDate))) - Date.parse(dayKey(admission))) / 86400000));
         // Preserve old balances/receipts. Clear only the new cycle's summaries.
@@ -1036,7 +1047,6 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       if (financialFields.some(key => Object.hasOwn(body, key))) throw httpError(409, 'Financial balances are derived from receipts and stays; use the financial endpoints');
       const activeStays = await client.query("SELECT id,room_id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
       const before = formatPatient(existing.rows[0]);
-      if (body.admissionDate != null && toEpochMs(body.admissionDate) !== toEpochMs(existing.rows[0].admission_date)) throw httpError(409, 'Change admission cycles through the rejoin workflow');
       if (body.status != null && body.status !== before.status && (body.status === 'discharged' || before.status === 'discharged')) throw httpError(409, 'Use the discharge or rejoin workflow for lifecycle changes');
       if (activeStays.rowCount && ['roomId', 'roomNumber', 'floor', 'bedIds', 'bedLabels'].some(key => Object.hasOwn(body, key) && JSON.stringify(body[key]) !== JSON.stringify(before[key as keyof typeof before]))) throw httpError(409, 'Change active assignments through the stay lifecycle');
       if (body.status === 'discharged' && activeStays.rowCount) {
@@ -1058,6 +1068,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
 
       // PUT historically acts as a partial update. Preserve omitted optional fields.
       body = { ...formatPatient(existing.rows[0]), ...body };
+      body.admissionDate = registrationAdmission(body.registrationDate).getTime();
       if ((request.body as Record<string, unknown>).fullName && !Object.hasOwn(request.body as object, 'searchKey')) body.searchKey = String(body.fullName).toLowerCase();
 
       const updateSql = `

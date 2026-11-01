@@ -555,7 +555,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       const oldStay = (await query("SELECT row_to_json(s) AS data FROM stays s WHERE id='s1'")).rows[0].data;
       const receipts = (await query("SELECT row_to_json(p) AS data FROM payments p WHERE patient_id='p1' ORDER BY id")).rows;
       const saved = (await query("SELECT admission_balances FROM patients WHERE id='p1'")).rows[0].admission_balances[old.cycle];
-      const request = { requestId: `rejoin-${confirmed}`, admissionDate: at(10).getTime(), exitDate: confirmed ? at(16).getTime() : null,
+      const request = { requestId: `rejoin-${confirmed}`, admissionDate: at(10).getTime(), registrationDate: at(10).getTime(), exitDate: confirmed ? at(16).getTime() : null,
         exitDateUnconfirmed: !confirmed, roomId: 'r1', roomNumber: 'R1', roomType: 'general', bedId: 'b1', durationDays: 7 };
       const responses = await Promise.all([send('POST', '/patients/p1/rejoin', request), send('POST', '/patients/p1/rejoin', request)]);
       expect(responses.map(r => r.statusCode).sort()).toEqual([200, 201]);
@@ -575,7 +575,7 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
       expect((await send('POST', '/patients/p1/discharge', { checkoutAt: at(1, 3, 31).getTime() })).statusCode).toBe(200);
       expect((await register('p2', 'b1')).statusCode).toBe(201);
       const before = (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data;
-      const result = await send('POST', '/patients/p1/rejoin', { requestId: 'failed-rejoin', admissionDate: at(10).getTime(), exitDate: null,
+      const result = await send('POST', '/patients/p1/rejoin', { requestId: 'failed-rejoin', admissionDate: at(10).getTime(), registrationDate: at(10).getTime(), exitDate: null,
         exitDateUnconfirmed: true, roomId: 'r1', roomNumber: 'R1', roomType: 'general', bedId: 'b1' });
       expect(result.statusCode).toBe(409);
       expect((await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data).toEqual(before);

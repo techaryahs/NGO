@@ -58,7 +58,7 @@ describe('Editable Registration Number Endpoints', () => {
         emergencyContact: '9876543211',
         emergencyContactName: 'Relative',
         medicalCondition: 'General Checkup',
-        admissionDate: '2026-10-26',
+        admissionDate: '2026-10-26', registrationDate: '2026-10-26',
         registrationNumber: 'reg-100', // duplicate (case-insensitive)
       },
     });
@@ -118,7 +118,7 @@ describe('Editable Registration Number Endpoints', () => {
         emergencyContact: '9876543211',
         emergencyContactName: 'Relative',
         medicalCondition: 'Observation',
-        admissionDate: '2026-10-26',
+        admissionDate: '2026-10-26', registrationDate: '2026-10-26',
         registrationNumber: 'CUSTOM-777',
       },
     });
@@ -137,7 +137,7 @@ describe('Editable Registration Number Endpoints', () => {
       id: 'patient_existing_1',
       full_name: 'Existing Patient',
       registration_number: '5200',
-      admission_date: new Date('2026-10-01'),
+      admission_date: new Date('2026-10-01'), registration_date: new Date('2026-10-01'),
       date_of_birth: new Date('1985-05-05'),
       status: 'active',
       total_paid_amount: '0',
@@ -196,7 +196,7 @@ describe('Editable Registration Number Endpoints', () => {
       id: 'patient_existing_1',
       full_name: 'Existing Patient',
       registration_number: '5200',
-      admission_date: new Date('2026-10-01'),
+      admission_date: new Date('2026-10-01'), registration_date: new Date('2026-10-01'),
       date_of_birth: new Date('1985-05-05'),
       status: 'active',
       total_paid_amount: '0',

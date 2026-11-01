@@ -40,7 +40,7 @@ const transferPatient = z.object({
   shiftedAt: date, exitDate: date.nullable().optional(),
 });
 const rejoinPatient = z.object({
-  requestId: stayId, admissionDate: date, exitDate: date.nullable(), exitDateUnconfirmed: z.boolean(),
+  requestId: stayId, admissionDate: z.unknown().optional(), registrationDate: date.optional(), exitDate: date.nullable(), exitDateUnconfirmed: z.boolean(),
   roomId: id, roomNumber: text, roomType: text, bedId: id.nullable().optional(),
   durationDays: z.number().int().min(1).max(3650).optional(),
 }).strict().refine(v => v.exitDateUnconfirmed === (v.exitDate === null), 'Choose a confirmed exit date or explicitly unconfirmed exit');
@@ -97,6 +97,7 @@ export async function validateDomainRequest(request: FastifyRequest): Promise<vo
     }
     for (const key of ['expectedVersion', 'version']) if (body[key] != null && !integer.safeParse(body[key]).success) throw httpError(400, `Invalid ${key}`);
     for (const [key, value] of Object.entries(body)) {
+      if (path === '/api/patients/:id/rejoin' && key === 'admissionDate') continue;
       if (value == null) continue;
       if ((key.endsWith('Date') || key === 'approvedDate') && !date.safeParse(value).success) throw httpError(400, `Invalid ${key}`);
       const fieldMoney = path.startsWith('/api/payments') && key === 'paidAmount' ? signedPaymentMoney : money;

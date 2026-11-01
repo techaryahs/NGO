@@ -67,6 +67,32 @@ export async function photoRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
     const contentType = body.contentType || (body.data.startsWith('data:image/png') ? 'image/png' : 'image/jpeg');
     const version = body.version;
 
+    // Check if target patient exists
+    const patientRes = await query('SELECT 1 FROM patients WHERE id = $1', [inferredPatientId]);
+    if (patientRes.rows.length === 0) {
+      const res = await query<RawPhotoRow>(
+        `INSERT INTO pending_photos (photo_ref, patient_id, kind, content_type, data, version, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+         ON CONFLICT (photo_ref) DO UPDATE
+         SET kind = EXCLUDED.kind,
+             content_type = EXCLUDED.content_type,
+             data = EXCLUDED.data,
+             version = EXCLUDED.version,
+             created_at = CURRENT_TIMESTAMP
+         RETURNING photo_ref, patient_id, kind AS photo_type, content_type, data, version, created_at AS updated_at`,
+        [photoRef, inferredPatientId, inferredType, contentType, body.data, version]
+      );
+      const row = res.rows[0];
+      return reply.send({
+        photoRef: row.photo_ref,
+        patientId: row.patient_id,
+        photoType: row.photo_type,
+        contentType: row.content_type,
+        version: Number(row.version),
+        updatedAt: new Date(row.updated_at).getTime(),
+      });
+    }
+
     const res = await query<RawPhotoRow>(
       `INSERT INTO patient_photos (photo_ref, patient_id, photo_type, content_type, data, version, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)

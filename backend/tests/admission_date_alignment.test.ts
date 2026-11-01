@@ -3,7 +3,7 @@ import { buildApp } from '../src/app.js';
 import * as dbModule from '../src/db/index.js';
 import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 
-describe('Admission Date Alignment & Fallback Specification', () => {
+describe('Registration-derived admission dates', () => {
   let app: ReturnType<typeof buildApp>;
 
   let patientsMap: Map<string, any>;
@@ -189,6 +189,11 @@ describe('Admission Date Alignment & Fallback Specification', () => {
         if (p) p.registration_fingerprint = params[1];
         return { rows: [], rowCount: 1 };
       }
+      if (trimmed.includes('UPDATE patients SET registration_date=$2 WHERE id=$1')) {
+        const p = patientsMap.get(params[0] as string);
+        if (p) p.registration_date = params[1];
+        return { rows: p ? [p] : [], rowCount: p ? 1 : 0 };
+      }
       if (trimmed.includes('UPDATE patients SET') && trimmed.includes('WHERE id=$1')) {
         const p = patientsMap.get(params[0] as string);
         if (p) {
@@ -365,12 +370,10 @@ describe('Admission Date Alignment & Fallback Specification', () => {
   });
 
   // TEST 3
-  it('3. POST /patients with neither date → admission is approximately now (previous behaviour preserved)', async () => {
-    const beforeCall = Date.now();
-
+  it.each(['/api/patients', '/api/patients/register'])('rejects %s without registrationDate', async url => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/patients',
+      url,
       headers: authHeader,
       payload: {
         fullName: 'Undated Patient',
@@ -383,16 +386,9 @@ describe('Admission Date Alignment & Fallback Specification', () => {
       },
     });
 
-    const afterCall = Date.now();
-    expect(res.statusCode).toBe(201);
-    const body = JSON.parse(res.body);
-
-    const patientRow = Array.from(patientsMap.values())[0];
-    expect(patientRow).toBeDefined();
-    const admissionEpoch = new Date(patientRow.admission_date).getTime();
-    expect(admissionEpoch).toBeGreaterThanOrEqual(beforeCall - 1000);
-    expect(admissionEpoch).toBeLessThanOrEqual(afterCall + 1000);
-    expect(body.admissionDate).toBe(admissionEpoch);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toContain('registration');
+    expect(patientsMap.size).toBe(0);
   });
 
   // TEST 4
@@ -429,6 +425,7 @@ describe('Admission Date Alignment & Fallback Specification', () => {
       id: 'patient_existing_1',
       full_name: 'Existing Stored Patient',
       admission_date: storedAdmissionDate,
+      registration_date: storedAdmissionDate,
       status: 'active',
       registration_number: 'REG-555',
     };
@@ -458,20 +455,21 @@ describe('Admission Date Alignment & Fallback Specification', () => {
   });
 
   // TEST 6
-  it('6. Rejoin with an explicit admissionDate behaves exactly as before (regression)', async () => {
+  it('ignores a future body admissionDate when rejoining', async () => {
     const oldAdmission = new Date('2026-10-01T00:00:00.000Z');
     const oldDischarge = new Date('2026-10-10T00:00:00.000Z');
     const dischargedPatient = {
       id: 'patient_discharged_1',
       full_name: 'Discharged Patient',
       admission_date: oldAdmission,
+      registration_date: new Date('2026-10-20T10:00:00.000Z'),
       discharge_date: oldDischarge,
       status: 'discharged',
       registration_number: 'REG-999',
     };
     patientsMap.set(dischargedPatient.id, dischargedPatient);
 
-    const explicitRejoinAdmission = new Date('2026-10-20T10:00:00.000Z');
+    const explicitRejoinAdmission = new Date('2099-10-20T10:00:00.000Z');
 
     const res = await app.inject({
       method: 'POST',
@@ -493,8 +491,8 @@ describe('Admission Date Alignment & Fallback Specification', () => {
 
     const stayRow = Array.from(staysMap.values())[0];
     expect(stayRow).toBeDefined();
-    expect(new Date(stayRow.admission_date).getTime()).toBe(explicitRejoinAdmission.getTime());
-    expect(stayRow.cycle_id).toBe(String(explicitRejoinAdmission.getTime()));
+    expect(new Date(stayRow.admission_date).getTime()).toBe(dischargedPatient.registration_date.getTime());
+    expect(stayRow.cycle_id).toBe(String(dischargedPatient.registration_date.getTime()));
   });
 
   // Additional check: POST /patients/register (atomic endpoint) behaves identically
