@@ -7,6 +7,15 @@ type RepairLogger = {
   error: (data: any, message: string) => void;
 };
 
+function substantiveBalance(balance: any): boolean {
+  // Preserve malformed entries rather than treating uncertain history as empty.
+  if (!balance || typeof balance !== 'object' || Array.isArray(balance)) return true;
+  return ['total', 'paid', 'netPaid', 'refunded', 'due', 'refundDue'].some(key => Number(balance[key] ?? 0) !== 0) ||
+    balance.finalized === true ||
+    ['segmentDays', 'segmentCharges', 'pendingAttendance'].some(key => Object.keys(balance[key] ?? {}).length > 0) ||
+    balance.checkoutAt != null || balance.checkoutAdjustment != null;
+}
+
 /** Repair identities only: never recalculate charges or change transfer dates. */
 export async function repairAdmissions(log: RepairLogger) {
   const summary = { repaired: 0, skipped: 0, failed: 0 };
@@ -65,8 +74,10 @@ export async function repairAdmissions(log: RepairLogger) {
       const anchor = cycleStays.find(s => s.completed_at == null && s.status === 'active');
       const payments = (await client.query('SELECT * FROM payments WHERE patient_id=$1 FOR UPDATE', [id])).rows;
       const corrections = (await client.query('SELECT id FROM billing_corrections WHERE patient_id=$1 AND cycle_id=$2', [id, oldCycle])).rowCount;
+      const hasTargetBalance = Object.hasOwn(patient.admission_balances ?? {}, newCycle);
+      const substantiveTargetBalance = hasTargetBalance && substantiveBalance(patient.admission_balances[newCycle]);
       const reason = !mismatch && (!anchor || new Date(anchor.admission_date) <= registration) ? 'anchor_not_after_registration'
-        : stays.some(s => stayCycle(s, patient) === newCycle) || Object.hasOwn(patient.admission_balances ?? {}, newCycle) || payments.some(p => p.cycle_id === newCycle) ? 'target_cycle_exists'
+        : stays.some(s => stayCycle(s, patient) === newCycle) || substantiveTargetBalance || payments.some(p => p.cycle_id === newCycle) ? 'target_cycle_exists'
         : corrections ? 'immutable_billing_corrections'
         : stays.some(s => stayCycle(s, patient).startsWith('unresolved-stay:')) || payments.some(p => p.cycle_id == null) ? 'unresolved_cycle_identity'
         : undefined;
@@ -91,6 +102,7 @@ export async function repairAdmissions(log: RepairLogger) {
       await client.query("SET LOCAL app.payment_reason='Admission date repaired from registration date'");
       await client.query('UPDATE payments SET cycle_id=$3 WHERE patient_id=$1 AND cycle_id=$2', [id, oldCycle, newCycle]);
       const balances = { ...patient.admission_balances };
+      const replacedEmptyTargetBalance = hasTargetBalance && !substantiveTargetBalance && Object.hasOwn(balances, oldCycle);
       if (Object.hasOwn(balances, oldCycle)) {
         balances[newCycle] = { ...balances[oldCycle], cycleId: newCycle };
         delete balances[oldCycle];
@@ -101,6 +113,7 @@ export async function repairAdmissions(log: RepairLogger) {
       summary.repaired++;
       if (mismatch) cycleMismatch.repaired++;
       log.info({ event: 'admission_repaired', patientId: id, ...context,
+        ...(replacedEmptyTargetBalance ? { replacedEmptyTargetBalance: true } : {}),
         ...(mismatch ? { fromCycle: oldCycle, toCycle: newCycle } : { registrationDate: registration.toISOString() }),
         oldAdmission, newAdmission }, 'Admission repaired');
     } catch (error) {

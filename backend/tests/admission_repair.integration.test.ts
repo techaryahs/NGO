@@ -114,7 +114,7 @@ describe.skipIf(process.env.RUN_PG_INTEGRATION !== '1')('PostgreSQL admission re
     if (reason === 'immutable_billing_corrections') await db.query(`INSERT INTO billing_corrections(patient_id,cycle_id,stay_id,billable_date,amount,reason,operator_uid)
       VALUES('repair-patient',$1,'anchor','2026-11-02',100,'Synthetic correction','test')`, [String(wrong)]);
     if (reason === 'target stay') await addStay('target', target, String(target));
-    if (reason === 'target balance') await db.query('UPDATE patients SET admission_balances=admission_balances || $1::jsonb WHERE id=\'repair-patient\'', [JSON.stringify({ [target]: { cycleId: String(target) } })]);
+    if (reason === 'target balance') await db.query('UPDATE patients SET admission_balances=admission_balances || $1::jsonb WHERE id=\'repair-patient\'', [JSON.stringify({ [target]: { cycleId: String(target), total: 400 } })]);
     if (reason === 'target payment' || reason === 'unresolved payment') await db.query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES('ambiguous','repair-patient',$1,100,'2026-11-02')", [reason === 'target payment' ? String(target) : null]);
     if (reason === 'unresolved stay') await addStay('unresolved', Date.parse('2026-09-15'), null, { admissionDate: null });
     const before = await state(), logger = log();
@@ -125,6 +125,64 @@ describe.skipIf(process.env.RUN_PG_INTEGRATION !== '1')('PostgreSQL admission re
       patientId: 'repair-patient', fromCycle: String(wrong), toCycle: String(target),
       reason: reason.startsWith('target') ? 'target_cycle_exists' : reason.startsWith('unresolved') ? 'unresolved_cycle_identity' : reason }), 'Admission repair skipped');
     expect(counters(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+  });
+  const emptyShell = () => ({ cycleId: String(target), total: 0, paid: 0, netPaid: 0, refunded: 0,
+    due: 0, refundDue: 0, finalized: false, segmentDays: {}, segmentCharges: {}, pendingAttendance: [],
+    checkoutAt: null, checkoutAdjustment: null });
+  async function targetBalance(balance: Record<string, any>) {
+    await db.query('UPDATE patients SET admission_balances=admission_balances || $1::jsonb WHERE id=\'repair-patient\'',
+      [JSON.stringify({ [target]: balance })]);
+  }
+  it.each(['cycle mismatch', 'registration'])('replaces an empty target shell with the moved balance for %s repair', async repairClass => {
+    await fixture(repairClass === 'registration' ? 'active' : 'discharged');
+    if (repairClass === 'registration') {
+      await db.query('UPDATE patients SET admission_date=$1 WHERE id=\'repair-patient\'', [new Date(wrong)]);
+      await db.query("UPDATE stays SET status='active' WHERE id='anchor'");
+    }
+    await targetBalance(emptyShell());
+    const before = await state(), logger = log();
+    expect(await repairAdmissions(logger)).toEqual({ repaired: 1, skipped: 0, failed: 0 });
+    const after = await assertConverged(before);
+    expect(after.patients[0].admission_balances[String(target)]).toEqual({
+      ...before.patients[0].admission_balances[String(wrong)], cycleId: String(target),
+    });
+    expect(logger.info).toHaveBeenCalledWith(expect.objectContaining({ event: 'admission_repaired',
+      patientId: 'repair-patient', replacedEmptyTargetBalance: true }), 'Admission repaired');
+    expect(counters(logger)).toEqual({ repaired: repairClass === 'cycle mismatch' ? 1 : 0, skipped: 0, failed: 0 });
+  });
+  it.each([
+    ['total', 400], ['paid', 1], ['netPaid', -1], ['refunded', 1], ['due', 1], ['refundDue', 1],
+    ['finalized', true], ['segmentDays', { anchor: 0 }], ['segmentCharges', { anchor: 0 }],
+    ['pendingAttendance', ['2026-10-01']], ['checkoutAt', 0], ['checkoutAdjustment', {}],
+  ])('preserves a substantive target balance with %s set', async (field, value) => {
+    await fixture();
+    await targetBalance({ ...emptyShell(), [field as string]: value });
+    const before = await state(), logger = log();
+    expect(await repairAdmissions(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+    expect(await state()).toEqual(before);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ event: 'admission_repair_skipped',
+      class: 'cycle_mismatch', reason: 'target_cycle_exists' }), 'Admission repair skipped');
+    expect(counters(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+  });
+  it.each(['stay', 'payment'])('still rejects a target %s even with an empty balance shell', async collision => {
+    await fixture();
+    await targetBalance(emptyShell());
+    if (collision === 'stay') await addStay('target', target, String(target));
+    else await db.query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES('target','repair-patient',$1,0,'2026-10-01')", [String(target)]);
+    const before = await state(), logger = log();
+    expect(await repairAdmissions(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+    expect(await state()).toEqual(before);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: 'target_cycle_exists' }), 'Admission repair skipped');
+  });
+  it('is idempotent after replacing an empty target balance shell', async () => {
+    await fixture();
+    await targetBalance(emptyShell());
+    expect(await repairAdmissions(log())).toEqual({ repaired: 1, skipped: 0, failed: 0 });
+    const before = await state(), logger = log();
+    expect(await repairAdmissions(logger)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
+    expect(await state()).toEqual(before);
+    expect(logger.info.mock.calls.some(([entry]) => entry.replacedEmptyTargetBalance === true)).toBe(false);
+    expect(counters(logger)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
   });
   it('moves only wrong-cycle payments and anchor dates, preserving older-cycle records', async () => {
     await fixture();
