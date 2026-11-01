@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
 import { admissionRoster } from '../services/attendant_roster.js';
 import { adoptPendingPhotos } from '../services/photo_staging.js';
+import { convergeAdmissionCycle } from '../services/admission_repair.js';
 
 function registrationAdmission(value: any): Date {
   const result = value == null ? new Date(NaN) : new Date(value);
@@ -1084,8 +1085,11 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       }
 
       // PUT historically acts as a partial update. Preserve omitted optional fields.
+      const rawRegistrationEpoch = toEpochMs(body.registrationDate);
+      const registrationChanged = Object.hasOwn(body, 'registrationDate') && Number.isFinite(rawRegistrationEpoch) &&
+        rawRegistrationEpoch !== toEpochMs(existing.rows[0].registration_date);
       body = { ...formatPatient(existing.rows[0]), ...body };
-      body.admissionDate = registrationAdmission(body.registrationDate).getTime();
+      body.admissionDate = registrationChanged ? registrationAdmission(body.registrationDate).getTime() : existing.rows[0].admission_date;
       if ((request.body as Record<string, unknown>).fullName && !Object.hasOwn(request.body as object, 'searchKey')) body.searchKey = String(body.fullName).toLowerCase();
 
       const updateSql = `
@@ -1205,7 +1209,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         body.photoFileName || null,
         body.notes || null,
         body.dateOfBirth != null ? new Date(body.dateOfBirth) : null,
-        body.admissionDate != null ? new Date(body.admissionDate) : null,
+        registrationChanged ? new Date(body.admissionDate) : existing.rows[0].admission_date,
       ];
 
       const updatedPatient = await client.query<RawPatientRow>(updateSql, updateValues);
@@ -1281,6 +1285,32 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           [id]
         );
         attendants = attRes.rows;
+      }
+
+      const newestAnchor = (await client.query(`SELECT cycle_id FROM stays WHERE patient_id=$1
+        AND cycle_id=trunc(extract(epoch FROM admission_date)*1000)::bigint::text
+        ORDER BY admission_date DESC,created_at DESC,id DESC LIMIT 1`, [id])).rows[0];
+      if (newestAnchor && newestAnchor.cycle_id !== String(new Date(updatedPatient.rows[0].admission_date).getTime())) {
+        const convergence = await convergeAdmissionCycle(client, id, fastify.log);
+        if (convergence.outcome === 'skipped' && registrationChanged) {
+          let blocker: string;
+          if (convergence.reason === 'target_cycle_exists') {
+            const target = convergence.target!;
+            const occupants = [target.stay ? 'a stay' : '', target.payments ? `${target.payments} payments` : '',
+              target.balance ? `a balance of ₹${target.amount} on that cycle` : ''].filter(Boolean);
+            blocker = `the target cycle is occupied by ${occupants.join(' and ')}`;
+          } else if (convergence.reason === 'source_cycle_finalized') {
+            blocker = "this patient's current admission cycle is finalized (settled); correct it through the manual settlement path";
+          } else if (convergence.reason === 'immutable_billing_corrections') {
+            blocker = 'the current cycle has immutable billing corrections';
+          } else {
+            blocker = 'stay or payment cycle ownership is unresolved';
+          }
+          throw httpError(409, `Registration date cannot be applied: ${blocker}`);
+        }
+        if (convergence.outcome === 'converged') {
+          updatedPatient.rows[0] = (await client.query<RawPatientRow>('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
+        }
       }
 
       // Commit the calculated patient balance and its stay summaries together.

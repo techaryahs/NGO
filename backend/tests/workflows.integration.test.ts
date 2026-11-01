@@ -173,15 +173,15 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
     expect(response.json().message).toContain('update the registration date');
     expect(new Date((await query("SELECT registration_date FROM patients WHERE id='p1'")).rows[0].registration_date).getTime()).toBe(Date.parse('2026-01-01'));
   });
-  it('forces PUT admission to merged registration and repairs an omitted admission field', async () => {
+  it('derives PUT admission only for a changed registration and preserves it on unrelated edits', async () => {
     await send('POST', '/patients', patient());
     const response = await send('PUT', '/patients/p1', { admissionDate: '2099-01-01', registrationDate: '2026-08-29' });
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json()).toMatchObject({ admissionDate: Date.parse('2026-08-29'), registrationDate: Date.parse('2026-08-29') });
-    await query("UPDATE patients SET admission_date='2026-11-01' WHERE id='p1'");
-    expect((await send('PUT', '/patients/p1', { notes: 'Unrelated edit' })).json().admissionDate).toBe(Date.parse('2026-08-29'));
+    await query("UPDATE patients SET admission_date='2026-11-01T00:00:00Z' WHERE id='p1'");
+    expect((await send('PUT', '/patients/p1', { notes: 'Unrelated edit' })).json().admissionDate).toBe(Date.parse('2026-11-01'));
     const stored = (await query("SELECT admission_date=registration_date AS aligned FROM patients WHERE id='p1'")).rows[0];
-    expect(stored.aligned).toBe(true);
+    expect(stored.aligned).toBe(false);
   });
   it('anchors a first stay to registration and preserves an established cycle segment date', async () => {
     await send('POST', '/rooms', room());

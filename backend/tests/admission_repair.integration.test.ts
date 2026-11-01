@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as db from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate.js';
-import { repairAdmissions } from '../src/services/admission_repair.js';
+import { convergeAdmissionCycle, repairAdmissions } from '../src/services/admission_repair.js';
+import { buildApp } from '../src/app.js';
+import { installTestFirebaseKeys, signedTestToken } from './helpers/auth.js';
 
 describe.skipIf(process.env.RUN_PG_INTEGRATION !== '1')('PostgreSQL admission repair cycle mismatch', () => {
   const older = Date.parse('2026-09-01');
@@ -183,6 +185,162 @@ describe.skipIf(process.env.RUN_PG_INTEGRATION !== '1')('PostgreSQL admission re
     expect(await state()).toEqual(before);
     expect(logger.info.mock.calls.some(([entry]) => entry.replacedEmptyTargetBalance === true)).toBe(false);
     expect(counters(logger)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
+  });
+  it('logs and counts a finalized source skip without changing any record', async () => {
+    await fixture();
+    await db.query("UPDATE patients SET admission_balances=jsonb_set(admission_balances,ARRAY[$1,'finalized'],'true') WHERE id='repair-patient'", [String(wrong)]);
+    const before = await state(), logger = log();
+    expect(await repairAdmissions(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+    expect(await state()).toEqual(before);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ class: 'cycle_mismatch', reason: 'source_cycle_finalized' }), 'Admission repair skipped');
+    expect(counters(logger)).toEqual({ repaired: 0, skipped: 1, failed: 0 });
+  });
+  it('returns replacement metadata and leaves commit or rollback to its caller', async () => {
+    await fixture();
+    await targetBalance(emptyShell());
+    const before = await state(), client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+      expect(await convergeAdmissionCycle(client, 'repair-patient', log())).toEqual({ outcome: 'converged',
+        fromCycle: String(wrong), toCycle: String(target), replacedEmptyTargetBalance: true });
+      await client.query('ROLLBACK');
+      expect(await state()).toEqual(before);
+    } finally { client.release(); }
+  });
+
+  describe('PUT synchronous admission convergence', () => {
+    const app = buildApp({ logger: false });
+    const put = (body: any) => app.inject({ method: 'PUT', url: '/api/patients/repair-patient',
+      headers: { authorization: `Bearer ${signedTestToken()}` }, payload: body });
+    beforeEach(async () => {
+      installTestFirebaseKeys();
+      await db.query("INSERT INTO users(id,email,name,role) VALUES('test-uid-admin','admin@ngo.test','Admin','admin')");
+    });
+    afterAll(async () => { await app.close(); });
+    async function coherent(status = 'active') {
+      await fixture(status);
+      await db.query('UPDATE patients SET admission_date=$1,registration_date=$1 WHERE id=\'repair-patient\'', [new Date(wrong)]);
+      if (status === 'active') {
+        await db.query("UPDATE patients SET discharge_date=NULL WHERE id='repair-patient'");
+        await db.query("UPDATE stays SET status='active' WHERE id='anchor'");
+      }
+    }
+    async function assertInline() {
+      const after = await state();
+      expect(after.patients[0].admission_date).toEqual(new Date(target));
+      expect(after.patients[0].registration_date).toEqual(new Date(target));
+      expect(after.stays.find(s => s.id === 'anchor')).toMatchObject({ admission_date: new Date(target), cycle_id: String(target),
+        patient_snapshot: { admissionDate: target }, billing_summary: { admissionId: String(target), cycleId: String(target) } });
+      expect(after.patients[0].admission_balances[String(target)]).toEqual({ cycleId: String(target), total: 100, segmentCharges: { anchor: 100 } });
+      expect(after.patients[0].admission_balances).not.toHaveProperty(String(wrong));
+      return after;
+    }
+    it.each([target, new Date(target).toISOString()])('converges a deliberate registration edit in-request (%s)', async registrationDate => {
+      await coherent();
+      await db.query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES('older-receipt','repair-patient',$1,25,'2026-09-01')", [String(older)]);
+      const before = await state();
+      const response = await put({ registrationDate });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ admissionDate: target, registrationDate: target });
+      const after = await assertInline();
+      expect(after.payments).toEqual(before.payments);
+      expect(after.stays.find(s => s.id === 'older')).toEqual(before.stays.find(s => s.id === 'older'));
+    });
+    it('self-heals a split save with an unchanged registration epoch resent as ISO', async () => {
+      await fixture('active');
+      const response = await put({ contactNumber: '1234', registrationDate: new Date(target).toISOString() });
+      expect(response.statusCode, response.body).toBe(200);
+      await assertInline();
+      expect(response.json()).toMatchObject({ contactNumber: '1234', admissionDate: target });
+    });
+    it('preserves coherent dates, cycles and balances on an app-shaped equal-epoch save', async () => {
+      await coherent();
+      // Seed the ordinary persisted projection before measuring an unrelated save.
+      expect((await put({ attendants: [], registrationDate: wrong })).statusCode).toBe(200);
+      const before = await state();
+      const response = await put({ contactNumber: '5678', attendants: [], registrationDate: new Date(wrong).toISOString() });
+      expect(response.statusCode, response.body).toBe(200);
+      const after = await state();
+      expect(after.patients[0]).toMatchObject({ admission_date: before.patients[0].admission_date,
+        registration_date: before.patients[0].registration_date, admission_balances: before.patients[0].admission_balances });
+      expect(after.stays.map(s => s.cycle_id)).toEqual(before.stays.map(s => s.cycle_id));
+    });
+    it.each([false, true])('preserves the settled 38-minute exception (registration resent=%s)', async resend => {
+      await coherent('discharged');
+      const reg = wrong + 38 * 60000;
+      await db.query("UPDATE patients SET registration_date=$1,admission_balances=jsonb_set(admission_balances,ARRAY[$2,'finalized'],'true') WHERE id='repair-patient'", [new Date(reg), String(wrong)]);
+      const before = await state(), logger = log();
+      expect((await put({ contactNumber: '111', admissionDate: target, ...(resend ? { registrationDate: new Date(reg).toISOString() } : {}) })).statusCode).toBe(200);
+      const after = await state();
+      for (const field of ['admission_date', 'registration_date', 'admission_balances']) expect(after.patients[0][field]).toEqual(before.patients[0][field]);
+      expect(after.stays).toEqual(before.stays);
+      expect(await repairAdmissions(logger)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
+      expect(counters(logger)).toEqual({ repaired: 0, skipped: 0, failed: 0 });
+    });
+    it.each(['balance', 'stay', 'payments', 'finalized', 'corrections', 'unresolved'])('atomically rejects a deliberate change blocked by %s with staff detail', async blocker => {
+      await coherent();
+      if (blocker === 'balance') await targetBalance({ cycleId: String(target), total: 400 });
+      if (blocker === 'stay') await addStay('target', target, String(target));
+      if (blocker === 'payments') await db.query("INSERT INTO payments(id,patient_id,cycle_id,amount,payment_date) VALUES('target-1','repair-patient',$1,1,'2026-10-01'),('target-2','repair-patient',$1,2,'2026-10-01')", [String(target)]);
+      if (blocker === 'finalized') await db.query("UPDATE patients SET admission_balances=jsonb_set(admission_balances,ARRAY[$1,'finalized'],'true') WHERE id='repair-patient'", [String(wrong)]);
+      if (blocker === 'corrections') await db.query("INSERT INTO billing_corrections(patient_id,cycle_id,stay_id,billable_date,amount,reason,operator_uid) VALUES('repair-patient',$1,'anchor','2026-11-02',1,'Correction','test')", [String(wrong)]);
+      if (blocker === 'unresolved') await db.query("INSERT INTO payments(id,patient_id,amount,payment_date) VALUES('unresolved','repair-patient',1,'2026-11-02')");
+      const before = await state();
+      const rosterBefore = (await db.query("SELECT * FROM patient_attendants WHERE patient_id='repair-patient'")).rows;
+      const response = await put({ registrationDate: target, contactNumber: 'blocked', attendants: [{ id: 'new-helper', name: 'New helper' }] });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json().message).toContain('Registration date cannot be applied:');
+      const terms = { balance: '₹400', stay: 'a stay', payments: '2 payments', finalized: 'finalized (settled)', corrections: 'immutable billing corrections', unresolved: 'ownership is unresolved' };
+      expect(response.json().message).toContain(terms[blocker as keyof typeof terms]);
+      expect(await state()).toEqual(before);
+      expect((await db.query("SELECT * FROM patient_attendants WHERE patient_id='repair-patient'")).rows).toEqual(rosterBefore);
+    });
+    it('commits a non-date edit and logs its blocked self-heal', async () => {
+      await fixture('active');
+      await targetBalance({ cycleId: String(target), total: 400 });
+      const before = await state(), warn = vi.spyOn(app.log, 'warn');
+      try {
+        const response = await put({ registrationDate: target, contactNumber: 'saved' });
+        expect(response.statusCode, response.body).toBe(200);
+        const after = await state();
+        expect(after.patients[0].contact_number).toBe('saved');
+        expect(after.stays).toEqual(before.stays);
+        expect(after.patients[0].admission_balances).toEqual(before.patients[0].admission_balances);
+        expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: 'admission_repair_skipped', class: 'cycle_mismatch', reason: 'target_cycle_exists' }), 'Admission repair skipped');
+      } finally { warn.mockRestore(); }
+    });
+    it('replaces a target shell inline and reports the replacement', async () => {
+      await coherent();
+      await targetBalance(emptyShell());
+      const info = vi.spyOn(app.log, 'info');
+      try {
+        const response = await put({ registrationDate: target });
+        expect(response.statusCode, response.body).toBe(200);
+        await assertInline();
+        expect(info).toHaveBeenCalledWith(expect.objectContaining({ event: 'admission_repaired', replacedEmptyTargetBalance: true }), 'Admission repaired');
+      } finally { info.mockRestore(); }
+    });
+    it('converges an anchor and later transfer inline without moving the transfer date', async () => {
+      await coherent();
+      const segmentDate = Date.parse('2026-11-03');
+      await addStay('segment', segmentDate, String(wrong));
+      const response = await put({ registrationDate: target });
+      expect(response.statusCode, response.body).toBe(200);
+      const after = await assertInline();
+      expect(after.stays.find(s => s.id === 'segment')).toMatchObject({ admission_date: new Date(segmentDate), cycle_id: String(target), patient_snapshot: { admissionDate: target } });
+    });
+    it('rewrites the pre-update cycle roster and bills the converged cycle on an app-shaped date edit', async () => {
+      await coherent();
+      const response = await put({ registrationDate: target, attendants: [{ id: 'helper', name: 'Helper' }] });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ admissionDate: target, registrationDate: target });
+      const after = await state(), anchor = after.stays.find(s => s.id === 'anchor');
+      expect(anchor).toMatchObject({ cycle_id: String(target), admission_date: new Date(target),
+        patient_snapshot: { admissionDate: target, attendants: [expect.objectContaining({ id: 'helper', name: 'Helper' })] },
+        billing_summary: { cycleId: String(target), admissionId: String(target) } });
+      expect(after.patients[0].admission_balances).not.toHaveProperty(String(wrong));
+      expect(after.patients[0].admission_balances[String(target)].segmentDays).toHaveProperty('anchor');
+    });
   });
   it('moves only wrong-cycle payments and anchor dates, preserving older-cycle records', async () => {
     await fixture();
