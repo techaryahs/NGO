@@ -644,7 +644,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
          LEFT JOIN rooms r ON r.id = s.room_id
          WHERE s.patient_id = $1 AND s.status = 'active'
          ORDER BY s.created_at, s.id
-         FOR UPDATE`,
+         FOR UPDATE OF s`,
         [patientId]
       );
 
