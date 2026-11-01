@@ -12,9 +12,9 @@ export function admissionRoster(people: any[], previous: any[], patient: any, no
   return people.map(person => {
     const old = previous.find(p => p.id === person.id);
     const startDate = old?.startDate ?? (old ? undefined : person.startDate ?? (day(now) < admission ? admission : day(now)));
-    if (startDate != null && (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+    if (!old && startDate != null && (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
         !Number.isFinite(Date.parse(startDate)) || new Date(startDate).toISOString().slice(0, 10) !== startDate ||
-        startDate < admission || (patient.exit_date && startDate > day(patient.exit_date)))) {
+        startDate < admission || (patient.discharge_date && startDate > day(patient.discharge_date)))) {
       throw httpError(400, 'Attendant arrival date must be a valid date within this admission');
     }
     const { photoDataUrl, startDate: requestedStart, endDate: requestedEnd, ...metadata } = person;
