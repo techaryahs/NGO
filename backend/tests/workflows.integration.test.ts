@@ -1164,6 +1164,59 @@ describe.skipIf(!enabled)('real PostgreSQL API workflows', () => {
   });
 
   describe('Photo Staging & Adoption (Real PostgreSQL)', () => {
+    it.each(['patient', 'attendants/att_verify'])('reads staged %s bytes and metadata before patient creation', async path => {
+      const patientId = 'p_real_verify';
+      const photoRef = `patientPhotos/${patientId}/${path}`;
+      const url = `/photos/${photoRef}`;
+      const data = 'data:image/png;base64,AAECA/8=';
+      const put = await send('PUT', url, { data, contentType: 'image/png', version: 17 });
+      expect(put.statusCode).toBe(200);
+      const staged = (await query('SELECT * FROM pending_photos WHERE photo_ref=$1', [photoRef])).rows[0];
+      const get = await send('GET', url);
+      expect(get.statusCode).toBe(200);
+      expect(get.json()).toEqual({ photoRef, patientId, photoType: path === 'patient' ? 'patient' : 'attendant',
+        contentType: 'image/png', data, version: 17, updatedAt: new Date(staged.created_at).getTime() });
+      expect((await query('SELECT id FROM patients WHERE id=$1', [patientId])).rows).toHaveLength(0);
+      expect((await query('SELECT photo_ref FROM patient_photos WHERE photo_ref=$1', [photoRef])).rows).toHaveLength(0);
+    });
+
+    it('keeps the existing 404 response for a never-uploaded photo', async () => {
+      const photoRef = 'patientPhotos/p_never_uploaded/patient';
+      const response = await send('GET', `/photos/${photoRef}`);
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: 'NotFound', message: `Photo '${photoRef}' not found` });
+    });
+
+    it.each(['patient', 'attendants/att_removed'])('deletes staged %s attachments before registration and never adopts them', async path => {
+      const patientId = 'p_real_deleted';
+      const photoRef = `patientPhotos/${patientId}/${path}`;
+      const url = `/photos/${photoRef}`;
+      expect((await send('PUT', url, { data: 'aGVsbG8=' })).statusCode).toBe(200);
+      const removed = await send('DELETE', url);
+      expect(removed.statusCode).toBe(200);
+      expect(removed.json()).toEqual({ success: true });
+      expect((await query('SELECT photo_ref FROM pending_photos WHERE photo_ref=$1', [photoRef])).rows).toHaveLength(0);
+      expect((await send('GET', url)).statusCode).toBe(404);
+      expect((await send('POST', '/patients/register', patient(patientId))).statusCode).toBe(201);
+      expect((await query('SELECT photo_ref FROM patient_photos WHERE photo_ref=$1', [photoRef])).rows).toHaveLength(0);
+      expect((await send('GET', url)).statusCode).toBe(404);
+    });
+
+    it('prefers the saved photo and deletes both copies when a reference exists in both tables', async () => {
+      const patientId = 'p_real_both';
+      const photoRef = `patientPhotos/${patientId}/patient`;
+      const url = `/photos/${photoRef}`;
+      expect((await send('POST', '/patients/register', patient(patientId))).statusCode).toBe(201);
+      expect((await send('PUT', url, { data: 'c2F2ZWQ=' })).statusCode).toBe(200);
+      await query(`INSERT INTO pending_photos(photo_ref,patient_id,kind,content_type,data,version)
+        VALUES($1,$2,'patient','image/jpeg','c3RhZ2Vk',2)`, [photoRef, patientId]);
+      expect((await send('GET', url)).json().data).toBe('c2F2ZWQ=');
+      expect((await send('DELETE', url)).json()).toEqual({ success: true });
+      expect((await send('GET', url)).statusCode).toBe(404);
+      expect((await query('SELECT photo_ref FROM pending_photos WHERE photo_ref=$1', [photoRef])).rows).toHaveLength(0);
+      expect((await query('SELECT photo_ref FROM patient_photos WHERE photo_ref=$1', [photoRef])).rows).toHaveLength(0);
+    });
+
     it('(a) PUT photo, unknown patient -> success, no patient_photos row, one staged row', async () => {
       const unknownPatientId = 'p_real_stage_a';
       const putRes = await send('PUT', `/photos/patientPhotos/${unknownPatientId}/patient`, {

@@ -218,7 +218,10 @@ describe.runIf(process.env.AUDIT_DATABASE_TESTS === '1')('Modules: real PostgreS
     const missingPut = await request('PUT', `/api/photos/${prefix}missing/patient`, { data: 'aGVsbG8=' });
     expect(missingPut.statusCode).toBe(200);
     expect(missingPut.json()).toMatchObject({ photoRef: `patientPhotos/${prefix}missing/patient`, patientId: `${prefix}missing`, photoType: 'patient' });
-    expect((await request('GET', `/api/photos/${prefix}missing/patient`)).statusCode).toBe(404);
+    const stagedGet = await request('GET', `/api/photos/${prefix}missing/patient`);
+    expect(stagedGet.statusCode).toBe(200);
+    expect(stagedGet.json()).toMatchObject({ photoRef: `patientPhotos/${prefix}missing/patient`, patientId: `${prefix}missing`,
+      photoType: 'patient', contentType: 'image/jpeg', data: 'aGVsbG8=', version: 1 });
   });
 
   it('rejects stale photo writes without replacing the newer data', async () => {

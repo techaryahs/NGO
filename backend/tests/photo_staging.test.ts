@@ -148,10 +148,20 @@ describe('Photo Staging & Adoption Suite', () => {
       }
 
       // SELECT * FROM patient_photos WHERE photo_ref = $1
-      if (trimmed.includes('FROM patient_photos WHERE photo_ref = $1')) {
+      if (trimmed.startsWith('SELECT') && trimmed.includes('FROM patient_photos WHERE photo_ref = $1')) {
         const ref = params[0] as string;
         const row = patientPhotosTable.get(ref);
         return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+      }
+
+      if (trimmed.startsWith('SELECT') && trimmed.includes('FROM pending_photos WHERE photo_ref = $1')) {
+        const row = pendingPhotosTable.get(params[0] as string);
+        return { rows: row ? [{ ...row, photo_type: row.kind, updated_at: row.created_at }] : [], rowCount: row ? 1 : 0 };
+      }
+
+      if (trimmed.includes('DELETE FROM pending_photos WHERE photo_ref = $1')) {
+        const existed = pendingPhotosTable.delete(params[0] as string);
+        return { rows: [], rowCount: existed ? 1 : 0 };
       }
 
       // DELETE FROM patient_photos WHERE photo_ref = $1
@@ -453,7 +463,42 @@ describe('Photo Staging & Adoption Suite', () => {
     expect(pendingPhotosTable.get(url.slice('/api/photos/'.length)).data).toBe('c2Vjb25k');
   });
 
-  // Safety checks: GET/DELETE for nonexistent patient unchanged
+  it.each(['patient', 'attendants/att_1'])('reads back staged %s photos before patient creation with identical data', async path => {
+    const patientId = 'p_verify_staged';
+    const photoRef = `patientPhotos/${patientId}/${path}`;
+    const url = `/api/photos/${photoRef}`;
+    const data = 'data:image/png;base64,AAECA/8=';
+    const put = await app.inject({ method: 'PUT', url, headers: authHeaders(), payload: { data, contentType: 'image/png', version: 17 } });
+    expect(put.statusCode).toBe(200);
+    const staged = pendingPhotosTable.get(photoRef);
+    const get = await app.inject({ method: 'GET', url, headers: authHeaders() });
+    expect(get.statusCode).toBe(200);
+    expect(get.json()).toEqual({ photoRef, patientId, photoType: path === 'patient' ? 'patient' : 'attendant',
+      contentType: 'image/png', data, version: 17, updatedAt: new Date(staged.created_at).getTime() });
+    expect(patientsTable.has(patientId)).toBe(false);
+    expect(patientPhotosTable.has(photoRef)).toBe(false);
+  });
+
+  it.each(['patient', 'attendants/att_1'])('deletes a staged %s photo so later creation adopts nothing', async path => {
+    const patientId = 'p_deleted_staged';
+    const photoRef = `patientPhotos/${patientId}/${path}`;
+    const url = `/api/photos/${photoRef}`;
+    expect((await app.inject({ method: 'PUT', url, headers: authHeaders(), payload: { data: 'aGVsbG8=' } })).statusCode).toBe(200);
+    const removed = await app.inject({ method: 'DELETE', url, headers: authHeaders() });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toEqual({ success: true });
+    expect(pendingPhotosTable.has(photoRef)).toBe(false);
+    expect((await app.inject({ method: 'GET', url, headers: authHeaders() })).statusCode).toBe(404);
+    const created = await app.inject({ method: 'POST', url: '/api/patients', headers: authHeaders(), payload: {
+      id: patientId, fullName: 'Deleted Attachment', registrationDate: '2026-01-01', dateOfBirth: '1990-01-01', gender: 'Other',
+      contactNumber: '000', emergencyContact: '000', emergencyContactName: 'Synthetic', medicalCondition: 'Synthetic',
+    } });
+    expect(created.statusCode).toBe(201);
+    expect(patientPhotosTable.has(photoRef)).toBe(false);
+    expect((await app.inject({ method: 'GET', url, headers: authHeaders() })).statusCode).toBe(404);
+  });
+
+  // Never-uploaded references retain their GET/DELETE behavior.
   it('preserves GET/DELETE photo behavior for nonexistent patients (GET 404, DELETE 200)', async () => {
     const nonExistent = 'p_ghost_1';
     const getRes = await app.inject({

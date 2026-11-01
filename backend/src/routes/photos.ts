@@ -30,11 +30,16 @@ export async function photoRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
       [photoRef]
     );
 
-    if (res.rows.length === 0) {
+    const row = res.rows[0] ?? (await query<RawPhotoRow>(
+      `SELECT photo_ref, patient_id, kind AS photo_type, content_type, data, version, created_at AS updated_at
+       FROM pending_photos WHERE photo_ref = $1`,
+      [photoRef]
+    )).rows[0];
+
+    if (!row) {
       return reply.status(404).send({ error: 'NotFound', message: `Photo '${photoRef}' not found` });
     }
 
-    const row = res.rows[0];
     return reply.send({
       photoRef: row.photo_ref,
       patientId: row.patient_id,
@@ -130,6 +135,7 @@ export async function photoRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
     if (!validPhotoRef.test(photoRef)) return reply.status(400).send({ error: 'BadRequest', message: 'Invalid photo reference' });
 
     await query('DELETE FROM patient_photos WHERE photo_ref = $1', [photoRef]);
+    await query('DELETE FROM pending_photos WHERE photo_ref = $1', [photoRef]);
     return reply.status(200).send({ success: true });
   });
 }
