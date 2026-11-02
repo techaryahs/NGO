@@ -1066,7 +1066,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const expectedEditVersion = body.expectedEditVersion ?? body.editVersion;
       if (expectedEditVersion != null && expectedEditVersion !== existing.rows[0].edit_version) throw httpError(409, 'Patient version mismatch');
       const financialFields = ['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount', 'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates', 'advanceBilledAmount', 'attendanceCharges', 'billingAmountOverride', 'totalPresentDays', 'totalAbsentDays'];
-      if (financialFields.some(key => Object.hasOwn(body, key))) throw httpError(409, 'Financial balances are derived from receipts and stays; use the financial endpoints');
+      for (const key of financialFields) delete body[key];
       const activeStays = await client.query<ActivePlacementStay>(
         `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
                 r.floor AS room_floor
@@ -1326,23 +1326,6 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         }
       }
 
-      // Commit the calculated patient balance and its stay summaries together.
-      // The patient lock/version also serializes attendance, payments and stays.
-      for (const [stayId, values] of Object.entries((request.body as any).stayBillingUpdates ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
-        const delta = values as Record<string, any>;
-        const updated = await client.query(
-          `UPDATE stays SET total_cost=COALESCE($3,total_cost), cycle_id=COALESCE($4,cycle_id),
-           daily_rate=CASE WHEN $5 THEN $6 ELSE daily_rate END,
-           billing_summary=COALESCE($7,billing_summary),
-           completed_at=COALESCE($8,completed_at),updated_at=CURRENT_TIMESTAMP
-           WHERE id=$1 AND patient_id=$2 RETURNING id`,
-          [stayId, id, delta.totalCost ?? null, delta.cycleId ?? null,
-            Object.hasOwn(delta, 'dailyRate'), delta.dailyRate ?? null,
-            delta.billingSummary == null ? null : JSON.stringify(delta.billingSummary),
-            delta.completedAt == null ? null : new Date(delta.completedAt)],
-        );
-        if (!updated.rowCount) throw httpError(409, 'Billing stay no longer belongs to this patient');
-      }
       const payments = await client.query('SELECT * FROM payments WHERE patient_id=$1 ORDER BY payment_date DESC', [id]);
       let responsePatient = updatedPatient.rows[0];
       if (Array.isArray((request.body as any).attendants) && activeStays.rowCount && responsePatient.status !== 'discharged') {
