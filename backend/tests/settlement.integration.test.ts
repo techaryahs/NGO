@@ -797,4 +797,114 @@ describe.skipIf(process.env.RUN_SETTLEMENT_TESTS !== '1')('isolated registration
         .toMatchObject({ advanceBilledAmount: 3600, totalPaidAmount: 3600, currentDueAmount: 0, refundDueAmount: 0 });
       expect((await query("SELECT count(*)::int AS count FROM payments WHERE patient_id='p1'")).rows[0].count).toBe(2);
     });
+    describe('admin-authoritative discharge window', () => {
+      const start = '2026-09-01T00:00:00.000Z';
+      const checkoutAt = Date.parse('2026-09-03T06:00:00.000Z');
+      const windowCycle = String(Date.parse(start));
+      const storedStays = async () => (await query("SELECT row_to_json(s) AS data FROM stays s WHERE patient_id='p1' ORDER BY id")).rows.map(r => r.data);
+      const storedPatient = async () => (await query("SELECT row_to_json(p) AS data FROM patients p WHERE id='p1'")).rows[0].data;
+      async function admissionWithTransfers(shifts: string[]) {
+        const registered = await send('POST', '/patients/register', {
+          ...patient(), admissionDate: start, registrationDate: start, exitDate: '2026-12-01T06:00:00Z',
+          stays: [{ ...placement('s0'), admissionDate: start, cycleId: windowCycle }],
+        });
+        expect(registered.statusCode, registered.body).toBe(201);
+        for (const [index, shiftedAt] of shifts.entries()) {
+          const moved = await send('POST', '/patients/p1/transfer', {
+            requestId: `s${index + 1}`, expectedStayIds: [`s${index}`], shiftedAt,
+            roomId: 'r1', roomNumber: 'R1', roomType: 'general', bedId: index % 2 ? 'b1' : 'b2',
+          });
+          expect(moved.statusCode, moved.body).toBe(200);
+        }
+        for (let day = 1; day <= 3; day++) {
+          const marked = await send('POST', '/attendance', {
+            patientId: 'p1', date: `2026-09-0${day}`, payload: { status: 'Present' },
+          });
+          expect(marked.statusCode, marked.body).toBe(200);
+        }
+        const receipt = await send('POST', '/payments', {
+          id: 'window-receipt', patientId: 'p1', cycleId: windowCycle, amount: 600, method: 'cash',
+        });
+        expect(receipt.statusCode, receipt.body).toBe(201);
+      }
+      function expectWindow(stays: any[]) {
+        for (const stay of stays) {
+          expect(stay.cycle_id).toBe(windowCycle);
+          expect(stay.status).toBe('completed');
+          expect(Date.parse(stay.admission_date)).toBeGreaterThanOrEqual(Date.parse(start));
+          expect(Date.parse(stay.admission_date)).toBeLessThanOrEqual(Date.parse(stay.completed_at));
+          expect(Date.parse(stay.completed_at)).toBeLessThanOrEqual(checkoutAt);
+        }
+      }
+      it('T1 entry-stamped transfer accepts the admin checkout and finalizes conserved receipts', async () => {
+        await admissionWithTransfers([new Date().toISOString()]);
+        const before = await storedStays();
+        expect(Date.parse(before[1].admission_date)).toBeGreaterThan(checkoutAt);
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+        expect(done.statusCode, done.body).toBe(200);
+        expect(done.json().patient).toMatchObject({ status: 'discharged', dischargeDate: checkoutAt });
+        expect(done.json().patient.admissionBalances[windowCycle]).toMatchObject({ finalized: true, total: 600, netPaid: 600, due: 0 });
+        const saved = await storedPatient();
+        expect(saved.status).toBe('discharged');
+        expect(Date.parse(saved.discharge_date)).toBe(checkoutAt);
+        const after = await storedStays();
+        expectWindow(after);
+        expect(Date.parse(after[1].admission_date)).toBe(checkoutAt);
+        expect(Date.parse(after[1].completed_at)).toBe(checkoutAt);
+        expect(after.map(s => [s.cycle_id, s.patient_snapshot, s.expected_discharge_date]))
+          .toEqual(before.map(s => [s.cycle_id, s.patient_snapshot, s.expected_discharge_date]));
+        const receipts = Number((await query("SELECT sum(amount)::text AS total FROM payments WHERE patient_id='p1'")).rows[0].total);
+        const allocated = Object.values<any>(done.json().patient.admissionBalances).reduce((sum, b) => sum + b.netPaid, 0);
+        expect(allocated + done.json().reconciliation.unallocatedNet).toBe(receipts);
+      });
+      it('T2 checkout before episode admission returns 400 without writing patient or stays', async () => {
+        await admissionWithTransfers(['2026-09-04T06:00:00Z']);
+        const beforePatient = await storedPatient(), beforeStays = await storedStays();
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt: Date.parse(start) - 1 });
+        expect(done.statusCode, done.body).toBe(400);
+        expect(await storedPatient()).toEqual(beforePatient);
+        expect((await storedPatient()).status).toBe('active');
+        expect(await storedStays()).toEqual(beforeStays);
+        // Exercise the shared service floor too; the discharge route has its own episode floor.
+        const completion = await send('PUT', '/stays/s1', { status: 'completed', completedAt: Date.parse(start) - 1 });
+        expect(completion.statusCode, completion.body).toBe(400);
+        expect(completion.json().message).toBe('Invalid actual checkout time');
+        expect(await storedPatient()).toEqual(beforePatient);
+        expect(await storedStays()).toEqual(beforeStays);
+      });
+      it('T3 truthful multi-segment discharge preserves every existing segment date', async () => {
+        await admissionWithTransfers(['2026-09-02T06:00:00Z', '2026-09-03T00:00:00Z']);
+        const before = await storedStays();
+        const storedCheckout = (await query('SELECT to_json($1::timestamptz) AS value', [new Date(checkoutAt)])).rows[0].value;
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+        expect(done.statusCode, done.body).toBe(200);
+        const after = await storedStays();
+        expect(after.map(s => [s.id, s.admission_date, s.completed_at, s.status]))
+          .toEqual(before.map(s => [s.id, s.admission_date, s.status === 'active' ? storedCheckout : s.completed_at, 'completed']));
+        expect(after.map(s => [s.cycle_id, s.patient_snapshot, s.expected_discharge_date]))
+          .toEqual(before.map(s => [s.cycle_id, s.patient_snapshot, s.expected_discharge_date]));
+        expectWindow(after);
+      });
+      it('T4 checkout between truthful starts clamps active and already completed segments', async () => {
+        await admissionWithTransfers(['2026-09-04T06:00:00Z', '2026-09-06T06:00:00Z']);
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+        expect(done.statusCode, done.body).toBe(200);
+        const after = await storedStays();
+        expectWindow(after);
+        expect(after.slice(1).map(s => [Date.parse(s.admission_date), Date.parse(s.completed_at)]))
+          .toEqual([[checkoutAt, checkoutAt], [checkoutAt, checkoutAt]]);
+      });
+      it('T5 reconciliation 409 rolls back all active and completed segment clamping', async () => {
+        await admissionWithTransfers(['2026-09-04T06:00:00Z', '2026-09-06T06:00:00Z']);
+        await query("INSERT INTO payments(id,patient_id,cycle_id,type,amount,payment_date) VALUES('window-unmatched','p1','unknown-cycle','payment',100,CURRENT_TIMESTAMP)");
+        const beforePatient = await storedPatient(), beforeStays = await storedStays();
+        const done = await send('POST', '/patients/p1/discharge', { checkoutAt });
+        expect(done.statusCode, done.body).toBe(409);
+        expect(done.json().message).toBe('Reconcile receipt allocations, admission identities and invoice evidence before discharge');
+        expect(await storedPatient()).toEqual(beforePatient);
+        expect((await storedPatient()).status).toBe('active');
+        expect(await storedStays()).toEqual(beforeStays);
+      });
+    });
+
 });
