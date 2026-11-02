@@ -71,7 +71,7 @@ export async function convergeAdmissionCycle(
     balances[toCycle] = { ...balances[fromCycle], cycleId: toCycle };
     delete balances[fromCycle];
   }
-  await client.query('UPDATE patients SET admission_date=$2,admission_balances=$3::jsonb,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
+  await client.query('UPDATE patients SET admission_date=$2,admission_balances=$3::jsonb,version=version+1,edit_version=edit_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
     [patientId, patient.admission_date, JSON.stringify(balances)]);
   log.info({ event: 'admission_repaired', patientId, class: 'cycle_mismatch',
     ...(replacedEmptyTargetBalance ? { replacedEmptyTargetBalance: true } : {}), fromCycle, toCycle, oldAdmission, newAdmission }, 'Admission repaired');
@@ -187,7 +187,7 @@ export async function repairAdmissions(log: RepairLogger) {
         balances[newCycle] = { ...balances[oldCycle], cycleId: newCycle };
         delete balances[oldCycle];
       }
-      await client.query('UPDATE patients SET admission_date=$2,admission_balances=$3::jsonb,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
+      await client.query('UPDATE patients SET admission_date=$2,admission_balances=$3::jsonb,version=version+1,edit_version=edit_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
         [id, registration, JSON.stringify(balances)]);
       await client.query('COMMIT');
       summary.repaired++;

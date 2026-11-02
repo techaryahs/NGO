@@ -1,3 +1,5 @@
+import { admissionRoster } from '../services/attendant_roster.js';
+import { lobbyFloor } from '../services/placement.js';
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { getClient, query } from '../db/index.js';
 import { authenticate } from '../middleware/auth.js';
@@ -93,7 +95,17 @@ export function formatStay(row: RawStayRow) {
   };
 }
 
-export async function insertStayWithClient(client: Awaited<ReturnType<typeof getClient>>, rawBody: Record<string, any>, userId: string): Promise<RawStayRow> {
+/** Resolve the episode snapshot at the caller, before entering the stay writer. */
+async function continuingRoster(client: Awaited<ReturnType<typeof getClient>>, patientId: string): Promise<any[]> {
+  const patient = (await client.query('SELECT * FROM patients WHERE id=$1 FOR UPDATE', [patientId])).rows[0];
+  if (!patient) return [];
+  const prior = (await client.query(`SELECT patient_snapshot FROM stays WHERE patient_id=$1 AND cycle_id=$2
+    ORDER BY admission_date DESC,created_at DESC,id DESC LIMIT 1`,
+    [patientId, String(new Date(patient.admission_date).getTime())])).rows[0];
+  return prior?.patient_snapshot?.attendants ?? [];
+}
+
+export async function insertStayWithClient(client: Awaited<ReturnType<typeof getClient>>, rawBody: Record<string, any>, userId: string, options: { priorRoster: any[]; attendants?: any[] }): Promise<RawStayRow> {
   const body = { ...rawBody };
   const stayId = body.id || `s_${randomUUID()}`;
 
@@ -176,13 +188,13 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   body.roomNumber = room.room_number;
   body.roomType = room.room_type;
   const attendants = (await client.query('SELECT id,name,relation FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [body.patientId])).rows;
-  // Carry association dates across room transfers within this admission.
-  const priorStays = active ? (await client.query('SELECT patient_snapshot FROM stays WHERE patient_id=$1 AND cycle_id=$2 ORDER BY admission_date DESC,id',
-    [body.patientId, String(new Date(patient.admission_date).getTime())])).rows : [];
-  const priorRoster = priorStays.flatMap(s => s.patient_snapshot?.attendants ?? []);
-  const roster = attendants.map(person => ({ ...priorRoster.find(p => p.id === person.id), ...person }));
+  const people = (active ? attendants : body.patientSnapshot?.attendants ?? attendants).map((person: any) => {
+    const requested = options.attendants?.find(p => p.id === person.id);
+    return { ...person, ...(requested && Object.hasOwn(requested, 'startDate') ? { startDate: requested.startDate } : {}) };
+  });
+  const roster = admissionRoster(people, options.priorRoster, patient);
   body.patientSnapshot = { ...body.patientSnapshot, admissionDate: identity.snapshotAdmission,
-    attendants: active ? roster : body.patientSnapshot?.attendants ?? attendants };
+    attendants: roster };
   body.cycleId = identity.cycleId;
   if (active) body.billingSummary = { ...body.billingSummary, pricing: approvedPricing({}) };
   const res = await client.query<RawStayRow>(
@@ -243,8 +255,8 @@ export async function insertStayWithClient(client: Awaited<ReturnType<typeof get
   if (active) {
     if (room.room_type === 'lobby') {
       await client.query(
-        "UPDATE patients SET status='active',lobby=$2,room_id=NULL,room_number=NULL,floor=NULL,bed_ids='[]',bed_labels='[]',discharge_date=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1",
-        [body.patientId, room.room_number]
+        "UPDATE patients SET status='active',lobby=$2,room_id=NULL,room_number=NULL,floor=$3,bed_ids='[]',bed_labels='[]',discharge_date=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [body.patientId, room.room_number, lobbyFloor(room.room_number)]
       );
     } else {
       if (body.bedId) await client.query("UPDATE room_beds SET status='occupied',current_patient_id=$2,current_stay_id=$3,updated_at=CURRENT_TIMESTAMP WHERE id=$1", [body.bedId, body.patientId, stayId]);
@@ -339,7 +351,7 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
     const client = await getClient();
     try {
       await client.query('BEGIN');
-      const created = await insertStayWithClient(client, body, user.id);
+      const created = await insertStayWithClient(client, body, user.id, { priorRoster: await continuingRoster(client, body.patientId), attendants: body.patientSnapshot?.attendants });
       const patient = (await client.query('SELECT * FROM patients WHERE id=$1', [created.patient_id])).rows[0];
       const projection = await persistBilling(client, await projectBilling(client, patient));
       await client.query('COMMIT');
@@ -361,7 +373,7 @@ export async function stayRoutes(fastify: FastifyInstance, _opts: FastifyPluginO
       await client.query('SELECT id FROM rooms WHERE id=ANY($1::varchar[]) ORDER BY id FOR UPDATE', [body.stays.map(s => s.roomId)]);
       const created: ReturnType<typeof formatStay>[] = [];
       for (const item of body.stays) {
-        const row = await insertStayWithClient(client, item, user.id);
+        const row = await insertStayWithClient(client, item, user.id, { priorRoster: await continuingRoster(client, item.patientId), attendants: item.patientSnapshot?.attendants });
         created.push(formatStay(row));
       }
       for (const patientId of [...new Set(body.stays.map(s => s.patientId))]) {

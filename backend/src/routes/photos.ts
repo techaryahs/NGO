@@ -17,7 +17,7 @@ export async function photoRoutes(fastify: FastifyInstance, _opts: FastifyPlugin
   fastify.addHook('preHandler', authenticate);
   fastify.addHook('preHandler', requireRoles(['admin', 'staff']));
 
-  const validPhotoRef = /^patientPhotos\/[A-Za-z0-9_-]{1,64}\/(patient|attendants\/[A-Za-z0-9_-]{1,64})$/;
+  const validPhotoRef = /^patientPhotos\/[A-Za-z0-9_-]{1,64}\/(patient|attendants\/[A-Za-z0-9_-]{1,160})$/;
 
   // ── GET /api/photos/* ───────────────────────────────────────────────────────
   fastify.get('/photos/*', async (request, reply) => {

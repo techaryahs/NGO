@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { persistBilling, projectBilling, dayKey, nextDay, checkoutEnd } from '../services/billing.js';
 import { admissionRoster } from '../services/attendant_roster.js';
 import { adoptPendingPhotos } from '../services/photo_staging.js';
+import { lobbyFloor } from '../services/placement.js';
 import { convergeAdmissionCycle } from '../services/admission_repair.js';
 
 function registrationAdmission(value: any): Date {
@@ -42,6 +43,7 @@ interface RawPatientRow {
   registration_fingerprint?: string | null;
   cursor_date?: string;
   version: number;
+  edit_version?: number;
   id: string;
   full_name: string;
   search_key: string | null;
@@ -149,8 +151,7 @@ export function derivePlacement(
 
   if (primaryStay.room_id && primaryStay.room_id.startsWith('lobby:')) {
     const lobbyName = primaryStay.room_id.slice(6);
-    const leadingChar = lobbyName.trim().charAt(0);
-    const floor = (leadingChar === '1' || leadingChar === '2') ? parseInt(leadingChar, 10) : null;
+    const floor = lobbyFloor(lobbyName);
     return {
       lobby: lobbyName,
       floor,
@@ -205,6 +206,7 @@ export function formatPatient(
   return {
     id: row.id,
     version: row.version ?? 0,
+    editVersion: row.edit_version ?? 0,
     payments,
     financialReconciliation: (row as any).financial_reconciliation ?? null,
     fullName: row.full_name,
@@ -595,7 +597,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           const stayRow = await insertStayWithClient(
             client,
             { ...stayItem, patientId, admissionDate: admissionDate.getTime() },
-            user.id
+            user.id,
+            { priorRoster: [], attendants: body.attendants?.map((att: any, i: number) => ({ ...att, id: attendants[i].id })) }
           );
           createdStayRows.push(stayRow);
         }
@@ -869,7 +872,8 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         const stayRow = await insertStayWithClient(
           client,
           { ...stayItem, patientId, admissionDate: admissionDate.getTime() },
-          user.id
+          user.id,
+          { priorRoster: [], attendants: body.attendants?.map((att: any, i: number) => ({ ...att, id: attendants[i].id })) }
         );
         createdStayRows.push(stayRow);
       }
@@ -950,7 +954,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
             admissionDate: toEpochMs(patient.admission_date), photoRef: patient.photo_ref,
             attendants: attendants.map(a => ({ id: a.id, name: a.name, relation: a.relation })) },
           notes: 'Room transfer',
-        }, request.user!.id);
+        }, request.user!.id, { priorRoster: active.flatMap(stay => stay.patient_snapshot?.attendants ?? []) });
         await client.query('UPDATE patients SET exit_date=$2,billing_amount_override=NULL WHERE id=$1', [id, body.exitDate === undefined ? patient.exit_date : body.exitDate == null ? null : new Date(body.exitDate)]);
         for (const roomId of roomIds) await refreshRoomOccupancy(client, roomId);
       }
@@ -1023,7 +1027,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         const attendants = (await client.query<RawAttendantRow>('SELECT * FROM patient_attendants WHERE patient_id=$1 ORDER BY id', [id])).rows;
         await insertStayWithClient(client, { id: body.requestId, patientId: id, roomId: body.roomId, roomNumber: body.roomNumber, roomType: body.roomType, bedId: body.bedId,
           admissionDate: admission.getTime(), durationDays: duration, expectedDischargeDate: admission.getTime() + duration * 86400000, cycleId: String(admission.getTime()), attendantCount: attendants.length,
-          attendantLabels: attendants.map(a => a.name), patientSnapshot: { rejoinFingerprint: fingerprint, admissionDate: admission.getTime(), plannedExitConfirmed: !body.exitDateUnconfirmed, registrationNumber: patient.registration_number, attendants: attendants.map(a => ({id:a.id,name:a.name,relation:a.relation})) }, notes: body.exitDateUnconfirmed ? 'Rejoined; planned exit unconfirmed' : 'Rejoined; planned exit confirmed' }, request.user!.id);
+          attendantLabels: attendants.map(a => a.name), patientSnapshot: { rejoinFingerprint: fingerprint, admissionDate: admission.getTime(), plannedExitConfirmed: !body.exitDateUnconfirmed, registrationNumber: patient.registration_number, attendants: attendants.map(a => ({id:a.id,name:a.name,relation:a.relation})) }, notes: body.exitDateUnconfirmed ? 'Rejoined; planned exit unconfirmed' : 'Rejoined; planned exit confirmed' }, request.user!.id, { priorRoster: [] });
         const current = (await client.query('SELECT * FROM patients WHERE id=$1', [id])).rows[0];
         await persistBilling(client, await projectBilling(client, current));
       }
@@ -1059,12 +1063,20 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
         return reply.status(404).send({ error: 'NotFound', message: `Patient '${id}' not found` });
       }
 
-      const expectedVersion = body.expectedVersion ?? body.version;
-      if (expectedVersion != null && expectedVersion !== existing.rows[0].version) throw httpError(409, 'Patient version mismatch');
+      const expectedEditVersion = body.expectedEditVersion ?? body.editVersion;
+      if (expectedEditVersion != null && expectedEditVersion !== existing.rows[0].edit_version) throw httpError(409, 'Patient version mismatch');
       const financialFields = ['totalPaidAmount', 'currentDueAmount', 'refundDueAmount', 'totalRefundDueAmount', 'totalRefundedAmount', 'admissionBalances', 'stayBillingUpdates', 'advanceBilledAmount', 'attendanceCharges', 'billingAmountOverride', 'totalPresentDays', 'totalAbsentDays'];
       if (financialFields.some(key => Object.hasOwn(body, key))) throw httpError(409, 'Financial balances are derived from receipts and stays; use the financial endpoints');
-      const activeStays = await client.query("SELECT id,room_id FROM stays WHERE patient_id=$1 AND status='active'", [id]);
-      const before = formatPatient(existing.rows[0]);
+      const activeStays = await client.query<ActivePlacementStay>(
+        `SELECT s.id, s.room_id, s.room_number, s.room_type, s.bed_id, s.bed_label, s.status, s.created_at,
+                r.floor AS room_floor
+         FROM stays s
+         LEFT JOIN rooms r ON r.id = s.room_id
+         WHERE s.patient_id = $1 AND s.status = 'active'
+         ORDER BY s.created_at, s.id`,
+        [id]
+      );
+      const before = formatPatient(existing.rows[0], [], [], activeStays.rows);
       if (body.status != null && body.status !== before.status && (body.status === 'discharged' || before.status === 'discharged')) throw httpError(409, 'Use the discharge or rejoin workflow for lifecycle changes');
       if (activeStays.rowCount && ['roomId', 'roomNumber', 'floor', 'bedIds', 'bedLabels'].some(key => Object.hasOwn(body, key) && JSON.stringify(body[key]) !== JSON.stringify(before[key as keyof typeof before]))) throw httpError(409, 'Change active assignments through the stay lifecycle');
       if (body.status === 'discharged' && activeStays.rowCount) {
@@ -1088,7 +1100,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
       const rawRegistrationEpoch = toEpochMs(body.registrationDate);
       const registrationChanged = Object.hasOwn(body, 'registrationDate') && Number.isFinite(rawRegistrationEpoch) &&
         rawRegistrationEpoch !== toEpochMs(existing.rows[0].registration_date);
-      body = { ...formatPatient(existing.rows[0]), ...body };
+      body = { ...formatPatient(existing.rows[0], [], [], activeStays.rows), ...body };
       body.admissionDate = registrationChanged ? registrationAdmission(body.registrationDate).getTime() : existing.rows[0].admission_date;
       if ((request.body as Record<string, unknown>).fullName && !Object.hasOwn(request.body as object, 'searchKey')) body.searchKey = String(body.fullName).toLowerCase();
 
@@ -1149,6 +1161,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
           date_of_birth = COALESCE($54, date_of_birth),
           admission_date = COALESCE($55, admission_date),
           version = version + 1,
+          edit_version = edit_version + 1,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
         RETURNING *;
@@ -1267,7 +1280,7 @@ export async function patientRoutes(fastify: FastifyInstance, _opts: FastifyPlug
             const matches = previous.filter(p => p.name === person.name);
             return person.id == null && matches.length === 1 ? { ...person, id: matches[0].id } : person;
           });
-          const roster = admissionRoster(body.attendants.map((att: any, i: number) => ({ ...att, id: ids[i] })), resolved, existing.rows[0]);
+          const roster = admissionRoster(body.attendants.map((att: any, i: number) => ({ ...att, id: ids[i] })), resolved, updatedPatient.rows[0]);
           // Retain the admission history of removed attendants. Their eligibility
           // ends today; removing them must not erase already recorded attendance.
           for (const person of resolved.filter((p: any) => !ids.includes(p.id))) {

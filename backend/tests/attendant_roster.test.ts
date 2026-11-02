@@ -4,10 +4,10 @@ import { admissionRoster, eligibleAttendant } from '../src/services/attendant_ro
 const patient = { admission_date: '2026-10-01', exit_date: '2026-10-10' };
 const helper = { id: 'stable-person', name: 'Synthetic helper' };
 describe('admission attendant associations', () => {
-  it('defaults a new association to the actual Indian civil date, without backfill', () => {
-    const result = admissionRoster([helper], [], patient, Date.parse('2026-10-05T20:00:00Z'));
-    expect(result[0].startDate).toBe('2026-10-06');
-    expect(eligibleAttendant(result[0], '2026-10-05')).toBe(false);
+  it('defaults a new association to the episode admission day', () => {
+    const result = admissionRoster([helper], [], patient);
+    expect(result[0].startDate).toBe('2026-10-01');
+    expect(eligibleAttendant(result[0], '2026-10-01')).toBe(true);
     expect(eligibleAttendant(result[0], '2026-10-06')).toBe(true);
   });
   it('preserves the valid start date and identity across edits and retries', () => {
@@ -19,9 +19,9 @@ describe('admission attendant associations', () => {
   it('does not turn a legacy full-admission association into a new dated association', () => {
     expect(admissionRoster([{ ...helper, startDate: 'invalid', endDate: 'invalid' }], [helper], patient)).toEqual([helper]);
   });
-  it('defaults a new association to today after the planned exit while still admitted', () => {
-    expect(admissionRoster([helper], [], { ...patient, discharge_date: null }, Date.parse('2026-10-11T20:00:00Z')))
-      .toEqual([{ ...helper, startDate: '2026-10-12' }]);
+  it('defaults a new association to admission despite an earlier planned exit', () => {
+    expect(admissionRoster([helper], [], { ...patient, discharge_date: null }))
+      .toEqual([{ ...helper, startDate: '2026-10-01' }]);
   });
   it('accepts an explicit new arrival after the planned exit while still admitted', () => {
     expect(admissionRoster([{ ...helper, startDate: '2026-10-12' }], [], patient))
@@ -44,8 +44,8 @@ describe('admission attendant associations', () => {
     expect(admissionRoster([{ ...helper, startDate: '2026-10-02' }], [], admitted))
       .toEqual([{ ...helper, startDate: '2026-10-02' }]);
   });
-  it('keeps the admission-day default when today precedes admission', () => {
-    expect(admissionRoster([helper], [], patient, Date.parse('2026-09-29T20:00:00Z')))
+  it('defaults from the patient admission without a clock argument', () => {
+    expect(admissionRoster([helper], [], patient))
       .toEqual([{ ...helper, startDate: '2026-10-01' }]);
   });
   it('preserves an existing arrival after the planned exit alongside an unrelated edit', () => {
